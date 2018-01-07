@@ -2,13 +2,18 @@ sudo: false
 language: java
 dist: trusty
 
+branches:
+  except:
+    - /^tmp\/.*/
+    - /^REL.*/
+
 stages:
   - name: test
-    if: not branch =~ ^release/.*$ AND not branch =~ ^tmp/.*$
+    if: not branch =~ ^release\/.*$
   - name: release
-    if: branch =~ ^release/.*$ AND not branch =~ ^tmp/.*$
+    if: branch =~ ^release\/.*$
   - name: release_prev
-    if: branch =~ ^release/.*$ AND not branch =~ ^tmp/.*$
+    if: branch =~ ^release\/.*$
 
 before_script:
   - test $(grep "after_n_builds" codecov.yml | tr -d '[:space:]' | cut -d":" -f2) -eq $(grep -e "COVERAGE=Y$" .travis.yml | wc -l) || exit 1
@@ -78,6 +83,7 @@ matrix:
         - PG_VERSION=9.4
         - QUERY_MODE=extendedCacheEverything
         - COVERAGE=N
+      if: type != pull_request # no need to build known failure for every pull request
   include:
     - stage: test
       jdk: oraclejdk8
@@ -87,6 +93,7 @@ matrix:
         - FEDORA_CI=Y
       services:
         - docker
+      if: type != pull_request
     - jdk: oraclejdk9
       addons:
         postgresql: "9.6"
