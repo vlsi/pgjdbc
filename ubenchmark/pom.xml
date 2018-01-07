@@ -35,6 +35,7 @@ POSSIBILITY OF SUCH DAMAGE.
     <relativePath />
   </parent>
 
+  <groupId>com.github.vlsi.org.postgresql</groupId>
   <artifactId>pgjdbc-benchmark</artifactId>
   <packaging>jar</packaging>
   <name>PostgreSQL JDBC Driver - benchmarks</name>
@@ -55,7 +56,7 @@ POSSIBILITY OF SUCH DAMAGE.
       <scope>provided</scope>
     </dependency>
     <dependency>
-      <groupId>org.postgresql</groupId>
+      <groupId>com.github.vlsi.org.postgresql</groupId>
       <artifactId>postgresql</artifactId>
       <version>${project.version}</version>
       <!--<scope>provided</scope>-->
