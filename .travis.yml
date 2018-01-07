@@ -6,6 +6,7 @@ branches:
   except:
     - /^tmp\/.*/
     - /^REL.*/
+    - master
 
 stages:
   - name: test
