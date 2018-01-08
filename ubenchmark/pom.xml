@@ -39,7 +39,7 @@ POSSIBILITY OF SUCH DAMAGE.
   <artifactId>pgjdbc-benchmark</artifactId>
   <packaging>jar</packaging>
   <name>PostgreSQL JDBC Driver - benchmarks</name>
-  <version>42.1.5-SNAPSHOT</version>
+  <version>42.1.5</version>
   <description>PostgreSQL JDBC Driver - benchmarks</description>
   <url>https://github.com/pgjdbc/pgjdbc</url>
 
@@ -234,4 +234,8 @@ POSSIBILITY OF SUCH DAMAGE.
       </build>
     </profile>
   </profiles>
+
+  <scm>
+    <tag>REL42.1.5</tag>
+  </scm>
 </project>
