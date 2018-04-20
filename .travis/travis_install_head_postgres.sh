@@ -6,12 +6,13 @@ sudo apt-get remove postgresql libpq-dev libpq5 postgresql-client-common postgre
 sudo apt-get -y install libxml2
 sudo apt-get -y install gdb
 
+REPO=https://github.com/postgrespro/postgresql.builtin_pool.git
 if [[ -z ${POSTGRES_SOURCE_SHA} ]]
 then
-    git clone --depth=1 https://github.com/postgres/postgres.git
+    git clone --depth=1 $REPO -b conn_pool postgres
     cd postgres
 else
-    git clone https://github.com/postgres/postgres.git
+    git clone $REPO postgres
     cd postgres
     git checkout ${POSTGRES_SOURCE_SHA}
 fi
