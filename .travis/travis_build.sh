@@ -30,10 +30,10 @@ then
     MVN_PROFILES="$MVN_PROFILES,coverage"
 fi
 
-if [[ "${JDK}" == *"9"* ]];
+if [[ "${JDK}" == *"11"* ]];
 then
     export MAVEN_SKIP_RC=true
-    MVN_ARGS="$MVN_ARGS -Dcurrent.jdk=1.9 -Djavac.target=1.9"
+    MVN_ARGS="$MVN_ARGS -Dcurrent.jdk=11 -Djavac.target=11"
 fi
 
 if [[ "$JDOC" == *"Y"* ]];
