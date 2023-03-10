@@ -36,6 +36,7 @@ includeBuild("build-logic")
 include("benchmarks")
 include("pgjdbc-osgi-test")
 include("postgresql")
+include("classloader-leak-test-framework")
 
 project(":postgresql").projectDir = file("pgjdbc")
 
