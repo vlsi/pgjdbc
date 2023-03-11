@@ -199,7 +199,7 @@ jobs:
       with:
         read-only: ${{ matrix.os == 'self-hosted' }}
         job-id: jdk${{ matrix.java_version }}
-        arguments: --scan --no-parallel --no-daemon jandex test ${{ matrix.extraGradleArgs }}
+        arguments: --scan --no-parallel --no-daemon jandex test --test org.postgresql.test.jdbc4.jdbc41.DriverSupportsClassUnloadingTest ${{ matrix.extraGradleArgs }}
         properties: |
           includeTestTags=${{ matrix.includeTestTags }}
           testExtraJvmArgs=${{ matrix.testExtraJvmArgs }}
@@ -222,7 +222,7 @@ jobs:
         job-id: jdk${{ matrix.java_version }}
         arguments: publishToMavenLocal -Ppgjdbc.version=1.0.0-dev-master -PskipJavadoc
     - name: Attach heap dump if any
-      if: ${{ failure() && github.event_name == 'pull_request' }}
+      if: ${{ failure() }}
       uses: actions/upload-artifact@v3
       with:
         name: pgjdbc-heapdump
