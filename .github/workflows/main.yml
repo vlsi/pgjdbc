@@ -199,7 +199,7 @@ jobs:
       with:
         read-only: ${{ matrix.os == 'self-hosted' }}
         job-id: jdk${{ matrix.java_version }}
-        arguments: --scan --no-parallel --no-daemon jandex test --test org.postgresql.test.jdbc4.jdbc41.DriverSupportsClassUnloadingTest ${{ matrix.extraGradleArgs }}
+        arguments: --scan --no-parallel --no-daemon jandex :postgresql:test --tests org.postgresql.test.jdbc4.jdbc41.DriverSupportsClassUnloadingTest ${{ matrix.extraGradleArgs }}
         properties: |
           includeTestTags=${{ matrix.includeTestTags }}
           testExtraJvmArgs=${{ matrix.testExtraJvmArgs }}
