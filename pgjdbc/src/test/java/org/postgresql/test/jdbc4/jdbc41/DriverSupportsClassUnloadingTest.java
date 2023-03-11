@@ -13,7 +13,6 @@ import org.junit.Assert;
 import org.junit.BeforeClass;
 import org.junit.Test;
 import org.junit.runner.RunWith;
-import se.jiderhamn.classloader.PackagesLoadedOutsideClassLoader;
 import se.jiderhamn.classloader.leak.JUnitClassloaderRunner;
 import se.jiderhamn.classloader.leak.LeakPreventor;
 import se.jiderhamn.classloader.leak.Leaks;
@@ -27,10 +26,6 @@ import java.sql.Types;
 
 @RunWith(JUnitClassloaderRunner.class)
 @LeakPreventor(DriverSupportsClassUnloadingTest.LeakPreventor.class)
-@PackagesLoadedOutsideClassLoader(
-    packages = {"java.", "javax.", "jdk.", "com.sun.", "sun.", "org.w3c", "org.junit.", "junit.",
-        "se.jiderhamn."}
-)
 public class DriverSupportsClassUnloadingTest {
   // See https://github.com/mjiderhamn/classloader-leak-prevention/tree/master/classloader-leak-test-framework#verifying-prevention-measures
   public static class LeakPreventor implements Runnable {
