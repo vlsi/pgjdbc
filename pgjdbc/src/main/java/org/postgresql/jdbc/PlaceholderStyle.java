@@ -25,6 +25,8 @@ public enum PlaceholderStyle {
   NATIVE("native"),
   NONE("none");
 
+  private static final PlaceholderStyle[] VALUES = values();
+
   private final String value;
 
   PlaceholderStyle(String value) {
@@ -32,18 +34,18 @@ public enum PlaceholderStyle {
   }
 
   public static PlaceholderStyle of(@Nullable String mode) throws PSQLException {
-    for (PlaceholderStyle placeholderStyle : values()) {
+    for (PlaceholderStyle placeholderStyle : VALUES) {
       if (placeholderStyle.value.equals(mode)) {
         return placeholderStyle;
       }
     }
     throw new PSQLException(GT.tr("Parameter value must be one of {0} but was: {1}",
-        Arrays.stream(PlaceholderStyle.values()).map(
+        Arrays.stream(VALUES).map(
             PlaceholderStyle::value).collect(Collectors.toList()), mode), PSQLState.INVALID_PARAMETER_VALUE);
   }
 
   public boolean isAcceptedBySetting(ParameterContext.BindStyle bindStyle) {
-    return this == PlaceholderStyle.ANY || this.name().equals(bindStyle.name());
+    return this == PlaceholderStyle.ANY || name().equals(bindStyle.name());
   }
 
   public String value() {

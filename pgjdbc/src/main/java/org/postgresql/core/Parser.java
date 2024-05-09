@@ -71,7 +71,7 @@ public class Parser {
     char[] aChars = query.toCharArray();
 
     StringBuilder nativeSql = new StringBuilder(query.length() + 10);
-    ParameterContext paramCtx = new ParameterContext(placeholderSetting);
+    ParameterContext paramCtx = new ParameterContext();
     List<NativeQuery> nativeQueries = null;
     boolean isCurrentReWriteCompatible = false;
     boolean isValuesFound = false;
@@ -217,7 +217,7 @@ public class Parser {
             isReturningPresent = false;
             if (splitStatements) {
               // Prepare for next query
-              paramCtx = new ParameterContext(placeholderSetting);
+              paramCtx = new ParameterContext();
               nativeSql.setLength(0);
               isValuesFound = false;
               isCurrentReWriteCompatible = false;
@@ -340,14 +340,14 @@ public class Parser {
           paramCtx.getPlaceholderNames();
       for (int i = 0; i < placeholderNames.size(); i++ ) {
         final String placeholderName = placeholderNames.get(i);
-        if (ParameterContext.uninitializedName.equals(placeholderName)) {
+        if (ParameterContext.UNINITIALIZED_NAME.equals(placeholderName)) {
           throw new PSQLException(
               GT.tr("Native parameter ${0} was not found.\nThe following parameters where captured: {1}\nNative parameters must form a contiguous set of integers, starting from 1.",
                   (i + 1),
                   paramCtx
                       .getPlaceholderNames()
                       .stream()
-                      .filter(f -> !f.equals(ParameterContext.uninitializedName))
+                      .filter(f -> !f.equals(ParameterContext.UNINITIALIZED_NAME))
                       .collect(Collectors.toList())),
               PSQLState.INVALID_PARAMETER_VALUE);
         }

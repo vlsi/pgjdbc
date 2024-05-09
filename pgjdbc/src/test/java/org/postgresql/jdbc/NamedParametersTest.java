@@ -5,6 +5,12 @@
 
 package org.postgresql.jdbc;
 
+import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertTrue;
+
 import org.postgresql.PGConnection;
 import org.postgresql.PGPreparedStatement;
 import org.postgresql.PGProperty;
@@ -13,7 +19,6 @@ import org.postgresql.test.jdbc2.BaseTest5;
 import org.postgresql.test.jdbc2.BatchExecuteTest;
 import org.postgresql.util.GT;
 
-import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
@@ -45,7 +50,8 @@ class NamedParametersTest extends BaseTest5 {
   }
 
   @ParameterizedTest
-  @CsvSource({"SELECT ?+:dummy,JDBC,NAMED",
+  @CsvSource({
+      "SELECT ?+:dummy,JDBC,NAMED",
       "SELECT :dummy+?,NAMED,JDBC",
       "SELECT :dummy+$1,NAMED,NATIVE"
   })
@@ -55,8 +61,8 @@ class NamedParametersTest extends BaseTest5 {
     final PGConnection pgConnection = con.unwrap(PGConnection.class);
     pgConnection.setPlaceholderStyle(PlaceholderStyle.ANY);
     final SQLException sqlException =
-        Assertions.assertThrows(SQLException.class, () -> con.prepareStatement(sqlText));
-    Assertions.assertEquals(GT.tr(
+        assertThrows(SQLException.class, () -> con.prepareStatement(sqlText));
+    assertEquals(GT.tr(
         "Placeholder styles cannot be combined. Saw {0} first but attempting to also use: {1}",
         firstStyle, secondStyle), sqlException.getMessage());
   }
@@ -70,16 +76,17 @@ class NamedParametersTest extends BaseTest5 {
     String sql = "SELECT 'constant'";
     try (PGPreparedStatement testStmt = con.prepareStatement(sql)
         .unwrap(PGPreparedStatement.class)) {
-      Assertions.assertFalse(testStmt.hasParameterNames(),
+      assertFalse(testStmt.hasParameterNames(),
           "Must return false as no parameters are present");
       final SQLException sqlException =
-          Assertions.assertThrows(SQLException.class, testStmt::getParameterNames);
+          assertThrows(SQLException.class, testStmt::getParameterNames);
       NamedParametersTest.verifyNoParameterMessage(placeholderStyle, sqlException);
     }
   }
 
   @ParameterizedTest
-  @CsvSource({"ANY,true",
+  @CsvSource({
+      "ANY,true",
       "NAMED,true",
       "NATIVE,false",
       "NONE,false"
@@ -91,13 +98,13 @@ class NamedParametersTest extends BaseTest5 {
     String sql = "SELECT :myParam";
     try (PGPreparedStatement testStmt = con.prepareStatement(sql)
         .unwrap(PGPreparedStatement.class)) {
-      Assertions.assertEquals(parameterPresent, testStmt.hasParameterNames());
+      assertEquals(parameterPresent, testStmt.hasParameterNames());
 
       if (parameterPresent) {
-        Assertions.assertEquals(Collections.singletonList("myParam"), testStmt.getParameterNames());
+        assertEquals(Collections.singletonList("myParam"), testStmt.getParameterNames());
       } else {
         final SQLException sqlException =
-            Assertions.assertThrows(SQLException.class, testStmt::getParameterNames);
+            assertThrows(SQLException.class, testStmt::getParameterNames);
         NamedParametersTest.verifyNoParameterMessage(placeholderStyle, sqlException);
       }
     }
@@ -146,8 +153,8 @@ class NamedParametersTest extends BaseTest5 {
   void testMultiDigitParameters(String sqlText, int parameterCount) throws Exception {
     try (PGPreparedStatement testStmt = con.prepareStatement(sqlText)
         .unwrap(PGPreparedStatement.class)) {
-      Assertions.assertTrue(testStmt.hasParameterNames());
-      Assertions.assertEquals(parameterCount, testStmt.getParameterNames().size());
+      assertTrue(testStmt.hasParameterNames());
+      assertEquals(parameterCount, testStmt.getParameterNames().size());
     }
   }
 
@@ -157,8 +164,8 @@ class NamedParametersTest extends BaseTest5 {
   void testMultiDigitParametersReuse(String sqlText, int parameterCount) throws Exception {
     try (PGPreparedStatement testStmt = con.prepareStatement(sqlText)
         .unwrap(PGPreparedStatement.class)) {
-      Assertions.assertTrue(testStmt.hasParameterNames());
-      Assertions.assertEquals(parameterCount, testStmt.getParameterNames().size());
+      assertTrue(testStmt.hasParameterNames());
+      assertEquals(parameterCount, testStmt.getParameterNames().size());
     }
   }
 
@@ -168,9 +175,9 @@ class NamedParametersTest extends BaseTest5 {
         + "teststr");
     PGPreparedStatement ps = preparedStatement.unwrap(PGPreparedStatement.class);
     final String failureParameterName = "BsTr";
-    final SQLException sqlException = Assertions.assertThrows(SQLException.class,
+    final SQLException sqlException = assertThrows(SQLException.class,
         () -> ps.setString(failureParameterName, "1"), "Must throw as the parameter is not known!");
-    Assertions.assertEquals(
+    assertEquals(
         GT.tr("The parameterName was not found : {0}. The following names are known : \n\t {1}",
             failureParameterName, "[ASTR, bStr, c]"), sqlException.getMessage());
   }
@@ -207,13 +214,13 @@ class NamedParametersTest extends BaseTest5 {
           try (ResultSet resultSet = pstmt.getResultSet()) {
             resultSet.next();
 
-            Assertions.assertEquals(sqlDate, resultSet.getDate("d1"),
+            assertEquals(sqlDate, resultSet.getDate("d1"),
                 "Must match the value bound to :date during INSERT!");
-            Assertions.assertEquals(sqlDate, resultSet.getDate("d2"),
+            assertEquals(sqlDate, resultSet.getDate("d2"),
                 "Must match the value bound to :date during INSERT!");
-            Assertions.assertEquals(sqlDate, resultSet.getDate("d3"),
+            assertEquals(sqlDate, resultSet.getDate("d3"),
                 "Must match the value bound to :date during INSERT!");
-            Assertions.assertEquals(sqlDate, resultSet.getDate("d4"),
+            assertEquals(sqlDate, resultSet.getDate("d4"),
                 "Must match the value bound to :date in the SELECT statement!");
           }
         }
@@ -238,13 +245,13 @@ class NamedParametersTest extends BaseTest5 {
           try (ResultSet resultSet = updateStmt.getResultSet()) {
             resultSet.next();
 
-            Assertions.assertEquals(sqlDate2, resultSet.getDate("d1"),
+            assertEquals(sqlDate2, resultSet.getDate("d1"),
                 "d1 was updated to the value of :date2");
-            Assertions.assertEquals(sqlDate, resultSet.getDate("d2"),
+            assertEquals(sqlDate, resultSet.getDate("d2"),
                 "The value of :date is used in the RETURNING clause");
-            Assertions.assertEquals(sqlDate2, resultSet.getDate("d3"),
+            assertEquals(sqlDate2, resultSet.getDate("d3"),
                 "d3 was updated to the value of :date2");
-            Assertions.assertEquals(sqlDate, resultSet.getDate("d4"),
+            assertEquals(sqlDate, resultSet.getDate("d4"),
                 "d4 is an alias for d2 (contains the value of :date");
           }
         }
@@ -258,21 +265,24 @@ class NamedParametersTest extends BaseTest5 {
     try (PGPreparedStatement ps = con.prepareStatement(sql).unwrap(PGPreparedStatement.class)) {
 
       // Test toString before bind
-      Assertions.assertEquals(sql, ps.toString(),
+      assertEquals(sql, ps.toString(),
+          "Equals the input SQL text, as values are not yet bound");
+      // Test toString before bind
+      assertEquals(sql, ps.toString(),
           "Equals the input SQL text, as values are not yet bound");
 
       ps.setString("a", "1");
       ps.setString("b", "2");
 
       // Test toString after bind
-      Assertions.assertEquals("select ('2')||('2')||('1') AS teststr", ps.toString(),
+      assertEquals("select ('2')||('2')||('1') AS teststr", ps.toString(),
           "The bound values must now be present");
       ps.execute();
       try (ResultSet resultSet = ps.getResultSet()) {
         resultSet.next();
 
         final String testStr = resultSet.getString("testStr");
-        Assertions.assertEquals("221", testStr);
+        assertEquals("221", testStr);
       }
     }
   }
@@ -327,7 +337,7 @@ class NamedParametersTest extends BaseTest5 {
         resultSet.next();
 
         final String testStr = resultSet.getString("testStr");
-        Assertions.assertEquals("3331222", testStr);
+        assertEquals("3331222", testStr);
       }
     }
   }
@@ -401,7 +411,7 @@ class NamedParametersTest extends BaseTest5 {
       pstmt.execute();
       try (ResultSet rs = pstmt.getResultSet()) {
         rs.next();
-        Assertions.assertEquals(11, rs.getInt("rows"),
+        assertEquals(11, rs.getInt("rows"),
             "There should be 11 rows with pk <> col1 AND pk = col2");
       }
     }
@@ -424,7 +434,7 @@ class NamedParametersTest extends BaseTest5 {
     */
     final Class<?>[] parameterTypesFromPreparedStatement =
         methodFromPreparedStatement.getParameterTypes();
-    Assertions.assertEquals(int.class, parameterTypesFromPreparedStatement[0],
+    assertEquals(int.class, parameterTypesFromPreparedStatement[0],
         "First parameter must be int, looks like we didn't get the right method!");
     Class<?>[] wantedParameterTypes = new Class[parameterTypesFromPreparedStatement.length];
     wantedParameterTypes[0] = String.class;
@@ -432,7 +442,7 @@ class NamedParametersTest extends BaseTest5 {
         wantedParameterTypes.length - 1);
 
     // We will get a NoSuchMethodException here if the method is missing
-    Assertions.assertDoesNotThrow(() ->
+    assertDoesNotThrow(() ->
             PGPreparedStatement.class.getDeclaredMethod(methodFromPreparedStatement.getName(),
                 wantedParameterTypes),
         "Setter method missing!");
@@ -454,7 +464,7 @@ class NamedParametersTest extends BaseTest5 {
       from PgPreparedStatement but aren't supported there.
      */
 
-    Assertions.assertDoesNotThrow(() ->
+    assertDoesNotThrow(() ->
             PgCallableStatement.class.getDeclaredMethod(methodFromPgPreparedStatement.getName(),
                 methodFromPgPreparedStatement.getParameterTypes()),
         "Setter method missing!");
@@ -463,12 +473,10 @@ class NamedParametersTest extends BaseTest5 {
 
   static void verifyNoParameterMessage(PlaceholderStyle placeholderStyle,
       SQLException sqlException) {
-    Assertions.assertEquals(
+    assertEquals(
         GT.tr(
             "No parameter names are available, you need to call hasParameterNames to verify the"
                 + " presence of any names.\n"
-                + "Perhaps you need to enable support for named placeholders? Current setting "
-                + "is: PLACEHOLDER_STYLE = {0}",
-            placeholderStyle), sqlException.getMessage());
+                + "Perhaps you need to enable support for named placeholders?"), sqlException.getMessage());
   }
 }

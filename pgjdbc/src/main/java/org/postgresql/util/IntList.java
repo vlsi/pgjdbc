@@ -16,6 +16,12 @@ public final class IntList {
   private int[] ints = EMPTY_INT_ARRAY;
   private int size;
 
+  private static final IntList EMPTY = new IntList();
+
+  public static IntList emptyList() {
+    return EMPTY;
+  }
+
   public void add(int i) {
     int size = this.size;
     ensureCapacity(size);

@@ -216,5 +216,5 @@ public interface ParameterList {
 
   boolean hasParameterNames();
 
-  List<String> getParameterNames(PlaceholderStyle allowedPlaceholderStyle) throws SQLException;
+  List<String> getParameterNames() throws SQLException;
 }

@@ -17,6 +17,8 @@ public enum EscapeSyntaxCallMode {
   CALL_IF_NO_RETURN("callIfNoReturn"),
   CALL("call");
 
+  private static final EscapeSyntaxCallMode[] VALUES = values();
+
   private final String value;
 
   EscapeSyntaxCallMode(String value) {
@@ -24,7 +26,7 @@ public enum EscapeSyntaxCallMode {
   }
 
   public static EscapeSyntaxCallMode of(String mode) {
-    for (EscapeSyntaxCallMode escapeSyntaxCallMode : values()) {
+    for (EscapeSyntaxCallMode escapeSyntaxCallMode : VALUES) {
       if (escapeSyntaxCallMode.value.equals(mode)) {
         return escapeSyntaxCallMode;
       }

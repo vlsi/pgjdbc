@@ -11,6 +11,7 @@ import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
 
 import org.postgresql.PGProperty;
+import org.postgresql.core.ParameterContext;
 import org.postgresql.core.ParameterList;
 import org.postgresql.core.Query;
 import org.postgresql.core.SqlCommand;
@@ -1075,7 +1076,7 @@ class AdaptiveFetchCacheTest {
     }
 
     @Override
-    public PlaceholderStyle getPlaceholderStyle() {
+    public ParameterContext.BindStyle getBindStyle() {
       throw new WrongMethodCallException("Method shouldn't be called.");
     }
   }

@@ -6,6 +6,7 @@
 
 package org.postgresql.core.v3;
 
+import org.postgresql.core.ParameterContext;
 import org.postgresql.core.ParameterList;
 import org.postgresql.jdbc.PlaceholderStyle;
 import org.postgresql.util.ByteStreamWriter;
@@ -214,7 +215,7 @@ class CompositeParameterList implements V3ParameterList {
   }
 
   @Override
-  public List<String> getParameterNames(PlaceholderStyle allowedPlaceholderStyle) throws SQLException {
+  public List<String> getParameterNames() throws SQLException {
     throw new RuntimeException("This should not be called");
   }
 

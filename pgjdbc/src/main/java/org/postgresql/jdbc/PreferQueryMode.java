@@ -19,6 +19,8 @@ public enum PreferQueryMode {
   EXTENDED("extended"),
   EXTENDED_CACHE_EVERYTHING("extendedCacheEverything");
 
+  private static final PreferQueryMode[] VALUES = values();
+
   private final String value;
 
   PreferQueryMode(String value) {
@@ -26,7 +28,7 @@ public enum PreferQueryMode {
   }
 
   public static PreferQueryMode of(String mode) {
-    for (PreferQueryMode preferQueryMode : values()) {
+    for (PreferQueryMode preferQueryMode : VALUES) {
       if (preferQueryMode.value.equals(mode)) {
         return preferQueryMode;
       }

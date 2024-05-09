@@ -6,6 +6,7 @@
 
 package org.postgresql.core.v3;
 
+import org.postgresql.core.ParameterContext;
 import org.postgresql.core.ParameterList;
 import org.postgresql.core.Query;
 import org.postgresql.core.SqlCommand;
@@ -94,7 +95,7 @@ class CompositeQuery implements Query {
   }
 
   @Override
-  public PlaceholderStyle getPlaceholderStyle() {
+  public ParameterContext.BindStyle getBindStyle() {
     throw new RuntimeException("This should not be called");
   }
 

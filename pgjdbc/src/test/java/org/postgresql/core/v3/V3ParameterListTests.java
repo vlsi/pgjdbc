@@ -6,6 +6,7 @@
 package org.postgresql.core.v3;
 
 import static org.junit.Assert.assertThrows;
+import static org.junit.jupiter.api.Assertions.*;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 
 import org.postgresql.core.NativeQuery;
@@ -14,8 +15,6 @@ import org.postgresql.core.ParameterContext;
 import org.postgresql.core.Parser;
 import org.postgresql.jdbc.PlaceholderStyle;
 
-import org.junit.Assert;
-import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
@@ -35,21 +34,16 @@ import java.util.List;
 class V3ParameterListTests {
 
   private static class TestParameterContext extends ParameterContext {
-    TestParameterContext(PlaceholderStyle allowedPlaceholderStyle) {
-      super(allowedPlaceholderStyle);
-    }
-
     static ParameterContext buildNamed(List<Integer> placeholderPositions,
         List<String> placeholderNames) throws SQLException {
       if (placeholderPositions.size() != placeholderNames.size()) {
         throw new IllegalArgumentException("Length of placeholderPositions and placerholderNames"
             + " differ");
       }
-      final ParameterContext ctx = new ParameterContext(PlaceholderStyle.ANY);
+      final ParameterContext ctx = new ParameterContext();
       for (int i = 0; i < placeholderPositions.size(); i++) {
         ctx.addNamedParameter(placeholderPositions.get(i), BindStyle.NAMED, placeholderNames.get(i));
       }
-
       return ctx;
     }
   }
@@ -72,36 +66,36 @@ class V3ParameterListTests {
   }
 
   @Test
-  public void bogusPositions() throws SQLException {
+  void bogusPositions() throws SQLException {
     assertThrows(IllegalArgumentException.class,
         () -> {
-          final ParameterContext parameterContext = new ParameterContext(PlaceholderStyle.ANY);
+          final ParameterContext parameterContext = new ParameterContext();
           parameterContext.addJDBCParameter(0);
           parameterContext.addJDBCParameter(0);
         });
     assertThrows(IllegalArgumentException.class,
         () -> {
-          final ParameterContext parameterContext = new ParameterContext(PlaceholderStyle.ANY);
+          final ParameterContext parameterContext = new ParameterContext();
           parameterContext.addJDBCParameter(1);
           parameterContext.addJDBCParameter(0);
         });
 
     assertThrows(IllegalArgumentException.class,
         () -> {
-          final ParameterContext parameterContext = new ParameterContext(PlaceholderStyle.ANY);
+          final ParameterContext parameterContext = new ParameterContext();
           parameterContext.addNamedParameter(0, ParameterContext.BindStyle.NAMED, "dummy");
           parameterContext.addNamedParameter(0, ParameterContext.BindStyle.NAMED, "dummy2");
         });
     assertThrows(IllegalArgumentException.class,
         () -> {
-          final ParameterContext parameterContext = new ParameterContext(PlaceholderStyle.ANY);
+          final ParameterContext parameterContext = new ParameterContext();
           parameterContext.addNamedParameter(1, ParameterContext.BindStyle.NAMED, "dummy");
           parameterContext.addNamedParameter(0, ParameterContext.BindStyle.NAMED, "dummy2");
         });
   }
 
   @Test
-  public void bindParameterReuse() throws SQLException {
+  void bindParameterReuse() throws SQLException {
 
     String query;
     List<NativeQuery> qry;
@@ -148,7 +142,7 @@ class V3ParameterListTests {
   }
 
   @Test
-  public void dontModifyEMPTY_CONTEXT() throws SQLException {
+  void dontModifyEMPTY_CONTEXT() throws SQLException {
     assertThrows(UnsupportedOperationException.class,
         () -> ParameterContext.EMPTY_CONTEXT.addJDBCParameter(0));
     assertThrows(UnsupportedOperationException.class,
@@ -182,7 +176,7 @@ class V3ParameterListTests {
   }
 
   @Test
-  public void testHasNamedParameters() throws SQLException {
+  void hasNamedParameters() throws SQLException {
     String query;
     List<NativeQuery> qry;
     NativeQuery nativeQuery;
@@ -190,26 +184,26 @@ class V3ParameterListTests {
     query = "SELECT ?";
     qry = Parser.parseJdbcSql(query, true, true, false, true, PlaceholderStyle.ANY);
     nativeQuery = qry.get(0);
-    Assert.assertFalse(nativeQuery.parameterCtx.hasNamedParameters());
+    assertFalse(nativeQuery.parameterCtx.hasNamedParameters());
     IllegalStateException illegalStateException = assertThrows(IllegalStateException.class, nativeQuery.parameterCtx::getPlaceholderNames);
-    Assert.assertEquals("Call hasNamedParameters() first.",illegalStateException.getMessage());
+    assertEquals("Call hasNamedParameters() first.", illegalStateException.getMessage());
 
     query = "SELECT :a";
     qry = Parser.parseJdbcSql(query, true, true, false, true, PlaceholderStyle.ANY);
     nativeQuery = qry.get(0);
-    Assert.assertTrue(nativeQuery.parameterCtx.hasNamedParameters());
-    Assert.assertEquals(Collections.singletonList("a"),nativeQuery.parameterCtx.getPlaceholderNames());
+    assertTrue(nativeQuery.parameterCtx.hasNamedParameters());
+    assertEquals(Collections.singletonList("a"), nativeQuery.parameterCtx.getPlaceholderNames());
 
     query = "SELECT $1";
     qry = Parser.parseJdbcSql(query, true, true, false, true, PlaceholderStyle.ANY);
     nativeQuery = qry.get(0);
-    Assert.assertTrue(nativeQuery.parameterCtx.hasNamedParameters());
-    Assert.assertEquals(Collections.singletonList("$1"),nativeQuery.parameterCtx.getPlaceholderNames());
+    assertTrue(nativeQuery.parameterCtx.hasNamedParameters());
+    assertEquals(Collections.singletonList("$1"), nativeQuery.parameterCtx.getPlaceholderNames());
   }
 
   @ParameterizedTest
   @EnumSource(ParameterContext.BindStyle.class)
   void nameMustBeInSetting(ParameterContext.BindStyle bindStyle) {
-    Assertions.assertDoesNotThrow(() -> PlaceholderStyle.valueOf(bindStyle.name()),"Each bindStyle must be controllable by PlaceholderStyle.");
+    assertDoesNotThrow(() -> PlaceholderStyle.valueOf(bindStyle.name()),"Each bindStyle must be controllable by PlaceholderStyle.");
   }
 }

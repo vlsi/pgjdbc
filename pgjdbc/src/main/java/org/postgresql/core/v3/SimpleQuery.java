@@ -78,8 +78,8 @@ class SimpleQuery implements Query {
   }
 
   @Override
-  public PlaceholderStyle getPlaceholderStyle() {
-    return nativeQuery.parameterCtx.getAllowedPlaceholderStyles();
+  public ParameterContext.BindStyle getBindStyle() {
+    return nativeQuery.parameterCtx.getBindStyle();
   }
 
   /**

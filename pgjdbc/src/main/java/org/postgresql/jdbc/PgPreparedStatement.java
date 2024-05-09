@@ -2086,9 +2086,6 @@ class PgPreparedStatement extends PgStatement implements PGPreparedStatement {
 
   @Override
   public List<String> getParameterNames() throws SQLException {
-    /* We need to consult Query.getPlaceholderStyle() here, since Query.createParameterList may have
-      returned a reference to ParameterContext.EMPTY_CONTEXT if no parameters were found.
-    */
-    return preparedParameters.getParameterNames(this.preparedQuery.query.getPlaceholderStyle());
+    return preparedParameters.getParameterNames();
   }
 }
