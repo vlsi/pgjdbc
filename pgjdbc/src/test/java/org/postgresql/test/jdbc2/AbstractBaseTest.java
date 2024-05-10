@@ -23,9 +23,9 @@ import java.util.Locale;
 import java.util.Properties;
 import java.util.function.Supplier;
 
-public class AbstractBaseTest {
+public abstract class AbstractBaseTest {
 
-  protected Properties props = new Properties();
+  protected final Properties props = new Properties();
 
   public enum BinaryMode {
     REGULAR, FORCE
@@ -44,9 +44,9 @@ public class AbstractBaseTest {
   }
 
   protected Connection con;
-  protected BinaryMode binaryMode;
+  private BinaryMode binaryMode;
   private ReWriteBatchedInserts reWriteBatchedInserts;
-  protected PreferQueryMode preferQueryMode;
+  private PreferQueryMode preferQueryMode;
   private StringType stringType;
 
   protected void updateProperties(Properties props) {

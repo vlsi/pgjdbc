@@ -306,15 +306,15 @@ public class NativeParametersTest extends BaseTest5 {
 
       pstmt.setInt("$1", 1);
       pstmt.setInt("$2", 2);
-      Assertions.assertEquals("INSERT INTO testbatch VALUES (('1'::int4),('2'::int4),('1'::int4))", pstmt.toString());
+      assertEquals("INSERT INTO testbatch VALUES (('1'::int4),('2'::int4),('1'::int4))", pstmt.toString());
       pstmt.addBatch();
       pstmt.setInt("$1", 3);
       pstmt.setInt("$2", 4);
-      Assertions.assertEquals("INSERT INTO testbatch VALUES (('3'::int4),('4'::int4),('3'::int4))", pstmt.toString());
+      assertEquals("INSERT INTO testbatch VALUES (('3'::int4),('4'::int4),('3'::int4))", pstmt.toString());
       pstmt.addBatch();
       pstmt.setInt("$1", 5);
       pstmt.setInt("$2", 6);
-      Assertions.assertEquals("INSERT INTO testbatch VALUES (('5'::int4),('6'::int4),('5'::int4))", pstmt.toString());
+      assertEquals("INSERT INTO testbatch VALUES (('5'::int4),('6'::int4),('5'::int4))", pstmt.toString());
       pstmt.addBatch();
     }
   }
