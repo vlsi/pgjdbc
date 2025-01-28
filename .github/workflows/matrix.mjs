@@ -72,6 +72,12 @@ matrix.addAxis({
   ]
 });
 
+const addHeadPgVersion = (process.env.GITHUB_REF || '').startsWith('refs/heads/');
+
+if (addHeadPgVersion) {
+  matrix.axisByName.pg_version.values.push('HEAD')
+}
+
 matrix.addAxis({
   name: 'tz',
   title: x => 'client_tz ' + x,
@@ -235,6 +241,9 @@ matrix.generateRow({java_version: eaJava});
 // Ensure we have a job with the minimal and maximal PostgreSQL versions
 matrix.generateRow({pg_version: matrix.axisByName.pg_version.values[0]});
 matrix.generateRow({pg_version: matrix.axisByName.pg_version.values.slice(-1)[0]});
+if (addHeadPgVersion) {
+  matrix.generateRow({pg_version: matrix.axisByName.pg_version.values.slice(-2)[0]});
+}
 //Ensure at least one job with "simple" query_mode exists
 matrix.generateRow({query_mode: {value: 'simple'}});
 // Ensure there will be at least one job with minimal supported Java
