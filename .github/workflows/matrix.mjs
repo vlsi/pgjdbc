@@ -304,6 +304,14 @@ matrix.addAxis({
   ]
 });
 
+matrix.addAxis({
+  name: 'standard_conforming_strings',
+  values: [
+    {value: 'yes', title: '', weight: 90},
+    {value: 'no', title: 'standard_conforming_strings=no', weight: 10},
+  ]
+});
+
 function lessThan(minVersion) {
     return value => Number(value) < Number(minVersion);
 }
@@ -314,7 +322,7 @@ matrix.setNamePattern([
     'gss', 'replication', 'slow_tests',
     'adaptive_fetch', 'rewrite_batch_inserts', 'query_timeout', 'socket_timeout',
     'login_timeout', 'connect_timeout',
-    'autosave', 'cleanupSavepoints', 'cpu_count', 'assertions'
+    'autosave', 'cleanupSavepoints', 'cpu_count', 'assertions', 'standard_conforming_strings'
 ]);
 
 // We take EA builds from Oracle
@@ -463,6 +471,7 @@ include.forEach(v => {
   v.rewrite_batch_inserts = v.rewrite_batch_inserts.value;
   v.autosave = v.autosave.value;
   v.cleanupSavepoints = v.cleanupSavepoints.value;
+  v.standard_conforming_strings = v.standard_conforming_strings.value;
 
   let includeTestTags = [];
   // See https://junit.org/junit5/docs/current/user-guide/#running-tests-tag-expressions
