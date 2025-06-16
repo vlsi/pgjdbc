@@ -34,12 +34,15 @@
     },
     {
       "matchPackageNames": ["uk.org.webcompere:system-stubs-jupiter"],
-      "matchCurrentVersion": "< 2.0",
-      "matchUpdateTypes": [ "minor" ]
+      "matchCurrentVersion": "< 2.0.0",
+      "groupName": "system-stubs-jupiter v1",
+      "allowedVersions": "<2.0.0"
     },
     {
       "matchPackageNames": ["uk.org.webcompere:system-stubs-jupiter"],
-      "matchCurrentVersion": "> 2.0"
+      "matchCurrentVersion": ">= 2.0.0",
+      "groupName": "system-stubs-jupiter v2",
+      "allowedVersions": "<2.0.0"
     }
   ]
 }
