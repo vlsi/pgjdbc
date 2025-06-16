@@ -3,6 +3,7 @@
   "extends": [
     "config:base"
   ],
+  "forkProcessing": "enabled",
   "labels": ["dependencies"],
   "schedule": ["every 3 weeks on Monday"],
   "packageRules": [
