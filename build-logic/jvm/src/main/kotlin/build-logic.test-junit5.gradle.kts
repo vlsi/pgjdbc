@@ -12,12 +12,12 @@ dependencies {
     testImplementation("org.junit.jupiter:junit-jupiter-api")
     if (buildParameters.testJdkVersion >= 11) {
         // system-stubs 2.0+ requires Java 11+
-        testImplementation("uk.org.webcompere:system-stubs-jupiter:2.1.7")
+        testImplementation("uk.org.webcompere:system-stubs-jupiter:2.1.8")
         // system-stubs-jupiter might come with an outdated byte-buddy version, so we mention
         // the latest one so it would be updated by the bots even if system-stubs-jupiter does not update
         testImplementation(platform("net.bytebuddy:byte-buddy-parent:1.17.5"))
     } else {
-        testImplementation("uk.org.webcompere:system-stubs-jupiter:1.2.1") // renovate:ignore
+        testImplementation("uk.org.webcompere:system-stubs-jupiter:2.1.8") // renovate:ignore
     }
     testImplementation("org.junit.jupiter:junit-jupiter-params")
     testImplementation("org.hamcrest:hamcrest:3.0")
