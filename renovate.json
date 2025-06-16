@@ -35,7 +35,7 @@
       "matchPackageNames": ["uk.org.webcompere:system-stubs-jupiter"],
       "groupName": "system-stubs-jupiter",
       "matchCurrentVersion": "< 2.0",
-      "enabled": false
+      "matchUpdateTypes": [ "minor" ]
     },
     {
       "matchPackageNames": ["uk.org.webcompere:system-stubs-jupiter"],
