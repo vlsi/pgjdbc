@@ -132,51 +132,110 @@ public class LibPQFactory extends WrappedFactory {
         // Load the server certificate
 
         TrustManagerFactory tmf = TrustManagerFactory.getInstance("PKIX");
-        KeyStore ks;
-        try {
-          ks = KeyStore.getInstance("jks");
-        } catch (KeyStoreException e) {
-          // this should never happen
-          throw new NoSuchAlgorithmException("jks KeyStore not available");
-        }
+
         String sslrootcertfile = PGProperty.SSL_ROOT_CERT.getOrDefault(info);
-        if (sslrootcertfile == null) { // Fall back to default
-          sslrootcertfile = defaultdir + "root.crt";
-        }
-        FileInputStream fis;
-        try {
-          fis = new FileInputStream(sslrootcertfile); // NOSONAR
-        } catch (FileNotFoundException ex) {
-          throw new PSQLException(
-              GT.tr("Could not open SSL root certificate file {0}.", sslrootcertfile),
-              PSQLState.CONNECTION_FAILURE, ex);
-        }
-        try {
-          CertificateFactory cf = CertificateFactory.getInstance("X.509");
-          // Certificate[] certs = cf.generateCertificates(fis).toArray(new Certificate[]{}); //Does
-          // not work in java 1.4
-          Object[] certs = cf.generateCertificates(fis).toArray(new Certificate[]{});
-          ks.load(null, null);
-          for (int i = 0; i < certs.length; i++) {
-            ks.setCertificateEntry("cert" + i, (Certificate) certs[i]);
-          }
-          tmf.init(ks);
-        } catch (IOException ioex) {
-          throw new PSQLException(
-              GT.tr("Could not read SSL root certificate file {0}.", sslrootcertfile),
-              PSQLState.CONNECTION_FAILURE, ioex);
-        } catch (GeneralSecurityException gsex) {
-          throw new PSQLException(
-              GT.tr("Loading the SSL root certificate {0} into a TrustManager failed.",
-                      sslrootcertfile),
-              PSQLState.CONNECTION_FAILURE, gsex);
-        } finally {
+
+        // Check if we should use system trust store properties
+        String systemTrustStore = System.getProperty("javax.net.ssl.trustStore");
+        String systemTrustStoreType = System.getProperty("javax.net.ssl.trustStoreType");
+        String systemTrustStorePassword = System.getProperty("javax.net.ssl.trustStorePassword");
+
+        KeyStore ks;
+
+        // If sslrootcert is not explicitly provided and system properties are set, use them
+        if (sslrootcertfile == null && systemTrustStore != null) {
+          // Use system trust store properties
+          String storeType = systemTrustStoreType != null ? systemTrustStoreType : KeyStore.getDefaultType();
           try {
-            fis.close();
-          } catch (IOException e) {
-            /* ignore */
+            ks = KeyStore.getInstance(storeType);
+          } catch (KeyStoreException e) {
+            throw new NoSuchAlgorithmException(storeType + " KeyStore not available");
+          }
+
+          // Load the trust store
+          FileInputStream fis = null;
+          try {
+            // Handle special case for Windows-ROOT or Windows-MY which don't use file-based storage
+            if ("Windows-ROOT".equalsIgnoreCase(storeType) || "Windows-MY".equalsIgnoreCase(storeType)) {
+              // Windows keystores don't need a file input stream
+              ks.load(null, null);
+            } else {
+              // Regular file-based trust store
+              fis = new FileInputStream(systemTrustStore); // NOSONAR
+              char[] password = systemTrustStorePassword != null ? systemTrustStorePassword.toCharArray() : null;
+              ks.load(fis, password);
+            }
+            tmf.init(ks);
+          } catch (FileNotFoundException ex) {
+            throw new PSQLException(
+                GT.tr("Could not open SSL trust store file {0}.", systemTrustStore),
+                PSQLState.CONNECTION_FAILURE, ex);
+          } catch (IOException ioex) {
+            throw new PSQLException(
+                GT.tr("Could not read SSL trust store file {0}.", systemTrustStore),
+                PSQLState.CONNECTION_FAILURE, ioex);
+          } catch (GeneralSecurityException gsex) {
+            throw new PSQLException(
+                GT.tr("Loading the SSL trust store {0} into a TrustManager failed.", systemTrustStore),
+                PSQLState.CONNECTION_FAILURE, gsex);
+          } finally {
+            if (fis != null) {
+              try {
+                fis.close();
+              } catch (IOException e) {
+                /* ignore */
+              }
+            }
+          }
+        } else {
+          // Original file-based certificate loading
+          try {
+            ks = KeyStore.getInstance("jks");
+          } catch (KeyStoreException e) {
+            // this should never happen
+            throw new NoSuchAlgorithmException("jks KeyStore not available");
+          }
+
+          if (sslrootcertfile == null) { // Fall back to default
+            sslrootcertfile = defaultdir + "root.crt";
+          }
+
+          FileInputStream fis;
+          try {
+            fis = new FileInputStream(sslrootcertfile); // NOSONAR
+          } catch (FileNotFoundException ex) {
+            throw new PSQLException(
+                GT.tr("Could not open SSL root certificate file {0}.", sslrootcertfile),
+                PSQLState.CONNECTION_FAILURE, ex);
+          }
+          try {
+            CertificateFactory cf = CertificateFactory.getInstance("X.509");
+            // Certificate[] certs = cf.generateCertificates(fis).toArray(new Certificate[]{}); //Does
+            // not work in java 1.4
+            Object[] certs = cf.generateCertificates(fis).toArray(new Certificate[]{});
+            ks.load(null, null);
+            for (int i = 0; i < certs.length; i++) {
+              ks.setCertificateEntry("cert" + i, (Certificate) certs[i]);
+            }
+            tmf.init(ks);
+          } catch (IOException ioex) {
+            throw new PSQLException(
+                GT.tr("Could not read SSL root certificate file {0}.", sslrootcertfile),
+                PSQLState.CONNECTION_FAILURE, ioex);
+          } catch (GeneralSecurityException gsex) {
+            throw new PSQLException(
+                GT.tr("Loading the SSL root certificate {0} into a TrustManager failed.",
+                        sslrootcertfile),
+                PSQLState.CONNECTION_FAILURE, gsex);
+          } finally {
+            try {
+              fis.close();
+            } catch (IOException e) {
+              /* ignore */
+            }
           }
         }
+
         tm = tmf.getTrustManagers();
       }
 
