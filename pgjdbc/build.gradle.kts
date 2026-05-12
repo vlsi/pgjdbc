@@ -280,7 +280,7 @@ tasks.shadowJar {
     addMultiReleaseContents()
     listOf(
         "com.github.benmanes.caffeine",
-        "com.ongres",
+        "com.ongres"
     ).forEach {
         relocate(it, "${project.group}.shaded.$it")
     }

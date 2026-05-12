@@ -5,6 +5,8 @@
 
 package org.postgresql.jdbc;
 
+import static org.postgresql.util.internal.Nullness.castNonNull;
+
 import org.postgresql.api.Experimental;
 import org.postgresql.core.BaseConnection;
 import org.postgresql.core.Encoding;
@@ -202,11 +204,19 @@ public final class CodecContext {
       if (this.typeMap.isEmpty()) {
         return this;
       }
-      return new CodecContext(connection, codecs, javaTypes, Collections.emptyMap(),
-          prefersJavaTimeForDate, prefersJavaTimeForTime, prefersJavaTimeForTimetz,
-          prefersJavaTimeForTimestamp, prefersJavaTimeForTimestamptz, convertBooleanToNumeric);
+      typeMap = Collections.emptyMap();
     }
-    return new CodecContext(connection, codecs, javaTypes, typeMap,
+    // withTypeMap is only meaningful on a connection-backed context; the
+    // test-only constructor produces a context with a null connection / null
+    // registries. Reject calls on such a context rather than synthesizing a
+    // partially-constructed copy.
+    BaseConnection conn = connection;
+    CodecRegistry registries = codecs;
+    JavaTypeRegistry javaTypeReg = javaTypes;
+    if (conn == null || registries == null || javaTypeReg == null) {
+      throw new SQLException("withTypeMap is not supported on a connectionless CodecContext");
+    }
+    return new CodecContext(conn, registries, javaTypeReg, typeMap,
         prefersJavaTimeForDate, prefersJavaTimeForTime, prefersJavaTimeForTimetz,
         prefersJavaTimeForTimestamp, prefersJavaTimeForTimestamptz, convertBooleanToNumeric);
   }
@@ -221,7 +231,8 @@ public final class CodecContext {
    * @return the database connection
    */
   public BaseConnection getConnection() {
-    return connection;
+    return castNonNull(connection,
+        "CodecContext has no connection (constructed for unit testing only)");
   }
 
   /**
@@ -230,7 +241,8 @@ public final class CodecContext {
    * @return the type info cache
    */
   public TypeInfo getTypeInfo() {
-    return typeInfo;
+    return castNonNull(typeInfo,
+        "CodecContext has no TypeInfo (constructed for unit testing only)");
   }
 
   /**
@@ -239,7 +251,8 @@ public final class CodecContext {
    * @return the codec registry
    */
   public CodecRegistry getCodecs() {
-    return codecs;
+    return castNonNull(codecs,
+        "CodecContext has no CodecRegistry (constructed for unit testing only)");
   }
 
   /**
@@ -248,7 +261,8 @@ public final class CodecContext {
    * @return the Java type registry
    */
   public JavaTypeRegistry getJavaTypes() {
-    return javaTypes;
+    return castNonNull(javaTypes,
+        "CodecContext has no JavaTypeRegistry (constructed for unit testing only)");
   }
 
   /**
@@ -269,7 +283,8 @@ public final class CodecContext {
    * @return the character encoding
    */
   public Encoding getEncoding() {
-    return encoding;
+    return castNonNull(encoding,
+        "CodecContext has no Encoding (constructed for unit testing only)");
   }
 
   /**
@@ -291,7 +306,7 @@ public final class CodecContext {
     if (timestampUtils != null) {
       return timestampUtils;
     }
-    return connection.getTimestampUtils();
+    return getConnection().getTimestampUtils();
   }
 
   /**
@@ -308,7 +323,8 @@ public final class CodecContext {
     if (clazz != null) {
       return clazz;
     }
-    return javaTypes.getPGobject(typeName);
+    JavaTypeRegistry javaTypeReg = javaTypes;
+    return javaTypeReg == null ? null : javaTypeReg.getPGobject(typeName);
   }
 
   /**

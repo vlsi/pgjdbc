@@ -5,6 +5,8 @@
 
 package org.postgresql.jdbc.codec;
 
+import static org.postgresql.util.internal.Nullness.castNonNull;
+
 import org.postgresql.api.codec.BinaryCodec;
 import org.postgresql.api.codec.Codec;
 import org.postgresql.api.codec.TextCodec;
@@ -188,13 +190,13 @@ public final class RangeCodec implements BinaryCodec, TextCodec {
 
       // Write lower bound if not infinite
       if (range.hasLowerBound()) {
-        byte[] lowerData = elementCodec.encodeBinary(range.getLower(), elementType, ctx);
+        byte[] lowerData = elementCodec.encodeBinary(castNonNull(range.getLower()), elementType, ctx);
         writeLengthPrefixed(out, lowerData);
       }
 
       // Write upper bound if not infinite
       if (range.hasUpperBound()) {
-        byte[] upperData = elementCodec.encodeBinary(range.getUpper(), elementType, ctx);
+        byte[] upperData = elementCodec.encodeBinary(castNonNull(range.getUpper()), elementType, ctx);
         writeLengthPrefixed(out, upperData);
       }
 
@@ -278,9 +280,12 @@ public final class RangeCodec implements BinaryCodec, TextCodec {
       PgType elementType = elementOid != 0 ? ctx.getTypeInfo().getPgTypeByOid(elementOid) : null;
       Codec elementCodec = elementOid != 0 ? ctx.getCodecs().getByOid(elementOid, elementType) : null;
 
-      PGRange<Object> range = PGRange.parse(data, value -> {
+      PGRange<Object> range = PGRange.<Object>parse(data, (String value) -> {
         if (elementCodec instanceof TextCodec && elementType != null) {
-          return ((TextCodec) elementCodec).decodeText(value, elementType, ctx);
+          Object decoded = ((TextCodec) elementCodec).decodeText(value, elementType, ctx);
+          if (decoded != null) {
+            return decoded;
+          }
         }
         return value;
       });

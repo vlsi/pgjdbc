@@ -5,9 +5,9 @@
 
 package org.postgresql.jdbc;
 
-import static org.postgresql.util.internal.Nullness.castNonNull;
-
 import org.postgresql.Driver;
+import org.postgresql.api.codec.BinaryCodec;
+import org.postgresql.api.codec.TextCodec;
 import org.postgresql.core.BaseConnection;
 import org.postgresql.core.CachedQuery;
 import org.postgresql.core.Oid;
@@ -18,8 +18,6 @@ import org.postgresql.core.ResultHandler;
 import org.postgresql.core.ServerVersion;
 import org.postgresql.core.TypeInfo;
 import org.postgresql.core.v3.BatchedQuery;
-import org.postgresql.api.codec.BinaryCodec;
-import org.postgresql.api.codec.TextCodec;
 import org.postgresql.jdbc.codec.DateCodec;
 import org.postgresql.jdbc.codec.TimeCodec;
 import org.postgresql.jdbc.codec.TimestampCodec;
@@ -51,11 +49,11 @@ import java.io.InputStreamReader;
 import java.io.OutputStream;
 import java.io.OutputStreamWriter;
 import java.io.Reader;
-import java.nio.charset.UnsupportedCharsetException;
 import java.io.Writer;
 import java.math.BigDecimal;
 import java.net.URL;
 import java.nio.charset.Charset;
+import java.nio.charset.UnsupportedCharsetException;
 import java.sql.Array;
 import java.sql.Blob;
 import java.sql.Clob;
@@ -93,7 +91,6 @@ class PgPreparedStatement extends PgStatement implements PreparedStatement {
 
   protected final CachedQuery preparedQuery; // Query fragments for prepared statement.
   protected final ParameterList preparedParameters; // Parameter values for prepared statement.
-
 
   PgPreparedStatement(PgConnection connection, String sql, int rsType, int rsConcurrency,
       int rsHoldability) throws SQLException {

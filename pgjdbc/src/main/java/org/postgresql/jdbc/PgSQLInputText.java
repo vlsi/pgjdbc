@@ -5,6 +5,8 @@
 
 package org.postgresql.jdbc;
 
+import static org.postgresql.util.internal.Nullness.castNonNull;
+
 import org.postgresql.api.codec.TextCodec;
 import org.postgresql.jdbc.codec.CompositeCodec;
 
@@ -58,7 +60,7 @@ public final class PgSQLInputText extends PgSQLInput<String> {
    * @param type the composite type
    * @param ctx the codec context
    */
-  public PgSQLInputText(String @Nullable [] attributeValues, PgType type, CodecContext ctx)
+  public PgSQLInputText(@Nullable String[] attributeValues, PgType type, CodecContext ctx)
       throws SQLException {
     super(attributeValues, type, ctx);
     this.cachedCodecs = new TextCodec[fields.size()];
@@ -75,7 +77,7 @@ public final class PgSQLInputText extends PgSQLInput<String> {
       int oid = field.getTypeOid();
       PgType fieldType = ctx.getTypeInfo().getPgTypeByOid(oid);
       cachedTypes[i] = fieldType;
-      cachedCodecs[i] = ctx.getCodecs().getTextCodec(oid, fieldType);
+      cachedCodecs[i] = castNonNull(ctx.getCodecs().getTextCodec(oid, fieldType));
     }
   }
 

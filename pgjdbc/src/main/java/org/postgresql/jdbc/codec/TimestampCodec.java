@@ -92,7 +92,9 @@ public final class TimestampCodec implements BinaryCodec, TextCodec {
       return ts.toString(null, Timestamp.from((Instant) value));
     }
     if (value instanceof java.util.Date) {
-      return ts.toString(null, new Timestamp(((java.util.Date) value).getTime()));
+      @SuppressWarnings("JavaUtilDate")
+      long time = ((java.util.Date) value).getTime();
+      return ts.toString(null, new Timestamp(time));
     }
     throw new PSQLException(
         GT.tr("Cannot convert {0} to timestamp", value.getClass().getName()),

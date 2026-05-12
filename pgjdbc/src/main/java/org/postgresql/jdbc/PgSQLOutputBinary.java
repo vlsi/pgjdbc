@@ -5,6 +5,8 @@
 
 package org.postgresql.jdbc;
 
+import static org.postgresql.util.internal.Nullness.castNonNull;
+
 import org.postgresql.api.codec.BinaryCodec;
 import org.postgresql.jdbc.codec.CompositeCodec;
 
@@ -53,7 +55,7 @@ public final class PgSQLOutputBinary extends PgSQLOutput<byte[]> {
       int oid = field.getTypeOid();
       PgType fieldType = ctx.getTypeInfo().getPgTypeByOid(oid);
       cachedTypes[i] = fieldType;
-      cachedCodecs[i] = ctx.getCodecs().getBinaryCodec(oid, fieldType);
+      cachedCodecs[i] = castNonNull(ctx.getCodecs().getBinaryCodec(oid, fieldType));
     }
   }
 

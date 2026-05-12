@@ -157,9 +157,9 @@ public class StructTest {
       // inner double-quotes escaped, otherwise PostgreSQL parses it as two
       // top-level attributes (and rejects the literal).
       try (ResultSet rs = stmt.executeQuery(
-          "INSERT INTO struct_test (person) VALUES " +
-              "('(\"Alice Brown\",35,\"(\\\"200 Maple Dr\\\",\\\"Austin\\\",\\\"73301\\\")\")'::test_person) " +
-              "RETURNING id")) {
+          "INSERT INTO struct_test (person) VALUES "
+              + "('(\"Alice Brown\",35,\"(\\\"200 Maple Dr\\\",\\\"Austin\\\",\\\"73301\\\")\")'::test_person) "
+              + "RETURNING id")) {
         assertTrue(rs.next());
         id = rs.getInt(1);
       }

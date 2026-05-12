@@ -167,7 +167,7 @@ public final class CompositeCodec implements BinaryCodec, TextCodec {
    * @return the encoded binary data
    * @throws SQLException if the arrays have different lengths
    */
-  public static byte[] encodeBinaryFields(int[] fieldOids, byte @Nullable [][] fieldData)
+  public static byte[] encodeBinaryFields(int[] fieldOids, byte[] @Nullable [] fieldData)
       throws SQLException {
     if (fieldOids.length != fieldData.length) {
       throw new PSQLException(
@@ -212,7 +212,7 @@ public final class CompositeCodec implements BinaryCodec, TextCodec {
    * @return the encoded binary data
    * @throws SQLException if the arrays have different lengths
    */
-  public static byte[] encodeBinaryFields(List<PgField> fields, byte @Nullable [][] fieldData)
+  public static byte[] encodeBinaryFields(List<PgField> fields, byte[] @Nullable [] fieldData)
       throws SQLException {
     if (fields.size() != fieldData.length) {
       throw new PSQLException(
@@ -266,7 +266,7 @@ public final class CompositeCodec implements BinaryCodec, TextCodec {
    * @throws SQLException if a field codec is missing or attribute encoding fails
    */
   public static String encodeAttributesAsText(
-      Object @Nullable [] attributes,
+      @Nullable Object[] attributes,
       PgType compositeType,
       CodecContext ctx) throws SQLException {
     List<PgField> fields = compositeType.getFields();
@@ -328,7 +328,7 @@ public final class CompositeCodec implements BinaryCodec, TextCodec {
    * @throws SQLException if a field codec is missing or attribute encoding fails
    */
   public static byte[] encodeAttributesAsBinary(
-      Object @Nullable [] attributes,
+      @Nullable Object[] attributes,
       PgType compositeType,
       CodecContext ctx) throws SQLException {
     List<PgField> fields = compositeType.getFields();
@@ -343,7 +343,7 @@ public final class CompositeCodec implements BinaryCodec, TextCodec {
     }
 
     CodecRegistry codecs = ctx.getCodecs();
-    byte[][] datas = new byte[fields.size()][];
+    byte[] @Nullable [] datas = new byte[fields.size()][];
     for (int i = 0; i < fields.size(); i++) {
       Object attr = attributes[i];
       if (attr == null) {
@@ -378,7 +378,7 @@ public final class CompositeCodec implements BinaryCodec, TextCodec {
    * @param attributes the attribute values; non-null entries are quoted via {@link Object#toString()}
    * @return the text representation in PostgreSQL composite format: (val1,val2,...)
    */
-  public static String encodeAttributesAsText(Object @Nullable [] attributes) {
+  public static String encodeAttributesAsText(@Nullable Object[] attributes) {
     StringBuilder sb = new StringBuilder();
     sb.append('(');
     for (int i = 0; i < attributes.length; i++) {
@@ -412,7 +412,7 @@ public final class CompositeCodec implements BinaryCodec, TextCodec {
    * @param text the composite text value
    * @return per-field strings (with composite escape sequences resolved)
    */
-  public static String @Nullable [] parseCompositeText(String text) {
+  public static @Nullable String[] parseCompositeText(String text) {
     List<@Nullable String> values = new ArrayList<>();
 
     if (text.startsWith("(") && text.endsWith(")")) {
@@ -474,7 +474,7 @@ public final class CompositeCodec implements BinaryCodec, TextCodec {
       }
     }
 
-    return values.toArray(new String[0]);
+    return values.toArray(new @Nullable String[0]);
   }
 
   // =========================================================================
@@ -519,7 +519,7 @@ public final class CompositeCodec implements BinaryCodec, TextCodec {
     CodecDepth.enter();
     try {
       List<DecodedField> binaryFields = decodeBinaryFields(data);
-      Object[] attributes = new Object[binaryFields.size()];
+      @Nullable Object[] attributes = new @Nullable Object[binaryFields.size()];
       for (int i = 0; i < binaryFields.size(); i++) {
         DecodedField field = binaryFields.get(i);
         byte @Nullable [] fieldData = field.getData();
@@ -575,7 +575,7 @@ public final class CompositeCodec implements BinaryCodec, TextCodec {
     // per-attribute decoding to the text codec registered for each field's OID.
     CodecDepth.enter();
     try {
-      String @Nullable [] rawFields = parseCompositeText(data);
+      @Nullable String[] rawFields = parseCompositeText(data);
       if (rawFields == null) {
         // Empty composite "()"; PgStruct with zero attributes.
         return new PgStruct(type.getFullName(), new Object[0], ctx.getConnection());
@@ -588,7 +588,7 @@ public final class CompositeCodec implements BinaryCodec, TextCodec {
       // field count: PostgreSQL never emits more fields than the type defines.
       int expected = fields.size();
       int actual = Math.min(rawFields.length, expected);
-      Object[] attributes = new Object[expected];
+      @Nullable Object[] attributes = new @Nullable Object[expected];
       for (int i = 0; i < expected; i++) {
         String raw = i < actual ? rawFields[i] : null;
         if (raw == null) {

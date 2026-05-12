@@ -24,6 +24,7 @@ import java.sql.SQLException;
  * settings are provided via {@link CodecContext}.</p>
  *
  * <h2>Primitive Specializations</h2>
+ *
  * <p>The interface provides specialized methods for primitive types to avoid boxing
  * overhead. Implementations should override these methods for numeric types:</p>
  * <ul>
@@ -35,6 +36,7 @@ import java.sql.SQLException;
  * </ul>
  *
  * <h2>Overflow Handling</h2>
+ *
  * <p>Implementations MUST check for overflow when converting between numeric types
  * and throw {@link SQLException} on overflow. Reference implementation:
  * {@code PgResultSet.readLongValue()}.</p>

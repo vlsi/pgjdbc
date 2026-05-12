@@ -5,6 +5,8 @@
 
 package org.postgresql.jdbc;
 
+import static org.postgresql.util.internal.Nullness.castNonNull;
+
 import org.postgresql.api.codec.TextCodec;
 import org.postgresql.jdbc.codec.CompositeCodec;
 
@@ -58,7 +60,7 @@ public final class PgSQLOutputText extends PgSQLOutput<String> {
       // Pass the resolved PgType so CodecRegistry can dispatch composite/array/
       // domain/range/enum types by typtype/typcategory when the OID isn't
       // explicitly registered (dynamic OIDs for user-defined types).
-      cachedCodecs[i] = ctx.getCodecs().getTextCodec(oid, fieldType);
+      cachedCodecs[i] = castNonNull(ctx.getCodecs().getTextCodec(oid, fieldType));
     }
   }
 

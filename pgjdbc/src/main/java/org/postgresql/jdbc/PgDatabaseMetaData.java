@@ -40,7 +40,6 @@ import java.util.Arrays;
 import java.util.Collections;
 import java.util.Comparator;
 import java.util.HashMap;
-import java.util.Iterator;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
@@ -3498,8 +3497,8 @@ public class PgDatabaseMetaData implements DatabaseMetaData {
         columnstmt.setInt(1, returnTypeRelid);
         ResultSet columnrs = columnstmt.executeQuery();
         while (columnrs.next()) {
-          int columnTypeOid = (int) columnrs.getLong("atttypid");
-          // TODO: fix N+1
+          // TODO: fix N+1 (we look up returnType, not the per-column atttypid;
+          //  preserved for now to keep the existing behavior).
           PgType columnPgType = connection.getTypeInfo().getPgTypeByOid(returnType);
 
           byte[] @Nullable [] tuple = new byte[columns][];

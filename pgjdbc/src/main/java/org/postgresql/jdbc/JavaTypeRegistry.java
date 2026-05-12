@@ -16,7 +16,6 @@ import java.sql.Array;
 import java.sql.JDBCType;
 import java.sql.SQLType;
 import java.sql.Types;
-import java.util.HashMap;
 import java.util.Locale;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
@@ -46,6 +45,7 @@ public class JavaTypeRegistry {
   /**
    * Creates a new JavaTypeRegistry with default mappings for built-in types.
    */
+  @SuppressWarnings({"this-escape", "method.invocation"})
   public JavaTypeRegistry() {
     initializeDefaultMappings();
   }

@@ -5,6 +5,8 @@
 
 package org.postgresql.jdbc;
 
+import static org.postgresql.util.internal.Nullness.castNonNull;
+
 import org.postgresql.api.codec.BinaryCodec;
 import org.postgresql.jdbc.codec.CompositeCodec;
 
@@ -47,7 +49,7 @@ public final class PgSQLInputBinary extends PgSQLInput<byte[]> {
    */
   public PgSQLInputBinary(byte[] compositeData, PgType type, CodecContext ctx)
       throws SQLException {
-    super(parseCompositeData(compositeData, type.getFields()), type, ctx);
+    super(parseCompositeData(compositeData), type, ctx);
     this.cachedCodecs = new BinaryCodec[fields.size()];
     this.cachedTypes = new PgType[fields.size()];
     cacheCodecs();
@@ -60,6 +62,7 @@ public final class PgSQLInputBinary extends PgSQLInput<byte[]> {
    * @param type the composite type
    * @param ctx the codec context
    */
+  @SuppressWarnings("argument")
   public PgSQLInputBinary(byte @Nullable [][] attributeValues, PgType type, CodecContext ctx)
       throws SQLException {
     super(attributeValues, type, ctx);
@@ -77,7 +80,7 @@ public final class PgSQLInputBinary extends PgSQLInput<byte[]> {
       int oid = field.getTypeOid();
       PgType fieldType = ctx.getTypeInfo().getPgTypeByOid(oid);
       cachedTypes[i] = fieldType;
-      cachedCodecs[i] = ctx.getCodecs().getBinaryCodec(oid, fieldType);
+      cachedCodecs[i] = castNonNull(ctx.getCodecs().getBinaryCodec(oid, fieldType));
     }
   }
 
@@ -93,11 +96,10 @@ public final class PgSQLInputBinary extends PgSQLInput<byte[]> {
    *   byte[len] data (if len >= 0)
    * </pre>
    */
-  private static byte @Nullable [][] parseCompositeData(byte[] data, List<PgField> fields)
-      throws SQLException {
+  private static byte[] @Nullable [] parseCompositeData(byte[] data) throws SQLException {
     List<CompositeCodec.DecodedField> decodedFields = CompositeCodec.decodeBinaryFields(data);
 
-    byte @Nullable [][] result = new byte[decodedFields.size()][];
+    byte[] @Nullable [] result = new byte[decodedFields.size()][];
     for (int i = 0; i < decodedFields.size(); i++) {
       CompositeCodec.DecodedField field = decodedFields.get(i);
       if (!field.isNull()) {

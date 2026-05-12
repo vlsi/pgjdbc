@@ -67,9 +67,9 @@ public class TypeInfoCache implements TypeInfo {
   // Connection-specific name -> PgType cache
   private final Map<String, PgType> typesByPgName = new HashMap<>();
   // Global oid -> PgType cache which includes only well-known types
-  private final static Map<Integer, PgType> DEFAULT_TYPES_BY_OID;
+  private static final Map<Integer, PgType> DEFAULT_TYPES_BY_OID;
   // Global name -> PgType cache which includes only well-known types
-  private final static Map<String, PgType> DEFAULT_TYPES_BY_PGNAME;
+  private static final Map<String, PgType> DEFAULT_TYPES_BY_PGNAME;
 
   // Java type registry for Java ↔ PostgreSQL type mappings
   private final JavaTypeRegistry javaTypeRegistry = new JavaTypeRegistry();
@@ -243,6 +243,7 @@ public class TypeInfoCache implements TypeInfo {
    *
    * @return the Java type registry
    */
+  @Override
   public JavaTypeRegistry getJavaTypeRegistry() {
     return javaTypeRegistry;
   }
@@ -252,6 +253,7 @@ public class TypeInfoCache implements TypeInfo {
    *
    * @return the codec registry
    */
+  @Override
   public CodecRegistry getCodecRegistry() {
     return codecRegistry;
   }
@@ -277,7 +279,6 @@ public class TypeInfoCache implements TypeInfo {
   @SuppressWarnings("deprecation")
   public Iterator<Integer> getPGTypeOidsWithSQLTypes() {
     throw new UnsupportedOperationException();
-//     return oidToSQLType.keySet().iterator();
   }
 
   private static String getFindPgTypeQuery(String whereClause) {
@@ -296,9 +297,11 @@ public class TypeInfoCache implements TypeInfo {
     char typdelim = typdelimStr != null && !typdelimStr.isEmpty() ? typdelimStr.charAt(0) : ',';
     int oid = rs.getInt("typoid");
 
+    String typName = castNonNull(rs.getString("typname"));
+    String typFullName = castNonNull(rs.getString("typfullname"));
     return new PgType(
-        new ObjectName(rs.getString("typnspname"), rs.getString("typname")),
-        rs.getString("typfullname"),
+        new ObjectName(rs.getString("typnspname"), typName),
+        typFullName,
         oid,
         typtype,
         typcategory,
@@ -383,7 +386,7 @@ public class TypeInfoCache implements TypeInfo {
 
   @Override
   public PgType getPgTypeByPgName(String pgTypeName) throws SQLException {
-    pgTypeName = getTypeForAlias(pgTypeName);
+    pgTypeName = castNonNull(getTypeForAlias(pgTypeName));
     PgType pgType = DEFAULT_TYPES_BY_PGNAME.get(pgTypeName);
     if (pgType != null) {
       return pgType;
@@ -716,8 +719,11 @@ public class TypeInfoCache implements TypeInfo {
     try (ResourceLock ignore = lock.obtain()) {
       // Double-check after acquiring lock - check connection cache first
       PgType cachedType = typesByOid.get(oid);
-      if (cachedType != null && cachedType.getFields() != null) {
-        return cachedType.getFields();
+      if (cachedType != null) {
+        List<PgField> cachedFields = cachedType.getFields();
+        if (cachedFields != null) {
+          return cachedFields;
+        }
       }
 
       fields = loadCompositeFields(oid);
@@ -762,7 +768,7 @@ public class TypeInfoCache implements TypeInfo {
 
     try (ResultSet rs = castNonNull(stmt.getResultSet())) {
       while (rs.next()) {
-        String name = rs.getString("attname");
+        String name = castNonNull(rs.getString("attname"));
         int fieldTypeOid = rs.getInt("atttypid");
         int position = rs.getInt("attnum");
         int typmod = rs.getInt("atttypmod");

@@ -10,6 +10,7 @@ import static org.postgresql.util.internal.Nullness.castNonNull;
 import org.postgresql.Driver;
 import org.postgresql.PGNotification;
 import org.postgresql.PGProperty;
+import org.postgresql.api.codec.Codec;
 import org.postgresql.copy.CopyManager;
 import org.postgresql.core.BaseConnection;
 import org.postgresql.core.BaseStatement;
@@ -30,13 +31,6 @@ import org.postgresql.core.Utils;
 import org.postgresql.core.Version;
 import org.postgresql.fastpath.Fastpath;
 import org.postgresql.jdbc.codec.CompositeCodec;
-import org.postgresql.geometric.PGbox;
-import org.postgresql.geometric.PGcircle;
-import org.postgresql.geometric.PGline;
-import org.postgresql.geometric.PGlseg;
-import org.postgresql.geometric.PGpath;
-import org.postgresql.geometric.PGpoint;
-import org.postgresql.geometric.PGpolygon;
 import org.postgresql.largeobject.LargeObjectManager;
 import org.postgresql.replication.PGReplicationConnection;
 import org.postgresql.replication.PGReplicationConnectionImpl;
@@ -48,12 +42,9 @@ import org.postgresql.util.LazyCleaner;
 import org.postgresql.util.LazyCleanerImpl;
 import org.postgresql.util.LruCache;
 import org.postgresql.util.PGBinaryObject;
-import org.postgresql.util.PGInterval;
-import org.postgresql.util.PGmoney;
 import org.postgresql.util.PGobject;
 import org.postgresql.util.PSQLException;
 import org.postgresql.util.PSQLState;
-import org.postgresql.api.codec.Codec;
 import org.postgresql.xml.DefaultPGXmlFactoryFactory;
 import org.postgresql.xml.LegacyInsecurePGXmlFactoryFactory;
 import org.postgresql.xml.PGXmlFactoryFactory;
@@ -86,7 +77,6 @@ import java.sql.SQLXML;
 import java.sql.Savepoint;
 import java.sql.Statement;
 import java.sql.Struct;
-import java.sql.Types;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.Enumeration;
@@ -780,12 +770,20 @@ public class PgConnection implements BaseConnection {
         Class<? extends SQLData> sqlDataClass = (Class<? extends SQLData>) c;
         PgType pgType = typeCache.getPgTypeByPgName(type);
         CodecContext ctx = getCodecContext();
-        if (byteValue != null) {
-          return CompositeCodec.INSTANCE.decodeBinaryAs(byteValue, pgType, sqlDataClass, ctx);
-        } else if (value != null) {
-          return CompositeCodec.INSTANCE.decodeTextAs(value, pgType, sqlDataClass, ctx);
+        // decodeBinaryAs/decodeTextAs may return null only for an empty payload,
+        // which BaseConnection#getObject's non-null contract treats as
+        // "construct an empty PGobject" — fall through to the PGobject path in
+        // that case rather than returning null from a non-null-declared method.
+        Object decoded = null;
+        if (byteValue != null && byteValue.length > 0) {
+          decoded = CompositeCodec.INSTANCE.decodeBinaryAs(byteValue, pgType, sqlDataClass, ctx);
+        } else if (value != null && !value.isEmpty()) {
+          decoded = CompositeCodec.INSTANCE.decodeTextAs(value, pgType, sqlDataClass, ctx);
         }
-        return null;
+        if (decoded != null) {
+          return decoded;
+        }
+        // empty payload — fall through to construct a typed PGobject below.
       }
     }
 
@@ -2076,6 +2074,7 @@ public class PgConnection implements BaseConnection {
    * @return the codec context
    * @throws SQLException if the context cannot be created
    */
+  @Override
   public CodecContext getCodecContext() throws SQLException {
     return new CodecContext(this, codecRegistry, javaTypeRegistry, typemap,
         prefersJavaTimeForDate, prefersJavaTimeForTime, prefersJavaTimeForTimetz,

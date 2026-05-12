@@ -76,7 +76,7 @@ public final class JsonCodec implements BinaryCodec, TextCodec {
   }
 
   @Override
-  public String decodeAsString(byte[] data, PgType type, CodecContext ctx) throws SQLException {
+  public @Nullable String decodeAsString(byte[] data, PgType type, CodecContext ctx) throws SQLException {
     if (data == null || data.length == 0) {
       return null;
     }

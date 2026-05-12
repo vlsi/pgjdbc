@@ -90,7 +90,7 @@ public final class JsonbCodec implements BinaryCodec, TextCodec {
   }
 
   @Override
-  public String decodeAsString(byte[] data, PgType type, CodecContext ctx) throws SQLException {
+  public @Nullable String decodeAsString(byte[] data, PgType type, CodecContext ctx) throws SQLException {
     if (data == null || data.length == 0) {
       return null;
     }
@@ -144,6 +144,9 @@ public final class JsonbCodec implements BinaryCodec, TextCodec {
       return null;
     }
     String value = decodeAsString(data, type, ctx);
+    if (value == null) {
+      return null;
+    }
     if (targetClass == String.class) {
       return (T) value;
     }

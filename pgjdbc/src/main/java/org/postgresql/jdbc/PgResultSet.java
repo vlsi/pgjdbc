@@ -12,7 +12,6 @@ import org.postgresql.PGRefCursorResultSet;
 import org.postgresql.PGResultSetMetaData;
 import org.postgresql.api.codec.BinaryCodec;
 import org.postgresql.api.codec.TextCodec;
-import org.postgresql.jdbc.codec.CompositeCodec;
 import org.postgresql.core.BaseConnection;
 import org.postgresql.core.BaseStatement;
 import org.postgresql.core.Encoding;
@@ -25,9 +24,9 @@ import org.postgresql.core.TransactionState;
 import org.postgresql.core.Tuple;
 import org.postgresql.core.TypeInfo;
 import org.postgresql.core.Utils;
+import org.postgresql.jdbc.codec.CompositeCodec;
 import org.postgresql.util.ByteConverter;
 import org.postgresql.util.GT;
-
 import org.postgresql.util.JdbcBlackHole;
 import org.postgresql.util.PGbytea;
 import org.postgresql.util.PGobject;
@@ -2674,7 +2673,7 @@ public class PgResultSet implements ResultSet, PGRefCursorResultSet {
     if (codec == null) {
       throw cannotConvert(field, "float");
     }
-    return codec.decodeAsFloat(getFixedString(columnIndex), pgType, ctx);
+    return codec.decodeAsFloat(castNonNull(getFixedString(columnIndex)), pgType, ctx);
   }
 
   @Pure
@@ -2704,7 +2703,7 @@ public class PgResultSet implements ResultSet, PGRefCursorResultSet {
     if (codec == null) {
       throw cannotConvert(field, "double");
     }
-    return codec.decodeAsDouble(getFixedString(columnIndex), pgType, ctx);
+    return codec.decodeAsDouble(castNonNull(getFixedString(columnIndex)), pgType, ctx);
   }
 
   @Override
@@ -2761,7 +2760,7 @@ public class PgResultSet implements ResultSet, PGRefCursorResultSet {
       }
     }
 
-    String stringValue = getFixedString(columnIndex);
+    String stringValue = castNonNull(getFixedString(columnIndex));
 
     // BOOL→numeric conversion is handled by BoolCodec, which gates on the
     // convertBooleanToNumeric connection property and throws otherwise.

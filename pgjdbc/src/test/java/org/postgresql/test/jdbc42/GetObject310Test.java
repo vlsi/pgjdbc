@@ -126,7 +126,7 @@ public class GetObject310Test extends BaseTest4 {
   /**
    * Test the behavior getObject for date columns.
    */
-//   @Test
+  //  @Test
   public void testGetLocalDate() throws SQLException {
     assumeTrue(TestUtil.haveIntegerDateTimes(con));
 
@@ -302,7 +302,7 @@ public class GetObject310Test extends BaseTest4 {
   /**
    * Test the behavior getObject for timestamp columns.
    */
-//   @Test
+  //  @Test
   public void testGetLocalDateTime() throws SQLException {
     assumeTrue(TestUtil.haveIntegerDateTimes(con));
 

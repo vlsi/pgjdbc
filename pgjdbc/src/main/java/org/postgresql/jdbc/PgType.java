@@ -1,3 +1,8 @@
+/*
+ * Copyright (c) 2024, PostgreSQL Global Development Group
+ * See the LICENSE file in the project root for more information.
+ */
+
 package org.postgresql.jdbc;
 
 import org.postgresql.api.Experimental;
@@ -147,24 +152,28 @@ public class PgType {
    */
   public static int toJdbcSqlType(char typcategory, char typtype) {
     switch (typcategory) {
-    case 'A':
-      return Types.ARRAY;
-    case 'B':
-      return Types.BOOLEAN; // Boolean category for user-defined types
-    case 'D':
-      return Types.TIMESTAMP;
-    case 'N':
-      return Types.NUMERIC;
-    case 'S':
-      return Types.VARCHAR;
+      case 'A':
+        return Types.ARRAY;
+      case 'B':
+        return Types.BOOLEAN; // Boolean category for user-defined types
+      case 'D':
+        return Types.TIMESTAMP;
+      case 'N':
+        return Types.NUMERIC;
+      case 'S':
+        return Types.VARCHAR;
+      default:
+        break;
     }
     switch (typtype) {
-    case 'c':
-      return Types.STRUCT;
-    case 'd':
-      return Types.DISTINCT;
-    case 'e':
-      return Types.VARCHAR;
+      case 'c':
+        return Types.STRUCT;
+      case 'd':
+        return Types.DISTINCT;
+      case 'e':
+        return Types.VARCHAR;
+      default:
+        break;
     }
     return Types.OTHER;
   }
@@ -175,65 +184,65 @@ public class PgType {
    */
   private static int getSqlTypeByOid(int oid) {
     switch (oid) {
-    // Numeric types
-    case Oid.INT2:
-      return Types.SMALLINT;
-    case Oid.INT4:
-      return Types.INTEGER;
-    case Oid.INT8:
-      return Types.BIGINT;
-    case Oid.OID:
-      return Types.BIGINT;
-    case Oid.FLOAT4:
-      return Types.REAL;
-    case Oid.FLOAT8:
-      return Types.DOUBLE;
-    case Oid.MONEY:
-      return Types.DOUBLE;
-    case Oid.NUMERIC:
-      return Types.NUMERIC;
-    // Boolean - returns Types.BIT for backward compatibility.
-    // Types.BOOLEAN would be more semantically correct, but changing this
-    // would break existing applications that rely on the current behavior.
-    // See: https://github.com/pgjdbc/pgjdbc/issues/3230
-    // See: https://github.com/pgjdbc/pgjdbc/pull/895
-    // Use connection property map.pg_type.boolean=boolean to get Types.BOOLEAN
-    case Oid.BOOL:
-      return Types.BIT;
-    // Bit strings
-    case Oid.BIT:
-      return Types.BIT;
-    case Oid.VARBIT:
-      return Types.OTHER;
-    // String types
-    case Oid.VARCHAR:
-      return Types.VARCHAR;
-    case Oid.TEXT:
-      return Types.VARCHAR;
-    case Oid.BPCHAR:
-      return Types.CHAR;
-    case Oid.NAME:
-      return Types.VARCHAR;
-    // Binary
-    case Oid.BYTEA:
-      return Types.BINARY;
-    // Date/Time
-    case Oid.DATE:
-      return Types.DATE;
-    case Oid.TIME:
-    case Oid.TIMETZ:
-      return Types.TIME;
-    case Oid.TIMESTAMP:
-      return Types.TIMESTAMP;
-    case Oid.TIMESTAMPTZ:
-      return Types.TIMESTAMP_WITH_TIMEZONE;
-    // Special types
-    case Oid.REFCURSOR:
-      return Types.REF_CURSOR;
-    case Oid.XML:
-      return Types.SQLXML;
-    default:
-      return Types.OTHER;
+      // Numeric types
+      case Oid.INT2:
+        return Types.SMALLINT;
+      case Oid.INT4:
+        return Types.INTEGER;
+      case Oid.INT8:
+        return Types.BIGINT;
+      case Oid.OID:
+        return Types.BIGINT;
+      case Oid.FLOAT4:
+        return Types.REAL;
+      case Oid.FLOAT8:
+        return Types.DOUBLE;
+      case Oid.MONEY:
+        return Types.DOUBLE;
+      case Oid.NUMERIC:
+        return Types.NUMERIC;
+      // Boolean - returns Types.BIT for backward compatibility.
+      // Types.BOOLEAN would be more semantically correct, but changing this
+      // would break existing applications that rely on the current behavior.
+      // See: https://github.com/pgjdbc/pgjdbc/issues/3230
+      // See: https://github.com/pgjdbc/pgjdbc/pull/895
+      // Use connection property map.pg_type.boolean=boolean to get Types.BOOLEAN
+      case Oid.BOOL:
+        return Types.BIT;
+      // Bit strings
+      case Oid.BIT:
+        return Types.BIT;
+      case Oid.VARBIT:
+        return Types.OTHER;
+      // String types
+      case Oid.VARCHAR:
+        return Types.VARCHAR;
+      case Oid.TEXT:
+        return Types.VARCHAR;
+      case Oid.BPCHAR:
+        return Types.CHAR;
+      case Oid.NAME:
+        return Types.VARCHAR;
+      // Binary
+      case Oid.BYTEA:
+        return Types.BINARY;
+      // Date/Time
+      case Oid.DATE:
+        return Types.DATE;
+      case Oid.TIME:
+      case Oid.TIMETZ:
+        return Types.TIME;
+      case Oid.TIMESTAMP:
+        return Types.TIMESTAMP;
+      case Oid.TIMESTAMPTZ:
+        return Types.TIMESTAMP_WITH_TIMEZONE;
+      // Special types
+      case Oid.REFCURSOR:
+        return Types.REF_CURSOR;
+      case Oid.XML:
+        return Types.SQLXML;
+      default:
+        return Types.OTHER;
     }
   }
 
@@ -408,25 +417,25 @@ public class PgType {
 
   public static boolean isCaseSensitive(int oid) {
     switch (oid) {
-    case Oid.OID:
-    case Oid.INT2:
-    case Oid.INT4:
-    case Oid.INT8:
-    case Oid.FLOAT4:
-    case Oid.FLOAT8:
-    case Oid.NUMERIC:
-    case Oid.BOOL:
-    case Oid.BIT:
-    case Oid.VARBIT:
-    case Oid.DATE:
-    case Oid.TIME:
-    case Oid.TIMETZ:
-    case Oid.TIMESTAMP:
-    case Oid.TIMESTAMPTZ:
-    case Oid.INTERVAL:
-      return false;
-    default:
-      return true;
+      case Oid.OID:
+      case Oid.INT2:
+      case Oid.INT4:
+      case Oid.INT8:
+      case Oid.FLOAT4:
+      case Oid.FLOAT8:
+      case Oid.NUMERIC:
+      case Oid.BOOL:
+      case Oid.BIT:
+      case Oid.VARBIT:
+      case Oid.DATE:
+      case Oid.TIME:
+      case Oid.TIMETZ:
+      case Oid.TIMESTAMP:
+      case Oid.TIMESTAMPTZ:
+      case Oid.INTERVAL:
+        return false;
+      default:
+        return true;
     }
   }
 
@@ -436,15 +445,15 @@ public class PgType {
 
   public static boolean isSigned(int oid) {
     switch (oid) {
-    case Oid.INT2:
-    case Oid.INT4:
-    case Oid.INT8:
-    case Oid.FLOAT4:
-    case Oid.FLOAT8:
-    case Oid.NUMERIC:
-      return true;
-    default:
-      return false;
+      case Oid.INT2:
+      case Oid.INT4:
+      case Oid.INT8:
+      case Oid.FLOAT4:
+      case Oid.FLOAT8:
+      case Oid.NUMERIC:
+        return true;
+      default:
+        return false;
     }
   }
 
@@ -454,17 +463,18 @@ public class PgType {
 
   public static boolean requiresQuotingSqlType(int sqlType) {
     switch (sqlType) {
-    case Types.BIGINT:
-    case Types.DOUBLE:
-    case Types.FLOAT:
-    case Types.INTEGER:
-    case Types.REAL:
-    case Types.SMALLINT:
-    case Types.TINYINT:
-    case Types.NUMERIC:
-    case Types.DECIMAL:
-      return false;
+      case Types.BIGINT:
+      case Types.DOUBLE:
+      case Types.FLOAT:
+      case Types.INTEGER:
+      case Types.REAL:
+      case Types.SMALLINT:
+      case Types.TINYINT:
+      case Types.NUMERIC:
+      case Types.DECIMAL:
+        return false;
+      default:
+        return true;
     }
-    return true;
   }
 }

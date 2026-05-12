@@ -79,7 +79,7 @@ class JsonCodecTest {
 
   @Test
   void decodeBinary_unicode() throws SQLException {
-    String json = "{\"name\":\"\u00e9\u00e8\"}";
+    String json = "{\"name\":\"éè\"}";
     byte[] data = json.getBytes(StandardCharsets.UTF_8);
     PGobject decoded = (PGobject) codec.decodeBinary(data, jsonType, null);
     assertEquals(json, decoded.getValue());

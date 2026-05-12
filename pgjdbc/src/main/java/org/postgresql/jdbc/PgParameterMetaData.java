@@ -5,8 +5,6 @@
 
 package org.postgresql.jdbc;
 
-import static org.postgresql.util.internal.Nullness.castNonNull;
-
 import org.postgresql.api.codec.Codec;
 import org.postgresql.core.BaseConnection;
 import org.postgresql.util.GT;

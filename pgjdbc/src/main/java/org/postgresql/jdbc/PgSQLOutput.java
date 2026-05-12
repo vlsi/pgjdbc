@@ -321,7 +321,12 @@ public abstract class PgSQLOutput<BufferType> implements SQLOutput {
       writeNull();
       return;
     }
-    attributeValues.add(encodeString(x.getString(), getFieldType(field)));
+    String xml = x.getString();
+    if (xml == null) {
+      writeNull();
+      return;
+    }
+    attributeValues.add(encodeString(xml, getFieldType(field)));
   }
 
   @Override

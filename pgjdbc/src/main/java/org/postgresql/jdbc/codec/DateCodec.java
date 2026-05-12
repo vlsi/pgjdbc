@@ -64,7 +64,9 @@ public final class DateCodec implements BinaryCodec, TextCodec {
       LocalDate ld = (LocalDate) value;
       ts.toBinDate(null, result, Date.valueOf(ld));
     } else if (value instanceof java.util.Date) {
-      ts.toBinDate(null, result, new Date(((java.util.Date) value).getTime()));
+      @SuppressWarnings("JavaUtilDate")
+      long time = ((java.util.Date) value).getTime();
+      ts.toBinDate(null, result, new Date(time));
     } else {
       throw new PSQLException(
           GT.tr("Cannot convert {0} to date", value.getClass().getName()),
@@ -93,7 +95,9 @@ public final class DateCodec implements BinaryCodec, TextCodec {
       return ts.toString((LocalDate) value);
     }
     if (value instanceof java.util.Date) {
-      return ts.toString(null, new Date(((java.util.Date) value).getTime()));
+      @SuppressWarnings("JavaUtilDate")
+      long time = ((java.util.Date) value).getTime();
+      return ts.toString(null, new Date(time));
     }
     throw new PSQLException(
         GT.tr("Cannot convert {0} to date", value.getClass().getName()),

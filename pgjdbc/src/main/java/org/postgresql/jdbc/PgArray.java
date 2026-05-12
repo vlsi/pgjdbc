@@ -15,7 +15,6 @@ import org.postgresql.core.Oid;
 import org.postgresql.core.Tuple;
 import org.postgresql.core.TypeInfo;
 import org.postgresql.jdbc.ArrayDecoding.PgArrayList;
-import org.postgresql.jdbc.CodecDepth;
 import org.postgresql.jdbc.codec.CompositeCodec;
 import org.postgresql.jdbc2.ArrayAssistantRegistry;
 import org.postgresql.util.ByteConverter;
@@ -225,6 +224,9 @@ public class PgArray implements Array {
   @SuppressWarnings("unchecked")
   private void applyTypeMapping(Object @Nullable [] array, Map<String, Class<?>> map)
       throws SQLException {
+    if (array == null) {
+      return;
+    }
     for (int i = 0; i < array.length; i++) {
       Object element = array[i];
       if (element instanceof PGobject) {
@@ -234,9 +236,12 @@ public class PgArray implements Array {
           String value = pgObj.getValue();
           if (value != null) {
             int elementOid = getPgType().getTypelem();
-            PgType elementType = connection.getTypeInfo().getPgTypeByOid(elementOid);
-            array[i] = CompositeCodec.INSTANCE.decodeTextAs(
+            PgType elementType = castNonNull(connection).getTypeInfo().getPgTypeByOid(elementOid);
+            Object decoded = CompositeCodec.INSTANCE.decodeTextAs(
                 value, elementType, (Class<? extends SQLData>) targetClass, codecContext);
+            if (decoded != null) {
+              array[i] = decoded;
+            }
           }
         }
       } else if (element instanceof Object[]) {

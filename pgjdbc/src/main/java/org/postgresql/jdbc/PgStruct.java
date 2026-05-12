@@ -29,7 +29,7 @@ import java.util.Map;
 public class PgStruct implements Struct {
 
   private final String typeName;
-  private final Object[] attributes;
+  private final @Nullable Object[] attributes;
   private final @Nullable BaseConnection connection;
 
   /**
@@ -38,7 +38,7 @@ public class PgStruct implements Struct {
    * @param typeName the SQL type name of the struct
    * @param attributes the attribute values
    */
-  public PgStruct(String typeName, Object[] attributes) {
+  public PgStruct(String typeName, @Nullable Object[] attributes) {
     this(typeName, attributes, null);
   }
 
@@ -49,7 +49,7 @@ public class PgStruct implements Struct {
    * @param attributes the attribute values
    * @param connection the connection (used for type mapping)
    */
-  public PgStruct(String typeName, Object[] attributes, @Nullable BaseConnection connection) {
+  public PgStruct(String typeName, @Nullable Object[] attributes, @Nullable BaseConnection connection) {
     this.typeName = typeName;
     this.attributes = attributes.clone();
     this.connection = connection;
@@ -61,13 +61,14 @@ public class PgStruct implements Struct {
   }
 
   @Override
-  public Object[] getAttributes() throws SQLException {
+  @SuppressWarnings("override.return")
+  public @Nullable Object[] getAttributes() throws SQLException {
     return attributes.clone();
   }
 
   @Override
-  @SuppressWarnings("unchecked")
-  public Object[] getAttributes(@Nullable Map<String, Class<?>> map) throws SQLException {
+  @SuppressWarnings({"unchecked", "override.return"})
+  public @Nullable Object[] getAttributes(@Nullable Map<String, Class<?>> map) throws SQLException {
     if (map == null || map.isEmpty()) {
       return getAttributes();
     }
@@ -75,7 +76,7 @@ public class PgStruct implements Struct {
     // Apply type mapping to nested types in the attributes
     // Note: The map entry for this struct's own type (if present) is ignored here
     // because getAttributes() returns the attribute values, not a converted struct.
-    Object[] result = new Object[attributes.length];
+    @Nullable Object[] result = new @Nullable Object[attributes.length];
     for (int i = 0; i < attributes.length; i++) {
       result[i] = convertAttribute(attributes[i], map);
     }
@@ -86,7 +87,7 @@ public class PgStruct implements Struct {
    * Converts an attribute value according to the type map.
    */
   @SuppressWarnings("unchecked")
-  private Object convertAttribute(@Nullable Object attr, Map<String, Class<?>> map) throws SQLException {
+  private @Nullable Object convertAttribute(@Nullable Object attr, Map<String, Class<?>> map) throws SQLException {
     if (attr == null) {
       return null;
     }
@@ -124,7 +125,7 @@ public class PgStruct implements Struct {
       Object arrayObj = array.getArray(map);
       if (arrayObj instanceof Object[]) {
         Object[] elements = (Object[]) arrayObj;
-        Object[] converted = new Object[elements.length];
+        @Nullable Object[] converted = new @Nullable Object[elements.length];
         boolean anyConverted = false;
         for (int i = 0; i < elements.length; i++) {
           converted[i] = convertAttribute(elements[i], map);
