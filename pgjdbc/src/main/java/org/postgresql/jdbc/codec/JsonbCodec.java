@@ -10,6 +10,7 @@ import org.postgresql.api.codec.TextCodec;
 import org.postgresql.jdbc.CodecContext;
 import org.postgresql.jdbc.PgType;
 import org.postgresql.util.GT;
+import org.postgresql.util.PGobject;
 import org.postgresql.util.PSQLException;
 import org.postgresql.util.PSQLState;
 
@@ -21,8 +22,10 @@ import java.sql.SQLException;
 /**
  * Codec for PostgreSQL jsonb type.
  *
- * <p>Returns String for getObject(). No JSON library integration is provided;
- * applications should parse the JSON string themselves.</p>
+ * <p>Returns {@link PGobject} for getObject() (consistent with the legacy
+ * driver and with master fix #3926); applications can extract the JSON text
+ * via {@link PGobject#getValue()} or request String/byte[] explicitly through
+ * {@code getObject(i, String.class)} / {@code getString(i)}.</p>
  *
  * <p>Binary format includes a version byte prefix (currently always 1).</p>
  */
@@ -43,7 +46,7 @@ public final class JsonbCodec implements BinaryCodec, TextCodec {
 
   @Override
   public Class<?> getDefaultJavaType() {
-    return String.class;
+    return PGobject.class;
   }
 
   @Override
@@ -53,9 +56,16 @@ public final class JsonbCodec implements BinaryCodec, TextCodec {
     }
     // Skip version byte
     if (data.length < 1) {
-      return "";
+      return wrap("");
     }
-    return new String(data, 1, data.length - 1, StandardCharsets.UTF_8);
+    return wrap(new String(data, 1, data.length - 1, StandardCharsets.UTF_8));
+  }
+
+  private static PGobject wrap(String value) throws SQLException {
+    PGobject obj = new PGobject();
+    obj.setType("jsonb");
+    obj.setValue(value);
+    return obj;
   }
 
   @Override
@@ -71,7 +81,7 @@ public final class JsonbCodec implements BinaryCodec, TextCodec {
 
   @Override
   public @Nullable Object decodeText(String data, PgType type, CodecContext ctx) throws SQLException {
-    return data;
+    return wrap(data);
   }
 
   @Override
@@ -134,8 +144,11 @@ public final class JsonbCodec implements BinaryCodec, TextCodec {
       return null;
     }
     String value = decodeAsString(data, type, ctx);
-    if (targetClass == String.class || targetClass == Object.class) {
+    if (targetClass == String.class) {
       return (T) value;
+    }
+    if (targetClass == PGobject.class || targetClass == Object.class) {
+      return (T) wrap(value);
     }
     throw new PSQLException(
         GT.tr("Cannot convert jsonb to {0}", targetClass.getName()),
@@ -149,8 +162,11 @@ public final class JsonbCodec implements BinaryCodec, TextCodec {
     if (data == null || data.isEmpty()) {
       return null;
     }
-    if (targetClass == String.class || targetClass == Object.class) {
+    if (targetClass == String.class) {
       return (T) data;
+    }
+    if (targetClass == PGobject.class || targetClass == Object.class) {
+      return (T) wrap(data);
     }
     throw new PSQLException(
         GT.tr("Cannot convert jsonb to {0}", targetClass.getName()),

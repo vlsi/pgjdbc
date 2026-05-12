@@ -51,7 +51,7 @@ import java.io.InputStreamReader;
 import java.io.OutputStream;
 import java.io.OutputStreamWriter;
 import java.io.Reader;
-import java.io.UnsupportedEncodingException;
+import java.nio.charset.UnsupportedCharsetException;
 import java.io.Writer;
 import java.math.BigDecimal;
 import java.net.URL;
@@ -420,9 +420,9 @@ class PgPreparedStatement extends PgStatement implements PreparedStatement {
       }
 
       setString(parameterIndex, new String(chars, 0, charsRead), Oid.VARCHAR);
-    } catch (UnsupportedEncodingException uee) {
+    } catch (UnsupportedCharsetException uce) {
       throw new PSQLException(GT.tr("The JVM claims not to support the {0} encoding.", encoding),
-          PSQLState.UNEXPECTED_ERROR, uee);
+          PSQLState.UNEXPECTED_ERROR, uce);
     } catch (IOException ioe) {
       throw new PSQLException(GT.tr("Provided InputStream failed."), PSQLState.UNEXPECTED_ERROR,
           ioe);
