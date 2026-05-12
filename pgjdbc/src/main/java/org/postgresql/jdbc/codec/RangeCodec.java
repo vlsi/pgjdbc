@@ -270,14 +270,16 @@ public final class RangeCodec implements BinaryCodec, TextCodec {
 
     CodecDepth.enter();
     try {
-      // Get the element type OID for parsing element values
+      // pg_type.typelem is zero for range types — the subtype lives in pg_range.
+      // We don't load pg_range yet, so fall back to leaving the bound text values
+      // unparsed when the subtype OID is unknown. Element typing for ranges is
+      // tracked as a follow-up.
       int elementOid = type.getTypelem();
-      PgType elementType = ctx.getTypeInfo().getPgTypeByOid(elementOid);
-      Codec elementCodec = ctx.getCodecs().getByOid(elementOid, elementType);
+      PgType elementType = elementOid != 0 ? ctx.getTypeInfo().getPgTypeByOid(elementOid) : null;
+      Codec elementCodec = elementOid != 0 ? ctx.getCodecs().getByOid(elementOid, elementType) : null;
 
-      // Parse the range using the element codec for parsing bounds
       PGRange<Object> range = PGRange.parse(data, value -> {
-        if (elementCodec instanceof TextCodec) {
+        if (elementCodec instanceof TextCodec && elementType != null) {
           return ((TextCodec) elementCodec).decodeText(value, elementType, ctx);
         }
         return value;

@@ -53,8 +53,12 @@ public final class PgSQLOutputText extends PgSQLOutput<String> {
     for (int i = 0; i < fields.size(); i++) {
       PgField field = fields.get(i);
       int oid = field.getTypeOid();
-      cachedTypes[i] = ctx.getTypeInfo().getPgTypeByOid(oid);
-      cachedCodecs[i] = ctx.getCodecs().getTextCodec(oid);
+      PgType fieldType = ctx.getTypeInfo().getPgTypeByOid(oid);
+      cachedTypes[i] = fieldType;
+      // Pass the resolved PgType so CodecRegistry can dispatch composite/array/
+      // domain/range/enum types by typtype/typcategory when the OID isn't
+      // explicitly registered (dynamic OIDs for user-defined types).
+      cachedCodecs[i] = ctx.getCodecs().getTextCodec(oid, fieldType);
     }
   }
 

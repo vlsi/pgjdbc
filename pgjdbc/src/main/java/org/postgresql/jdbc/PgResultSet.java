@@ -154,8 +154,9 @@ public class PgResultSet implements ResultSet, PGRefCursorResultSet {
   protected CodecContext getCodecContext() throws SQLException {
     CodecContext ctx = codecContext;
     if (ctx == null) {
-      TypeInfo typeInfo = connection.getTypeInfo();
-      ctx = new CodecContext(connection, typeInfo.getCodecRegistry(), typeInfo.getJavaTypeRegistry());
+      // Defer to the connection so the codec context picks up the current
+      // typeMap and java.time / convertBooleanToNumeric preferences.
+      ctx = connection.getCodecContext();
       codecContext = ctx;
     }
     return ctx;
@@ -3067,9 +3068,20 @@ public class PgResultSet implements ResultSet, PGRefCursorResultSet {
     PgType pgType = field.getPgType();
     CodecContext ctx = getCodecContext();
 
+    // Honor the connection-level type map: if the user has registered a Java
+    // class for this PostgreSQL type, route through decodeBinaryAs/decodeTextAs
+    // so SQLData (and PGobject subclass) mappings take effect on plain getObject().
+    Class<?> mapped = ctx.getMappedClass(pgType.getFullName());
+    if (mapped == null) {
+      mapped = ctx.getMappedClass(pgType.getTypeName().getName());
+    }
+
     if (isBinary(columnIndex)) {
       BinaryCodec codec = field.getBinaryCodec();
       if (codec != null) {
+        if (mapped != null) {
+          return codec.decodeBinaryAs(value, pgType, mapped, ctx);
+        }
         return codec.decodeBinary(value, pgType, ctx);
       }
       // No binary codec — fall back to legacy Connection.addDataType() lookup.
@@ -3082,6 +3094,9 @@ public class PgResultSet implements ResultSet, PGRefCursorResultSet {
     TextCodec codec = field.getTextCodec();
     if (codec != null) {
       String stringValue = castNonNull(getString(columnIndex));
+      if (mapped != null) {
+        return codec.decodeTextAs(stringValue, pgType, mapped, ctx);
+      }
       return codec.decodeText(stringValue, pgType, ctx);
     }
     // No text codec — legacy Connection.addDataType() lookup.

@@ -15,6 +15,7 @@ import org.postgresql.jdbc.PgSQLInputBinary;
 import org.postgresql.jdbc.PgSQLInputText;
 import org.postgresql.jdbc.PgSQLOutputBinary;
 import org.postgresql.jdbc.PgSQLOutputText;
+import org.postgresql.jdbc.PgStruct;
 import org.postgresql.jdbc.PgType;
 import org.postgresql.util.GT;
 import org.postgresql.util.PGobject;
@@ -403,6 +404,79 @@ public final class CompositeCodec implements BinaryCodec, TextCodec {
     }
   }
 
+  /**
+   * Parses a PostgreSQL composite text value, e.g. {@code (val1,"val,2",)}, into the
+   * raw per-field strings. A null element represents a SQL NULL attribute. The
+   * surrounding parentheses are optional.
+   *
+   * @param text the composite text value
+   * @return per-field strings (with composite escape sequences resolved)
+   */
+  public static String @Nullable [] parseCompositeText(String text) {
+    List<@Nullable String> values = new ArrayList<>();
+
+    if (text.startsWith("(") && text.endsWith(")")) {
+      text = text.substring(1, text.length() - 1);
+    }
+
+    int i = 0;
+    int len = text.length();
+
+    while (i <= len) {
+      if (i == len) {
+        // Handle trailing empty value
+        if (!values.isEmpty() || len == 0) {
+          values.add(null);
+        }
+        break;
+      }
+
+      char c = text.charAt(i);
+      if (c == '"') {
+        // Quoted value
+        StringBuilder sb = new StringBuilder();
+        i++; // skip opening quote
+        while (i < len) {
+          char ch = text.charAt(i);
+          if (ch == '"') {
+            if (i + 1 < len && text.charAt(i + 1) == '"') {
+              sb.append('"');
+              i += 2;
+            } else {
+              i++; // skip closing quote
+              break;
+            }
+          } else if (ch == '\\' && i + 1 < len) {
+            sb.append(text.charAt(i + 1));
+            i += 2;
+          } else {
+            sb.append(ch);
+            i++;
+          }
+        }
+        values.add(sb.toString());
+        if (i < len && text.charAt(i) == ',') {
+          i++;
+        }
+      } else if (c == ',') {
+        values.add(null);
+        i++;
+      } else {
+        // Unquoted value
+        int start = i;
+        while (i < len && text.charAt(i) != ',') {
+          i++;
+        }
+        values.add(text.substring(start, i));
+        if (i < len && text.charAt(i) == ',') {
+          i++;
+        }
+      }
+    }
+
+    return values.toArray(new String[0]);
+  }
+
   // =========================================================================
   // Instance methods (BinaryCodec/TextCodec implementation)
   // =========================================================================
@@ -437,16 +511,36 @@ public final class CompositeCodec implements BinaryCodec, TextCodec {
 
   @Override
   public @Nullable Object decodeBinary(byte[] data, PgType type, CodecContext ctx) throws SQLException {
-    // Default composite binary decoding returns a PGobject with text representation
-    // Full structured access is available via decodeBinaryAs with target class
     if (data == null || data.length == 0) {
       return null;
     }
-    // For now, return as PGobject - callers should use decodeBinaryAs for structured access
-    PGobject obj = new PGobject();
-    obj.setType(type.getTypeName().getName());
-    // Binary data cannot be directly represented as text, so we leave value null
-    return obj;
+    // Decode binary composite wire format into a PgStruct, recursively delegating
+    // per-attribute decoding to the codec registered for each field's OID.
+    CodecDepth.enter();
+    try {
+      List<DecodedField> binaryFields = decodeBinaryFields(data);
+      Object[] attributes = new Object[binaryFields.size()];
+      for (int i = 0; i < binaryFields.size(); i++) {
+        DecodedField field = binaryFields.get(i);
+        byte @Nullable [] fieldData = field.getData();
+        if (fieldData == null) {
+          attributes[i] = null;
+          continue;
+        }
+        int fieldOid = field.getTypeOid();
+        PgType fieldType = ctx.getTypeInfo().getPgTypeByOid(fieldOid);
+        BinaryCodec fieldCodec = ctx.getCodecs().getBinaryCodec(fieldOid, fieldType);
+        if (fieldCodec == null) {
+          // CodecRegistry guarantees a codec, but stay defensive.
+          attributes[i] = fieldData.clone();
+        } else {
+          attributes[i] = fieldCodec.decodeBinary(fieldData, fieldType, ctx);
+        }
+      }
+      return new PgStruct(type.getFullName(), attributes, ctx.getConnection());
+    } finally {
+      CodecDepth.exit();
+    }
   }
 
   @Override
@@ -474,11 +568,47 @@ public final class CompositeCodec implements BinaryCodec, TextCodec {
 
   @Override
   public @Nullable Object decodeText(String data, PgType type, CodecContext ctx) throws SQLException {
-    // For text format, return as PGobject for basic compatibility
-    PGobject obj = new PGobject();
-    obj.setType(type.getTypeName().getName());
-    obj.setValue(data);
-    return obj;
+    if (data == null) {
+      return null;
+    }
+    // Decode composite text format into a PgStruct, recursively delegating
+    // per-attribute decoding to the text codec registered for each field's OID.
+    CodecDepth.enter();
+    try {
+      String @Nullable [] rawFields = parseCompositeText(data);
+      if (rawFields == null) {
+        // Empty composite "()"; PgStruct with zero attributes.
+        return new PgStruct(type.getFullName(), new Object[0], ctx.getConnection());
+      }
+      List<PgField> fields = type.getFields();
+      if (fields == null) {
+        fields = ctx.getTypeInfo().getFields(type.getOid());
+      }
+      // Trim mismatch between parser-emitted trailing nulls and the declared
+      // field count: PostgreSQL never emits more fields than the type defines.
+      int expected = fields.size();
+      int actual = Math.min(rawFields.length, expected);
+      Object[] attributes = new Object[expected];
+      for (int i = 0; i < expected; i++) {
+        String raw = i < actual ? rawFields[i] : null;
+        if (raw == null) {
+          attributes[i] = null;
+          continue;
+        }
+        PgField field = fields.get(i);
+        int fieldOid = field.getTypeOid();
+        PgType fieldType = ctx.getTypeInfo().getPgTypeByOid(fieldOid);
+        TextCodec fieldCodec = ctx.getCodecs().getTextCodec(fieldOid, fieldType);
+        if (fieldCodec == null) {
+          attributes[i] = raw;
+        } else {
+          attributes[i] = fieldCodec.decodeText(raw, fieldType, ctx);
+        }
+      }
+      return new PgStruct(type.getFullName(), attributes, ctx.getConnection());
+    } finally {
+      CodecDepth.exit();
+    }
   }
 
   @Override
@@ -531,8 +661,11 @@ public final class CompositeCodec implements BinaryCodec, TextCodec {
       }
     }
 
-    // For non-SQLData classes, fall back to PGobject
-    if (targetClass == PGobject.class || targetClass == Object.class) {
+    // For Struct/PgStruct/Object the default decodeBinary already returns a PgStruct.
+    if (targetClass == Struct.class
+        || targetClass == PgStruct.class
+        || targetClass == Object.class
+        || targetClass == PGobject.class) {
       return (T) decodeBinary(data, type, ctx);
     }
 
@@ -563,8 +696,12 @@ public final class CompositeCodec implements BinaryCodec, TextCodec {
       }
     }
 
-    // For PGobject or Object, use default text decoding
-    if (targetClass == PGobject.class || targetClass == Object.class) {
+    // For Struct/PgStruct/Object/PGobject use the default text decoder which
+    // already produces a PgStruct.
+    if (targetClass == Struct.class
+        || targetClass == PgStruct.class
+        || targetClass == PGobject.class
+        || targetClass == Object.class) {
       return (T) decodeText(data, type, ctx);
     }
 

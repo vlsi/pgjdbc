@@ -61,7 +61,10 @@ public abstract class PgSQLInput<BufferType> implements SQLInput {
     this.attributeValues = attributeValues;
     this.compositeType = type;
     this.ctx = ctx;
-    this.fields = type.getFields();
+    List<PgField> typeFields = type.getFields();
+    // Fields are loaded lazily for composite types: fall back to the type info
+    // cache when the PgType instance hasn't materialized them yet.
+    this.fields = typeFields != null ? typeFields : ctx.getTypeInfo().getFields(type.getOid());
   }
 
   @Override

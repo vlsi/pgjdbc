@@ -75,8 +75,9 @@ public final class PgSQLInputBinary extends PgSQLInput<byte[]> {
     for (int i = 0; i < fields.size(); i++) {
       PgField field = fields.get(i);
       int oid = field.getTypeOid();
-      cachedTypes[i] = ctx.getTypeInfo().getPgTypeByOid(oid);
-      cachedCodecs[i] = ctx.getCodecs().getBinaryCodec(oid);
+      PgType fieldType = ctx.getTypeInfo().getPgTypeByOid(oid);
+      cachedTypes[i] = fieldType;
+      cachedCodecs[i] = ctx.getCodecs().getBinaryCodec(oid, fieldType);
     }
   }
 
@@ -205,7 +206,18 @@ public final class PgSQLInputBinary extends PgSQLInput<byte[]> {
 
   @Override
   protected @Nullable Object decodeObject(byte[] data, PgType fieldType) throws SQLException {
-    return getCodec().decodeBinary(data, getCurrentType(), ctx);
+    // Honor typeMap: if the user registered a Java class for this field's type,
+    // route through decodeBinaryAs so SQLData (or PGobject subclass) mappings
+    // take effect when SQLData.readSQL calls SQLInput.readObject().
+    PgType currentType = getCurrentType();
+    Class<?> mapped = ctx.getMappedClass(currentType.getFullName());
+    if (mapped == null) {
+      mapped = ctx.getMappedClass(currentType.getTypeName().getName());
+    }
+    if (mapped != null) {
+      return getCodec().decodeBinaryAs(data, currentType, mapped, ctx);
+    }
+    return getCodec().decodeBinary(data, currentType, ctx);
   }
 
   @Override
