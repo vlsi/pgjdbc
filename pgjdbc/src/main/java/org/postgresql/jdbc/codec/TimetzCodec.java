@@ -87,6 +87,9 @@ public final class TimetzCodec implements BinaryCodec, TextCodec {
       long time = ((java.util.Date) value).getTime();
       return ts.toString(null, new Time(time));
     }
+    if (value instanceof String) {
+      return ts.toString(null, ts.toTime(null, (String) value));
+    }
     throw new PSQLException(
         GT.tr("Cannot convert {0} to timetz", value.getClass().getName()),
         PSQLState.INVALID_PARAMETER_TYPE);

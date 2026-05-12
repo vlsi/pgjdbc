@@ -96,6 +96,10 @@ public final class TimestampCodec implements BinaryCodec, TextCodec {
       long time = ((java.util.Date) value).getTime();
       return ts.toString(null, new Timestamp(time));
     }
+    if (value instanceof String) {
+      // setObject(i, "2024-01-01 12:00:00", Types.TIMESTAMP) and friends.
+      return ts.toString(null, ts.toTimestamp(null, (String) value));
+    }
     throw new PSQLException(
         GT.tr("Cannot convert {0} to timestamp", value.getClass().getName()),
         PSQLState.INVALID_PARAMETER_TYPE);

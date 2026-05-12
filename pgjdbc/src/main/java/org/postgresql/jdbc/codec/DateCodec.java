@@ -67,6 +67,8 @@ public final class DateCodec implements BinaryCodec, TextCodec {
       @SuppressWarnings("JavaUtilDate")
       long time = ((java.util.Date) value).getTime();
       ts.toBinDate(null, result, new Date(time));
+    } else if (value instanceof String) {
+      ts.toBinDate(null, result, ts.toDate(null, (String) value));
     } else {
       throw new PSQLException(
           GT.tr("Cannot convert {0} to date", value.getClass().getName()),
@@ -98,6 +100,11 @@ public final class DateCodec implements BinaryCodec, TextCodec {
       @SuppressWarnings("JavaUtilDate")
       long time = ((java.util.Date) value).getTime();
       return ts.toString(null, new Date(time));
+    }
+    if (value instanceof String) {
+      // setObject(i, "2024-01-01", Types.DATE) and friends — let TimestampUtils
+      // parse the literal so we match the legacy behavior of the driver.
+      return ts.toString(null, ts.toDate(null, (String) value));
     }
     throw new PSQLException(
         GT.tr("Cannot convert {0} to date", value.getClass().getName()),

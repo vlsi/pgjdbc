@@ -440,7 +440,10 @@ public class PgResultSetMetaData implements ResultSetMetaData, PGResultSetMetaDa
   }
 
   protected @Nullable String getPGType(int columnIndex) throws SQLException {
-    return getFieldWithType(columnIndex).getPgType().getFullName();
+    // Return the raw pg_type.typname (e.g. "int4", "_int4"), not the
+    // format_type() pretty name — matches the legacy ResultSetMetaData
+    // contract used by getColumnTypeName.
+    return getFieldWithType(columnIndex).getPgType().getTypeName().getName();
   }
 
   protected int getSQLType(int columnIndex) throws SQLException {

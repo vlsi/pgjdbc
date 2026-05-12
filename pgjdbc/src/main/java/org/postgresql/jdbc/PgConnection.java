@@ -1555,26 +1555,32 @@ public class PgConnection implements BaseConnection {
 
     TypeInfo typeInfo = getTypeInfo();
 
-    PgType arrayType = typeInfo.getPgTypeByPgName(typeName);
-    final int oid = arrayType.getOid();
-    final char delim = arrayType.getDelimiter();
+    // typeName is the *element* type per JDBC; resolve it so we have both the
+    // element OID (for binary encoding / text formatting) and the array OID
+    // (needed by PgArray so it advertises the right server type at bind time).
+    PgType elementType = typeInfo.getPgTypeByPgName(typeName);
+    final int elementOid = elementType.getOid();
+    final int arrayOid = elementType.getArrayOid();
+    final char delim = elementType.getDelimiter();
 
-    if (oid == Oid.UNSPECIFIED) {
+    if (elementOid == Oid.UNSPECIFIED) {
       throw new PSQLException(GT.tr("Unable to find server array type for provided name {0}.", typeName),
           PSQLState.INVALID_NAME);
     }
 
     if (elements == null) {
-      return makeArray(oid, null);
+      return makeArray(arrayOid, null);
     }
 
     final ArrayEncoding.ArrayEncoder arraySupport = ArrayEncoding.getArrayEncoder(elements);
-    if (arraySupport.supportBinaryRepresentation(oid) && getPreferQueryMode() != PreferQueryMode.SIMPLE) {
-      return new PgArray(this, oid, arraySupport.toBinaryRepresentation(this, elements, oid));
+    if (arraySupport.supportBinaryRepresentation(elementOid)
+        && getPreferQueryMode() != PreferQueryMode.SIMPLE) {
+      return new PgArray(this, arrayOid,
+          arraySupport.toBinaryRepresentation(this, elements, elementOid));
     }
 
     final String arrayString = arraySupport.toArrayString(delim, elements);
-    return makeArray(oid, arrayString);
+    return makeArray(arrayOid, arrayString);
   }
 
   @Override

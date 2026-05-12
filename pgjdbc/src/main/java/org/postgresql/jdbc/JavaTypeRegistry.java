@@ -78,6 +78,20 @@ public class JavaTypeRegistry {
 
     // Special types
     javaClassToArrayOid.put(java.util.UUID.class, Oid.UUID_ARRAY);
+
+    // PostgreSQL type name → PGobject subclass mappings for built-in types.
+    // These correspond to the legacy BASE_TYPES mappings in the old TypeInfoCache
+    // and are required for connection.getObject(typeName, ...) and
+    // ResultSet.getObject(int, PGobject.class) to return the right subclass.
+    pgNameToPgObject.put("box", org.postgresql.geometric.PGbox.class);
+    pgNameToPgObject.put("circle", org.postgresql.geometric.PGcircle.class);
+    pgNameToPgObject.put("line", org.postgresql.geometric.PGline.class);
+    pgNameToPgObject.put("lseg", org.postgresql.geometric.PGlseg.class);
+    pgNameToPgObject.put("path", org.postgresql.geometric.PGpath.class);
+    pgNameToPgObject.put("point", org.postgresql.geometric.PGpoint.class);
+    pgNameToPgObject.put("polygon", org.postgresql.geometric.PGpolygon.class);
+    pgNameToPgObject.put("money", org.postgresql.util.PGmoney.class);
+    pgNameToPgObject.put("interval", org.postgresql.util.PGInterval.class);
   }
 
   /**

@@ -1346,7 +1346,7 @@ public class PgDatabaseMetaData implements DatabaseMetaData {
         // TODO: fix N+1
         PgType returnPgType = connection.getTypeInfo().getPgTypeByOid(returnType);
         tuple[5] = connection.encodeString(Integer.toString(returnPgType.getSqlType()));
-        tuple[6] = connection.encodeString(returnPgType.getFullName());
+        tuple[6] = connection.encodeString(returnPgType.getTypeName().getName());
         tuple[7] = null;
         tuple[8] = null;
         tuple[9] = null;
@@ -1396,7 +1396,7 @@ public class PgDatabaseMetaData implements DatabaseMetaData {
         PgType argPgType = connection.getTypeInfo().getPgTypeByOid(argOid);
 
         tuple[5] = connection.encodeString(Integer.toString(argPgType.getSqlType()));
-        tuple[6] = connection.encodeString(argPgType.getFullName());
+        tuple[6] = connection.encodeString(argPgType.getTypeName().getName());
         tuple[7] = null;
         tuple[8] = null;
         tuple[9] = null;
@@ -1431,7 +1431,7 @@ public class PgDatabaseMetaData implements DatabaseMetaData {
           // TODO: fix N+1
           PgType columnPgType = connection.getTypeInfo().getPgTypeByOid(columnTypeOid);
           tuple[5] = connection.encodeString(Integer.toString(columnPgType.getSqlType()));
-          tuple[6] = connection.encodeString(columnPgType.getFullName());
+          tuple[6] = connection.encodeString(columnPgType.getTypeName().getName());
           tuple[7] = null;
           tuple[8] = null;
           tuple[9] = null;
@@ -1832,7 +1832,11 @@ public class PgDatabaseMetaData implements DatabaseMetaData {
       tuple[2] = rs.getBytes("relname"); // Table name
       tuple[3] = rs.getBytes("attname"); // Column name
       tuple[4] = connection.encodeString(Integer.toString(attrPgType.getSqlType()));
-      tuple[5] = connection.encodeString(attrPgType.getFullName()); // Type name
+      // Use raw pg_type.typname (e.g. "int4", "_int4") rather than the
+      // format_type() pretty name, matching the legacy DatabaseMetaData
+      // contract that several JDBC consumers rely on (e.g. "int4" vs "integer",
+      // "_custom" vs "custom[]").
+      tuple[5] = connection.encodeString(attrPgType.getTypeName().getName()); // Type name
       tuple[7] = null; // Buffer length
 
       String defval = rs.getString("adsrc");
@@ -2336,7 +2340,7 @@ public class PgDatabaseMetaData implements DatabaseMetaData {
       tuple[1] = rs.getBytes("attname");
       tuple[2] =
           connection.encodeString(Integer.toString(sqlType));
-      tuple[3] = connection.encodeString(pgType.getFullName());
+      tuple[3] = connection.encodeString(pgType.getTypeName().getName());
       tuple[4] = connection.encodeString(Integer.toString(columnSize));
       tuple[5] = null; // unused
       tuple[6] = connection.encodeString(Integer.toString(decimalDigits));
@@ -3422,7 +3426,7 @@ public class PgDatabaseMetaData implements DatabaseMetaData {
             .encodeString(Integer.toString(DatabaseMetaData.functionReturn));
         tuple[5] = connection
             .encodeString(Integer.toString(returnPgType.getSqlType()));
-        tuple[6] = connection.encodeString(returnPgType.getFullName());
+        tuple[6] = connection.encodeString(returnPgType.getTypeName().getName());
         tuple[7] = null;
         tuple[8] = null;
         tuple[9] = null;
@@ -3473,7 +3477,7 @@ public class PgDatabaseMetaData implements DatabaseMetaData {
         PgType argPgType = connection.getTypeInfo().getPgTypeByOid(argOid);
 
         tuple[5] = connection.encodeString(Integer.toString(argPgType.getSqlType()));
-        tuple[6] = connection.encodeString(argPgType.getFullName());
+        tuple[6] = connection.encodeString(argPgType.getTypeName().getName());
         tuple[7] = null;
         tuple[8] = null;
         tuple[9] = null;
@@ -3510,7 +3514,7 @@ public class PgDatabaseMetaData implements DatabaseMetaData {
               .encodeString(Integer.toString(DatabaseMetaData.functionColumnResult));
           tuple[5] = connection
               .encodeString(Integer.toString(columnPgType.getSqlType()));
-          tuple[6] = connection.encodeString(columnPgType.getFullName());
+          tuple[6] = connection.encodeString(columnPgType.getTypeName().getName());
           tuple[7] = null;
           tuple[8] = null;
           tuple[9] = null;
