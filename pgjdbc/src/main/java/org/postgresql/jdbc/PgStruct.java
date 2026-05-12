@@ -26,7 +26,7 @@ import java.util.Map;
  * It can be created via {@link java.sql.Connection#createStruct(String, Object[])}
  * or returned from ResultSet when reading composite type columns.</p>
  */
-public class PgStruct implements Struct {
+public class PgStruct extends org.postgresql.util.PGobject implements Struct {
 
   private final String typeName;
   private final @Nullable Object[] attributes;
@@ -53,6 +53,11 @@ public class PgStruct implements Struct {
     this.typeName = typeName;
     this.attributes = attributes.clone();
     this.connection = connection;
+    // Also satisfy the PGobject contract — callers that expect getObject(int)
+    // to return a typed PGobject (the legacy contract) get a non-null type
+    // string back, and value is left null since the composite text
+    // representation isn't materialized here.
+    setType(typeName);
   }
 
   @Override

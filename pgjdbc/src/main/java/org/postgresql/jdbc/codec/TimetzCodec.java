@@ -137,7 +137,7 @@ public final class TimetzCodec implements BinaryCodec, TextCodec {
     }
     throw new PSQLException(
         GT.tr("Cannot convert timetz to {0}", targetClass.getName()),
-        PSQLState.INVALID_PARAMETER_TYPE);
+        PSQLState.DATA_TYPE_MISMATCH);
   }
 
   @Override
@@ -172,7 +172,7 @@ public final class TimetzCodec implements BinaryCodec, TextCodec {
     }
     throw new PSQLException(
         GT.tr("Cannot convert timetz to {0}", targetClass.getName()),
-        PSQLState.INVALID_PARAMETER_TYPE);
+        PSQLState.DATA_TYPE_MISMATCH);
   }
 
   @Override

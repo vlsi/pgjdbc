@@ -514,8 +514,18 @@ public final class CompositeCodec implements BinaryCodec, TextCodec {
     if (data == null || data.length == 0) {
       return null;
     }
-    // Decode binary composite wire format into a PgStruct, recursively delegating
-    // per-attribute decoding to the codec registered for each field's OID.
+    // PgStruct extends PGobject and implements Struct, so the same return value
+    // satisfies both the legacy "(PGobject) rs.getObject(i)" contract and the
+    // new "(Struct) rs.getObject(i)" contract.
+    return decodeBinaryAsStruct(data, type, ctx);
+  }
+
+  /**
+   * Decodes binary composite data into a PgStruct with per-attribute decoding
+   * routed through the codec registered for each field's OID.
+   */
+  private PgStruct decodeBinaryAsStruct(byte[] data, PgType type, CodecContext ctx)
+      throws SQLException {
     CodecDepth.enter();
     try {
       List<DecodedField> binaryFields = decodeBinaryFields(data);
@@ -531,7 +541,6 @@ public final class CompositeCodec implements BinaryCodec, TextCodec {
         PgType fieldType = ctx.getTypeInfo().getPgTypeByOid(fieldOid);
         BinaryCodec fieldCodec = ctx.getCodecs().getBinaryCodec(fieldOid, fieldType);
         if (fieldCodec == null) {
-          // CodecRegistry guarantees a codec, but stay defensive.
           attributes[i] = fieldData.clone();
         } else {
           attributes[i] = fieldCodec.decodeBinary(fieldData, fieldType, ctx);
@@ -571,21 +580,32 @@ public final class CompositeCodec implements BinaryCodec, TextCodec {
     if (data == null) {
       return null;
     }
-    // Decode composite text format into a PgStruct, recursively delegating
-    // per-attribute decoding to the text codec registered for each field's OID.
+    // PgStruct extends PGobject and implements Struct, so the same return value
+    // satisfies both the legacy "(PGobject) rs.getObject(i)" contract and the
+    // new "(Struct) rs.getObject(i)" contract.
+    PgStruct struct = decodeTextAsStruct(data, type, ctx);
+    // Make the PGobject view carry the raw composite text so callers that fall
+    // back to getValue() keep working.
+    struct.setValue(data);
+    return struct;
+  }
+
+  /**
+   * Decodes composite text into a PgStruct with per-attribute decoding routed
+   * through the text codec registered for each field's OID.
+   */
+  private PgStruct decodeTextAsStruct(String data, PgType type, CodecContext ctx)
+      throws SQLException {
     CodecDepth.enter();
     try {
       @Nullable String[] rawFields = parseCompositeText(data);
       if (rawFields == null) {
-        // Empty composite "()"; PgStruct with zero attributes.
         return new PgStruct(type.getFullName(), new Object[0], ctx.getConnection());
       }
       List<PgField> fields = type.getFields();
       if (fields == null) {
         fields = ctx.getTypeInfo().getFields(type.getOid());
       }
-      // Trim mismatch between parser-emitted trailing nulls and the declared
-      // field count: PostgreSQL never emits more fields than the type defines.
       int expected = fields.size();
       int actual = Math.min(rawFields.length, expected);
       @Nullable Object[] attributes = new @Nullable Object[expected];
@@ -661,11 +681,13 @@ public final class CompositeCodec implements BinaryCodec, TextCodec {
       }
     }
 
-    // For Struct/PgStruct/Object the default decodeBinary already returns a PgStruct.
-    if (targetClass == Struct.class
-        || targetClass == PgStruct.class
-        || targetClass == Object.class
-        || targetClass == PGobject.class) {
+    // Structured access — build a PgStruct with per-field decoded attributes.
+    if (targetClass == Struct.class || targetClass == PgStruct.class) {
+      return (T) decodeBinaryAsStruct(data, type, ctx);
+    }
+
+    // Legacy access — return the typed PGobject wrapper produced by decodeBinary.
+    if (targetClass == PGobject.class || targetClass == Object.class) {
       return (T) decodeBinary(data, type, ctx);
     }
 
@@ -696,12 +718,13 @@ public final class CompositeCodec implements BinaryCodec, TextCodec {
       }
     }
 
-    // For Struct/PgStruct/Object/PGobject use the default text decoder which
-    // already produces a PgStruct.
-    if (targetClass == Struct.class
-        || targetClass == PgStruct.class
-        || targetClass == PGobject.class
-        || targetClass == Object.class) {
+    // Structured access — build a PgStruct with per-field decoded attributes.
+    if (targetClass == Struct.class || targetClass == PgStruct.class) {
+      return (T) decodeTextAsStruct(data, type, ctx);
+    }
+
+    // Legacy access — return the typed PGobject wrapper produced by decodeText.
+    if (targetClass == PGobject.class || targetClass == Object.class) {
       return (T) decodeText(data, type, ctx);
     }
 

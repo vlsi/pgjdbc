@@ -65,7 +65,10 @@ public class PgParameterMetaData implements ParameterMetaData {
   @Override
   public String getParameterTypeName(int param) throws SQLException {
     checkParamIndex(param);
-    return connection.getTypeInfo().getPgTypeByOid(oids[param - 1]).getFullName();
+    // Return the raw pg_type.typname (e.g. "timestamp", "_int4") rather than
+    // format_type()'s pretty name ("timestamp without time zone", "integer[]"),
+    // matching the legacy contract that callers rely on.
+    return connection.getTypeInfo().getPgTypeByOid(oids[param - 1]).getTypeName().getName();
   }
 
   // we don't know this
