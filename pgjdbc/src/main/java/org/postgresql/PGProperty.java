@@ -265,6 +265,85 @@ public enum PGProperty {
           + "the statements reaches the same connection that is being initialized."
   ),
 
+  /**
+   * Controls the default Java type returned by getObject() for DATE columns.
+   * When set to "java.time", returns LocalDate. When set to "java.sql" (default),
+   * returns java.sql.Date.
+   */
+  GETOBJECT_DATE(
+      "getobject.date",
+      "java.sql",
+      "Default type for getObject() on DATE: java.sql or java.time",
+      false,
+      new String[]{"java.sql", "java.time"}
+  ),
+
+  /**
+   * Controls the default Java type returned by getObject() for TIME columns.
+   * When set to "java.time", returns LocalTime. When set to "java.sql" (default),
+   * returns java.sql.Time.
+   */
+  GETOBJECT_TIME(
+      "getobject.time",
+      "java.sql",
+      "Default type for getObject() on TIME: java.sql or java.time",
+      false,
+      new String[]{"java.sql", "java.time"}
+  ),
+
+  /**
+   * Controls the default Java type returned by getObject() for TIME WITH TIME ZONE columns.
+   * When set to "java.time", returns OffsetTime. When set to "java.sql" (default),
+   * returns java.sql.Time.
+   */
+  GETOBJECT_TIMETZ(
+      "getobject.timetz",
+      "java.sql",
+      "Default type for getObject() on TIMETZ: java.sql or java.time",
+      false,
+      new String[]{"java.sql", "java.time"}
+  ),
+
+  /**
+   * Controls the default Java type returned by getObject() for TIMESTAMP columns.
+   * When set to "java.time", returns LocalDateTime. When set to "java.sql" (default),
+   * returns java.sql.Timestamp.
+   */
+  GETOBJECT_TIMESTAMP(
+      "getobject.timestamp",
+      "java.sql",
+      "Default type for getObject() on TIMESTAMP: java.sql or java.time",
+      false,
+      new String[]{"java.sql", "java.time"}
+  ),
+
+  /**
+   * Controls the default Java type returned by getObject() for TIMESTAMP WITH TIME ZONE columns.
+   * When set to "java.time", returns OffsetDateTime. When set to "java.sql" (default),
+   * returns java.sql.Timestamp.
+   */
+  GETOBJECT_TIMESTAMPTZ(
+      "getobject.timestamptz",
+      "java.sql",
+      "Default type for getObject() on TIMESTAMPTZ: java.sql or java.time",
+      false,
+      new String[]{"java.sql", "java.time"}
+  ),
+
+  /**
+   * Controls the JDBC SQL type reported for PostgreSQL boolean columns in metadata.
+   * When set to "bit" (default for backward compatibility), boolean maps to Types.BIT.
+   * When set to "boolean", boolean maps to Types.BOOLEAN, which is more semantically correct.
+   * This affects ResultSetMetaData.getColumnType() and ORM type detection (e.g., Hibernate).
+   */
+  MAP_PG_TYPE_BOOLEAN(
+      "map.pg_type.boolean",
+      "bit",
+      "JDBC type for PostgreSQL boolean: bit or boolean",
+      false,
+      new String[]{"bit", "boolean"}
+  ),
+
   GSS_ENC_MODE(
       "gssEncMode",
       "allow",
