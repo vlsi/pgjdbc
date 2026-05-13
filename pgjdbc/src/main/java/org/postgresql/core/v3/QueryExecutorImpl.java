@@ -2505,12 +2505,16 @@ public class QueryExecutorImpl extends QueryExecutorBase {
           }
           if (status.startsWith("CREATE ") || status.startsWith("DROP ")
               || status.startsWith("ALTER ")) {
-            // Bump only the type cache: prepared statements should stay
-            // around so AutoRollback's "cached plan must not change result
-            // type" path (autosave=NEVER + ALTER on the queried table) keeps
-            // surfacing the legacy error, and any plan-reuse benefits aren't
-            // discarded on every DDL.
+            // DDL invalidates the type cache so subsequent lookups re-read
+            // pg_type / pg_attribute. When flushCacheOnDdl is enabled (the
+            // default), also bump the prepared-statement-cache epoch so the
+            // driver transparently re-prepares server-side plans — this
+            // avoids surfacing "cached plan must not change result type" to
+            // callers that don't opt into autosave=ALWAYS.
             typeCacheEpoch++;
+            if (isFlushCacheOnDdl()) {
+              deallocateEpoch++;
+            }
           }
 
           doneAfterRowDescNoData = false;

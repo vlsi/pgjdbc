@@ -250,6 +250,21 @@ public enum PGProperty {
       new String[]{"select", "callIfNoReturn", "call"}),
 
   /**
+   * Controls whether DDL commands (CREATE/DROP/ALTER) invalidate the
+   * prepared-statement cache. When enabled (the default), the driver
+   * transparently re-prepares server-side plans after DDL, so callers don't
+   * see "cached plan must not change result type". Set to {@code false} for
+   * parity with the legacy driver (which propagated that error and relied
+   * on {@code autosave=ALWAYS} for transparent recovery).
+   */
+  FLUSH_CACHE_ON_DDL(
+      "flushCacheOnDdl",
+      "true",
+      "Invalidate the prepared-statement cache when a CREATE/DROP/ALTER "
+          + "CommandComplete is observed (default true). Disable for legacy "
+          + "behavior that surfaces 'cached plan must not change result type'."),
+
+  /**
    * Controls the default Java type returned by getObject() for DATE columns.
    * When set to "java.time", returns LocalDate. When set to "java.sql" (default),
    * returns java.sql.Date.
