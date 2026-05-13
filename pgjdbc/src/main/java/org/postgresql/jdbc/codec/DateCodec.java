@@ -104,7 +104,13 @@ public final class DateCodec implements BinaryCodec, TextCodec {
     if (value instanceof String) {
       // setObject(i, "2024-01-01", Types.DATE) and friends — let TimestampUtils
       // parse the literal so we match the legacy behavior of the driver.
-      return ts.toString(null, ts.toDate(null, (String) value));
+      try {
+        return ts.toString(null, ts.toDate(null, (String) value));
+      } catch (Exception e) {
+        throw new PSQLException(
+            GT.tr("Cannot convert {0} to date", value),
+            PSQLState.INVALID_PARAMETER_TYPE, e);
+      }
     }
     throw new PSQLException(
         GT.tr("Cannot convert {0} to date", value.getClass().getName()),
@@ -180,6 +186,11 @@ public final class DateCodec implements BinaryCodec, TextCodec {
     TimestampUtils ts = ctx.getTimestampUtils();
     LocalDate ld = ts.toLocalDateBin(data);
     return ld == null ? null : ts.toString(ld);
+  }
+
+  @Override
+  public @Nullable String decodeAsString(String data, PgType type, CodecContext ctx) throws SQLException {
+    return data;
   }
 
   @Override

@@ -187,6 +187,9 @@ public final class Int8Codec implements BinaryCodec, TextCodec {
     if (targetClass == BigDecimal.class) {
       return (T) BigDecimal.valueOf(value);
     }
+    if (targetClass == java.math.BigInteger.class) {
+      return (T) java.math.BigInteger.valueOf(value);
+    }
     if (targetClass == String.class) {
       return (T) String.valueOf(value);
     }

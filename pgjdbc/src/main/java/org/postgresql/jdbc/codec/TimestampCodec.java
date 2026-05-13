@@ -217,6 +217,12 @@ public final class TimestampCodec implements BinaryCodec, TextCodec {
   }
 
   @Override
+  public @Nullable String decodeAsString(String data, PgType type, CodecContext ctx) throws SQLException {
+    // Preserve the original text (with microsecond precision).
+    return data;
+  }
+
+  @Override
   public int decodeAsInt(byte[] data, PgType type, CodecContext ctx) throws SQLException {
     throw new PSQLException(
         GT.tr("Cannot convert timestamp to int"),

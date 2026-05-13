@@ -17,6 +17,7 @@ import org.postgresql.util.PSQLState;
 import org.checkerframework.checker.nullness.qual.Nullable;
 
 import java.math.BigDecimal;
+import java.math.RoundingMode;
 import java.sql.SQLException;
 
 /**
@@ -49,7 +50,21 @@ public final class NumericCodec implements BinaryCodec, TextCodec {
 
   @Override
   public @Nullable Object decodeBinary(byte[] data, PgType type, CodecContext ctx) throws SQLException {
-    return decodeAsBigDecimal(data, type, ctx);
+    // PostgreSQL numeric supports NaN / ±Infinity (the latter since v14).
+    // BigDecimal can't represent them, so surface those literals as Double
+    // sentinels — matches the legacy driver's getObject contract. Callers
+    // that need BigDecimal go through decodeAsBigDecimal which throws.
+    Number result = ByteConverter.numeric(data);
+    if (result instanceof Double) {
+      double d = result.doubleValue();
+      if (Double.isNaN(d) || Double.isInfinite(d)) {
+        return d;
+      }
+    }
+    if (result instanceof BigDecimal) {
+      return result;
+    }
+    return BigDecimal.valueOf(result.doubleValue());
   }
 
   @Override
@@ -95,8 +110,18 @@ public final class NumericCodec implements BinaryCodec, TextCodec {
     if (result instanceof Double) {
       double d = result.doubleValue();
       if (Double.isNaN(d) || Double.isInfinite(d)) {
+        // Pass a literal token rather than the Double itself so MessageFormat
+        // does not apply locale-aware number formatting (e.g. "не число").
+        String token;
+        if (Double.isNaN(d)) {
+          token = "NaN";
+        } else if (d == Double.POSITIVE_INFINITY) {
+          token = "Infinity";
+        } else {
+          token = "-Infinity";
+        }
         throw new PSQLException(
-            GT.tr("Cannot convert {0} to BigDecimal", result),
+            GT.tr("Bad value for type {0} : {1}", "BigDecimal", token),
             PSQLState.NUMERIC_VALUE_OUT_OF_RANGE);
       }
     }
@@ -200,12 +225,16 @@ public final class NumericCodec implements BinaryCodec, TextCodec {
     if (bd == null) {
       return 0;
     }
-    if (bd.compareTo(LONG_MAX_BD) > 0 || bd.compareTo(LONG_MIN_BD) < 0) {
+    // Truncate the fractional part (matches the legacy getLong contract:
+    // 9223372036854775807.9 → Long.MAX_VALUE). Then check integer-part bounds
+    // exactly via BigDecimal compareTo.
+    BigDecimal whole = bd.setScale(0, RoundingMode.DOWN);
+    if (whole.compareTo(LONG_MAX_BD) > 0 || whole.compareTo(LONG_MIN_BD) < 0) {
       throw new PSQLException(
-          GT.tr("Bad value for type {0} : {1}", "long", bd),
+          GT.tr("Bad value for type {0} : {1}", "long", bd.toPlainString()),
           PSQLState.NUMERIC_VALUE_OUT_OF_RANGE);
     }
-    return bd.longValue();
+    return whole.longValue();
   }
 
   @Override
@@ -214,12 +243,16 @@ public final class NumericCodec implements BinaryCodec, TextCodec {
     if (bd == null) {
       return 0;
     }
-    if (bd.compareTo(LONG_MAX_BD) > 0 || bd.compareTo(LONG_MIN_BD) < 0) {
+    // Truncate the fractional part (matches the legacy getLong contract:
+    // 9223372036854775807.9 → Long.MAX_VALUE). Then check integer-part bounds
+    // exactly via BigDecimal compareTo.
+    BigDecimal whole = bd.setScale(0, RoundingMode.DOWN);
+    if (whole.compareTo(LONG_MAX_BD) > 0 || whole.compareTo(LONG_MIN_BD) < 0) {
       throw new PSQLException(
-          GT.tr("Bad value for type {0} : {1}", "long", bd),
+          GT.tr("Bad value for type {0} : {1}", "long", bd.toPlainString()),
           PSQLState.NUMERIC_VALUE_OUT_OF_RANGE);
     }
-    return bd.longValue();
+    return whole.longValue();
   }
 
   @Override

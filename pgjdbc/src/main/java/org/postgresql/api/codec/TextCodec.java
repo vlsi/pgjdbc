@@ -173,16 +173,8 @@ public interface TextCodec extends Codec {
    */
   default boolean decodeAsBoolean(String data, PgType type, CodecContext ctx) throws SQLException {
     Object value = decodeText(data, type, ctx);
-    if (value instanceof Boolean) {
-      return (Boolean) value;
-    }
-    if (value instanceof Number) {
-      return ((Number) value).intValue() != 0;
-    }
-    throw new org.postgresql.util.PSQLException(
-        org.postgresql.util.GT.tr(
-            "Cannot cast to boolean: \"{0}\"", data),
-        org.postgresql.util.PSQLState.CANNOT_COERCE);
+    return org.postgresql.jdbc.BooleanTypeUtil.castAndCheck(
+        value, () -> decodeAsString(data, type, ctx));
   }
 
   /**

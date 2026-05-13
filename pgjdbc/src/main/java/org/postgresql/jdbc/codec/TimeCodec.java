@@ -20,6 +20,7 @@ import java.math.BigDecimal;
 import java.sql.SQLException;
 import java.sql.Time;
 import java.time.LocalTime;
+import java.time.OffsetTime;
 
 /**
  * Codec for PostgreSQL time (without time zone) type.
@@ -76,6 +77,10 @@ public final class TimeCodec implements BinaryCodec, TextCodec {
     }
     if (value instanceof LocalTime) {
       return ts.toString((LocalTime) value);
+    }
+    if (value instanceof OffsetTime) {
+      // Caller asked for TIME (no time zone) — strip the offset.
+      return ts.toString(((OffsetTime) value).toLocalTime());
     }
     if (value instanceof java.util.Date) {
       @SuppressWarnings("JavaUtilDate")
@@ -160,6 +165,13 @@ public final class TimeCodec implements BinaryCodec, TextCodec {
     TimestampUtils ts = ctx.getTimestampUtils();
     LocalTime lt = ts.toLocalTimeBin(data);
     return lt == null ? null : ts.toString(lt);
+  }
+
+  @Override
+  public @Nullable String decodeAsString(String data, PgType type, CodecContext ctx) throws SQLException {
+    // Preserve the original text (including microseconds) — java.sql.Time.toString()
+    // would truncate the fractional part.
+    return data;
   }
 
   @Override

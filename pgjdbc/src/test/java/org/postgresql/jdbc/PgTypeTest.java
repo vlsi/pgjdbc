@@ -39,7 +39,10 @@ public class PgTypeTest {
     assertEquals(Types.DATE, PgType.toJdbcSqlType(Oid.DATE, 'D', 'b'));
     assertEquals(Types.TIME, PgType.toJdbcSqlType(Oid.TIME, 'D', 'b'));
     assertEquals(Types.TIMESTAMP, PgType.toJdbcSqlType(Oid.TIMESTAMP, 'D', 'b'));
-    assertEquals(Types.TIMESTAMP_WITH_TIMEZONE, PgType.toJdbcSqlType(Oid.TIMESTAMPTZ, 'D', 'b'));
+    // Legacy contract: TIMESTAMPTZ maps to Types.TIMESTAMP (93), not
+    // Types.TIMESTAMP_WITH_TIMEZONE (2014). Several JDBC consumers rely on
+    // this.
+    assertEquals(Types.TIMESTAMP, PgType.toJdbcSqlType(Oid.TIMESTAMPTZ, 'D', 'b'));
 
     // Binary
     assertEquals(Types.BINARY, PgType.toJdbcSqlType(Oid.BYTEA, 'U', 'b'));

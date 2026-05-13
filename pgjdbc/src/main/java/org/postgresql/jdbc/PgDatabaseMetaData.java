@@ -1786,6 +1786,7 @@ public class PgDatabaseMetaData implements DatabaseMetaData {
     sql.append(
         // language=sql
         "pg_catalog.pg_get_expr(def.adbin, def.adrelid) AS adsrc,dsc.description,t.typbasetype,"
+           + "pg_catalog.pg_type_is_visible(t.oid) AS type_is_visible,"
            + TypeInfoCache.PG_TYPE_FIELDS
            + " FROM pg_catalog.pg_namespace n "
            + " JOIN pg_catalog.pg_class c ON (c.relnamespace = n.oid) "
@@ -1835,8 +1836,16 @@ public class PgDatabaseMetaData implements DatabaseMetaData {
       // Use raw pg_type.typname (e.g. "int4", "_int4") rather than the
       // format_type() pretty name, matching the legacy DatabaseMetaData
       // contract that several JDBC consumers rely on (e.g. "int4" vs "integer",
-      // "_custom" vs "custom[]").
-      tuple[5] = connection.encodeString(attrPgType.getTypeName().getName()); // Type name
+      // "_custom" vs "custom[]"). For types not visible via the search_path
+      // (off-path or shadowed by another type with the same name), emit a
+      // fully qualified, quoted form so the result is unambiguous.
+      boolean typeIsVisible = rs.getBoolean("type_is_visible");
+      String typName = attrPgType.getTypeName().getName();
+      String typNspname = attrPgType.getTypeName().getNamespace();
+      tuple[5] = connection.encodeString(
+          (typeIsVisible || typNspname == null)
+              ? typName
+              : "\"" + typNspname + "\".\"" + typName + "\""); // Type name
       tuple[7] = null; // Buffer length
 
       String defval = rs.getString("adsrc");
@@ -1861,8 +1870,12 @@ public class PgDatabaseMetaData implements DatabaseMetaData {
       int decimalDigits;
       int columnSize;
 
-      /* this is really a DOMAIN type not sure where DISTINCT came from */
-      if (sqlType == Types.DISTINCT) {
+      // For domain types (typtype='d') the SQL type derived from typcategory
+      // matches the base type (e.g. Types.NUMERIC), not Types.DISTINCT, so we
+      // also need to check the explicit domain flag to route into the
+      // basetype-aware precision/scale resolution.
+      boolean isDomain = attrPgType.isDomain() || sqlType == Types.DISTINCT;
+      if (isDomain) {
         // From the docs if typtypmod is -1
         int typtypmod = attrPgType.getTyptypmod();
         decimalDigits = typeInfo.getScale(baseTypeOid, typeMod);
@@ -1873,11 +1886,21 @@ public class PgDatabaseMetaData implements DatabaseMetaData {
         // a domain, but for actual types this will return the correct value.
         if (typtypmod == -1) {
           columnSize = typeInfo.getPrecision(baseTypeOid, typeMod);
-        } else if (baseTypeOid == Oid.NUMERIC) {
+        } else {
+          // Use the basetype's own precision formula on typtypmod (e.g. varbit(3)
+          // is stored as typtypmod=7, where precision = typtypmod-4 = 3); falling
+          // back to a raw typtypmod gives garbage for types that aren't numeric.
           decimalDigits = typeInfo.getScale(baseTypeOid, typtypmod);
           columnSize = typeInfo.getPrecision(baseTypeOid, typtypmod);
-        } else {
-          columnSize = typtypmod;
+        }
+      } else if (sqlType == Types.ARRAY && attrPgType.getTypelem() != 0) {
+        // For array columns the per-element typmod is stored on the column,
+        // so drill down to the element type to derive precision/scale.
+        int elemOid = attrPgType.getTypelem();
+        decimalDigits = typeInfo.getScale(elemOid, typeMod);
+        columnSize = typeInfo.getPrecision(elemOid, typeMod);
+        if (columnSize == 0) {
+          columnSize = typeInfo.getDisplaySize(elemOid, typeMod);
         }
       } else {
         decimalDigits = typeInfo.getScale(typeOid, typeMod);
@@ -1887,8 +1910,12 @@ public class PgDatabaseMetaData implements DatabaseMetaData {
         }
       }
       tuple[6] = connection.encodeString(Integer.toString(columnSize));
-      // Give null for an unset scale on Decimal and Numeric columns
-      if (((sqlType == Types.NUMERIC) || (sqlType == Types.DECIMAL)) && (typeMod == -1)) {
+      // Give null for an unset scale on Decimal and Numeric columns. For domain
+      // types we resolved typtypmod above, so the scale is known even when the
+      // column's own typmod is -1.
+      boolean hasDomainTypmod = isDomain && attrPgType.getTyptypmod() != -1;
+      if (((sqlType == Types.NUMERIC) || (sqlType == Types.DECIMAL)) && (typeMod == -1)
+          && !hasDomainTypmod) {
         tuple[8] = null;
       } else {
         tuple[8] = connection.encodeString(Integer.toString(decimalDigits));
@@ -2691,6 +2718,13 @@ public class PgDatabaseMetaData implements DatabaseMetaData {
 
   @Override
   public ResultSet getTypeInfo() throws SQLException {
+
+    // Bulk-cache the SQL typecodes (one query instead of N) for callers that
+    // iterate this result set and look up types by OID.
+    TypeInfo typeInfo = connection.getTypeInfo();
+    if (typeInfo instanceof TypeInfoCache) {
+      ((TypeInfoCache) typeInfo).cacheSQLTypes();
+    }
 
     Field[] f = new Field[18];
     List<Tuple> v = new ArrayList<>(); // The new ResultSet tuple stuff

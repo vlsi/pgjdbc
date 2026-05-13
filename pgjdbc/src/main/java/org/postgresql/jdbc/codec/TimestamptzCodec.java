@@ -148,14 +148,9 @@ public final class TimestamptzCodec implements BinaryCodec, TextCodec {
       OffsetDateTime odt = ts.toOffsetDateTimeBin(data);
       return (T) odt.toInstant();
     }
-    if (targetClass == LocalDateTime.class) {
-      OffsetDateTime odt = ts.toOffsetDateTimeBin(data);
-      return (T) odt.toLocalDateTime();
-    }
-    if (targetClass == LocalDate.class) {
-      OffsetDateTime odt = ts.toOffsetDateTimeBin(data);
-      return (T) odt.toLocalDate();
-    }
+    // LocalDate / LocalTime / LocalDateTime are intentionally rejected — they
+    // drop the time zone information that this column carries; the JDBC
+    // contract surfaces that as DATA_TYPE_MISMATCH.
     if (targetClass == java.sql.Date.class) {
       return (T) ts.toDateBin(null, data);
     }
@@ -193,14 +188,8 @@ public final class TimestamptzCodec implements BinaryCodec, TextCodec {
       OffsetDateTime odt = ts.toOffsetDateTime(data);
       return odt == null ? null : (T) odt.toInstant();
     }
-    if (targetClass == LocalDateTime.class) {
-      OffsetDateTime odt = ts.toOffsetDateTime(data);
-      return odt == null ? null : (T) odt.toLocalDateTime();
-    }
-    if (targetClass == LocalDate.class) {
-      OffsetDateTime odt = ts.toOffsetDateTime(data);
-      return odt == null ? null : (T) odt.toLocalDate();
-    }
+    // LocalDate / LocalTime / LocalDateTime are intentionally rejected — they
+    // drop the time zone information that this column carries.
     if (targetClass == java.sql.Date.class) {
       return (T) ts.toDate(null, data);
     }
@@ -223,6 +212,11 @@ public final class TimestamptzCodec implements BinaryCodec, TextCodec {
   public @Nullable String decodeAsString(byte[] data, PgType type, CodecContext ctx) throws SQLException {
     TimestampUtils ts = ctx.getTimestampUtils();
     return ts.toStringOffsetDateTime(data);
+  }
+
+  @Override
+  public @Nullable String decodeAsString(String data, PgType type, CodecContext ctx) throws SQLException {
+    return data;
   }
 
   @Override

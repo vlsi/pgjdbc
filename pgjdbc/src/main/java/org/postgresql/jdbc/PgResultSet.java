@@ -3062,6 +3062,12 @@ public class PgResultSet implements ResultSet, PGRefCursorResultSet {
       return internalGetObject(columnIndex, field);
     }
 
+    // Special case: XML returns SQLXML wrapper for the JDBC contract; the
+    // codec layer otherwise hands back String.
+    if (oid == Oid.XML) {
+      return getSQLXML(columnIndex);
+    }
+
     // Use codec for all other types
     field = getFieldWithCodec(columnIndex);
     PgType pgType = field.getPgType();

@@ -401,7 +401,9 @@ public class PgArray implements Array {
 
   @Override
   public String getBaseTypeName() throws SQLException {
-    return getElementPgType().getFullName();
+    // Legacy contract: raw pg_type.typname (e.g. "int4"), not the format_type()
+    // pretty name ("integer").
+    return getElementPgType().getTypeName().getName();
   }
 
   @Override

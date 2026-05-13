@@ -118,13 +118,13 @@ public final class TimetzCodec implements BinaryCodec, TextCodec {
     if (targetClass == OffsetTime.class) {
       return (T) ts.toOffsetTimeBin(data);
     }
-    if (targetClass == LocalTime.class) {
-      return (T) ts.toOffsetTimeBin(data).toLocalTime();
-    }
     if (targetClass == OffsetDateTime.class) {
       // JDBC spec: timetz can be retrieved as OffsetDateTime with epoch date
       return (T) ts.toOffsetTimeBin(data).atDate(LocalDate.ofEpochDay(0));
     }
+    // LocalTime / LocalDateTime / LocalDate are explicitly rejected per the
+    // JDBC contract — they discard the time zone information that this column
+    // carries. Fall through to the throw below.
     if (targetClass == java.util.Date.class) {
       return (T) ts.toTimeBin(null, data);
     }
@@ -151,15 +151,13 @@ public final class TimetzCodec implements BinaryCodec, TextCodec {
     if (targetClass == OffsetTime.class) {
       return (T) ts.toOffsetTime(data);
     }
-    if (targetClass == LocalTime.class) {
-      OffsetTime ot = ts.toOffsetTime(data);
-      return ot == null ? null : (T) ot.toLocalTime();
-    }
     if (targetClass == OffsetDateTime.class) {
       // JDBC spec: timetz can be retrieved as OffsetDateTime with epoch date
       OffsetTime ot = ts.toOffsetTime(data);
       return ot == null ? null : (T) ot.atDate(LocalDate.ofEpochDay(0));
     }
+    // LocalTime / LocalDateTime / LocalDate are rejected — they drop the
+    // time zone information that this column carries.
     if (targetClass == java.util.Date.class) {
       return (T) ts.toTime(null, data);
     }
@@ -179,6 +177,11 @@ public final class TimetzCodec implements BinaryCodec, TextCodec {
   public @Nullable String decodeAsString(byte[] data, PgType type, CodecContext ctx) throws SQLException {
     TimestampUtils ts = ctx.getTimestampUtils();
     return ts.toStringOffsetTimeBin(data);
+  }
+
+  @Override
+  public @Nullable String decodeAsString(String data, PgType type, CodecContext ctx) throws SQLException {
+    return data;
   }
 
   @Override

@@ -80,6 +80,7 @@ public class TypeInfoCache implements TypeInfo {
   private final BaseConnection conn;
   private final int unknownLength;
   private @Nullable PreparedStatement findPgTypeByName;
+  private @Nullable PreparedStatement findPgTypeByTypname;
   private @Nullable PreparedStatement findPgTypeByOid;
   private @Nullable PreparedStatement findAllPgTypes;
   private @Nullable PreparedStatement findCompositeFields;
@@ -398,8 +399,35 @@ public class TypeInfoCache implements TypeInfo {
         return pgType;
       }
 
+      LOGGER.log(Level.FINEST, "querying SQL typecode for pg type {0}", pgTypeName);
       PreparedStatement findPgTypeByPgName = prepareFindPgTypeByPgName(pgTypeName);
-      PgType res = loadPgTypes(findPgTypeByPgName);
+      PgType res;
+      try {
+        res = loadPgTypes(findPgTypeByPgName);
+      } catch (PSQLException e) {
+        // regtype cast can fail for names outside the current search_path
+        // (e.g. SearchPathLookupTest exercises the back-compat path that
+        // resolves the most recently created type by typname alone). Fall
+        // back to a plain typname lookup before giving up.
+        res = null;
+      }
+      if (res == null) {
+        // Strip enclosing quotes (and trailing schema-qualifier) so the
+        // typname comparison sees the raw identifier as stored in pg_type.
+        String fallbackName = pgTypeName;
+        int lastDot = fallbackName.lastIndexOf('.');
+        if (lastDot >= 0) {
+          fallbackName = fallbackName.substring(lastDot + 1);
+        }
+        if (fallbackName.length() >= 2
+            && fallbackName.charAt(0) == '"'
+            && fallbackName.charAt(fallbackName.length() - 1) == '"') {
+          fallbackName = fallbackName.substring(1, fallbackName.length() - 1);
+        }
+        PreparedStatement fallback = prepareFindPgTypeByTypname();
+        fallback.setString(1, fallbackName);
+        res = loadPgTypes(fallback);
+      }
       if (res == null) {
         throw new PSQLException(GT.tr("Unknown type {0}.", pgTypeName),
             PSQLState.INVALID_PARAMETER_TYPE);
@@ -407,6 +435,17 @@ public class TypeInfoCache implements TypeInfo {
       typesByPgName.put(pgTypeName, res);
       return castNonNull(res);
     }
+  }
+
+  private PreparedStatement prepareFindPgTypeByTypname() throws SQLException {
+    PreparedStatement findTypeStatement = this.findPgTypeByTypname;
+    if (findTypeStatement == null) {
+      String sql = getFindPgTypeQuery(
+          " WHERE t.typname = ? ORDER BY t.oid DESC LIMIT 1");
+      findTypeStatement = conn.prepareStatement(sql);
+      this.findPgTypeByTypname = findTypeStatement;
+    }
+    return findTypeStatement;
   }
 
   @Override
@@ -424,7 +463,12 @@ public class TypeInfoCache implements TypeInfo {
 
       PreparedStatement findPgTypeByOid = prepareFindPgTypeByOid();
       findPgTypeByOid.setInt(1, oid);
-      return castNonNull(loadPgTypes(findPgTypeByOid));
+      PgType loaded = loadPgTypes(findPgTypeByOid);
+      if (loaded == null) {
+        throw new PSQLException(
+            GT.tr("No results were returned by the query."), PSQLState.NO_DATA);
+      }
+      return loaded;
     }
   }
 

@@ -233,9 +233,13 @@ public class PgType {
       case Oid.TIMETZ:
         return Types.TIME;
       case Oid.TIMESTAMP:
-        return Types.TIMESTAMP;
       case Oid.TIMESTAMPTZ:
-        return Types.TIMESTAMP_WITH_TIMEZONE;
+        // Legacy pgjdbc reports both timestamp and timestamptz as
+        // Types.TIMESTAMP via DatabaseMetaData / ResultSetMetaData; switching
+        // timestamptz to Types.TIMESTAMP_WITH_TIMEZONE (2014) breaks
+        // downstream code (Hibernate / jOOQ type switches, our own
+        // DatabaseMetaDataTest, etc.) that pattern-match on Types.TIMESTAMP.
+        return Types.TIMESTAMP;
       // Special types
       case Oid.REFCURSOR:
         return Types.REF_CURSOR;
