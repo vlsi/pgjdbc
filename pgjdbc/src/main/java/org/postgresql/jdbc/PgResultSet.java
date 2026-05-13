@@ -3072,6 +3072,14 @@ public class PgResultSet implements ResultSet, PGRefCursorResultSet {
       return getSQLXML(columnIndex);
     }
 
+    // Special case: 'unknown' (oid 705) — the backend couldn't infer the
+    // column type (e.g. `SELECT 'ok' where ...` with no cast). The legacy
+    // contract is to coerce the raw bytes to a String rather than falling
+    // through to the codec layer (which would return a PGobject wrapper).
+    if (oid == 705) {
+      return getString(columnIndex);
+    }
+
     // For date/time columns, the legacy contract is that any getter triggers
     // the per-resultset default-timezone cache (so subsequent getters with
     // the same Calendar hit a hot path). Touch the cache here since the

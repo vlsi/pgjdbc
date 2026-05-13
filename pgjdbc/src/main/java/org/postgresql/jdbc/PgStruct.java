@@ -49,6 +49,7 @@ public class PgStruct extends org.postgresql.util.PGobject implements Struct {
    * @param attributes the attribute values
    * @param connection the connection (used for type mapping)
    */
+  @SuppressWarnings("method.invocation")
   public PgStruct(String typeName, @Nullable Object[] attributes, @Nullable BaseConnection connection) {
     this.typeName = typeName;
     this.attributes = attributes.clone();
@@ -56,7 +57,9 @@ public class PgStruct extends org.postgresql.util.PGobject implements Struct {
     // Also satisfy the PGobject contract — callers that expect getObject(int)
     // to return a typed PGobject (the legacy contract) get a non-null type
     // string back, and value is left null since the composite text
-    // representation isn't materialized here.
+    // representation isn't materialized here. PGobject.setType is final and
+    // only assigns a field, so the partially-initialized 'this' is fine
+    // (matches the PGmoney constructor pattern).
     setType(typeName);
   }
 

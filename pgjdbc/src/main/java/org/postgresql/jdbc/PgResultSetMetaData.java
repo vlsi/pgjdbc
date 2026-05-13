@@ -473,6 +473,18 @@ public class PgResultSetMetaData implements ResultSetMetaData, PGResultSetMetaDa
   public String getColumnClassName(int column) throws SQLException {
     PgType pgType = getFieldWithType(column).getPgType();
     int oid = pgType.getOid();
+    // For built-in types JavaTypeRegistry has a precise mapping; for extension
+    // types (e.g. hstore, whose OID is assigned at install time) fall through
+    // to the codec's default Java type so callers see the right wrapper class
+    // (Map for hstore, etc.) instead of the registry's default String.
+    org.postgresql.api.codec.Codec codec =
+        connection.getTypeInfo().getCodecRegistry().getByOid(oid, pgType);
+    if (codec != null) {
+      Class<?> codecDefault = codec.getDefaultJavaType();
+      if (codecDefault != null && codecDefault != Object.class) {
+        return codecDefault.getName();
+      }
+    }
     return JavaTypeRegistry.getDefaultJavaClassName(oid);
   }
 
