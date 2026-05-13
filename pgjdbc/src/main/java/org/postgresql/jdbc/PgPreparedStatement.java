@@ -580,6 +580,11 @@ class PgPreparedStatement extends PgStatement implements PreparedStatement {
           @SuppressWarnings("JavaUtilDate")
           Time res = new Time(((java.util.Date) in).getTime());
           setTime(parameterIndex, res);
+        } else if (in instanceof java.time.OffsetTime) {
+          // Legacy contract: an OffsetTime passed with Types.TIME is bound as
+          // timetz so the offset survives the round-trip — TIME (no tz) would
+          // silently drop it.
+          encodeViaCodec(parameterIndex, in, TimetzCodec.INSTANCE, Oid.TIMETZ);
         } else {
           // Handles LocalTime and other types via TimeCodec
           encodeViaCodec(parameterIndex, in, TimeCodec.INSTANCE, Oid.TIME);
