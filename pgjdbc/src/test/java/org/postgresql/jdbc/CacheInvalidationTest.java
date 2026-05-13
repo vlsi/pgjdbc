@@ -22,6 +22,7 @@ import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.sql.Statement;
 import java.sql.Struct;
+import java.util.List;
 
 /**
  * Integration tests for TypeInfoCache invalidation on DDL commands.
@@ -302,6 +303,51 @@ public class CacheInvalidationTest {
     } finally {
       try (Statement stmt = conn.createStatement()) {
         stmt.execute("DROP TYPE IF EXISTS cache_test_type CASCADE");
+      }
+    }
+  }
+
+  // ==================== SET search_path invalidation =====================
+
+  /**
+   * Changing the {@code search_path} between two schemas that hold a type
+   * with the same name must invalidate the per-connection name->type cache.
+   * Otherwise the second {@code getPgTypeByPgName} returns the OID resolved
+   * before the {@code SET} and the caller acts on stale metadata.
+   */
+  @Test
+  void setSearchPath_typeCacheInvalidated() throws SQLException {
+    try (Statement stmt = conn.createStatement()) {
+      stmt.execute("CREATE SCHEMA cache_test_schema_a");
+      stmt.execute("CREATE SCHEMA cache_test_schema_b");
+      stmt.execute("CREATE TYPE cache_test_schema_a.cache_test_searchpath AS (id int)");
+      stmt.execute("CREATE TYPE cache_test_schema_b.cache_test_searchpath AS (name text)");
+
+      org.postgresql.core.TypeInfo typeInfo =
+          conn.unwrap(org.postgresql.core.BaseConnection.class).getTypeInfo();
+
+      stmt.execute("SET search_path TO cache_test_schema_a");
+      int oidA = typeInfo.getPgTypeByPgName("cache_test_searchpath").getOid();
+      List<org.postgresql.jdbc.PgField> fieldsA =
+          typeInfo.getFields(oidA);
+      assertEquals(1, fieldsA.size(), "schema_a type has one int field");
+      assertEquals("id", fieldsA.get(0).getName());
+
+      stmt.execute("SET search_path TO cache_test_schema_b");
+      int oidB = typeInfo.getPgTypeByPgName("cache_test_searchpath").getOid();
+      // The cache must be invalidated so the bare typename resolves to the
+      // type now visible via search_path, not the one cached previously.
+      assertEquals(false, oidA == oidB,
+          "After SET search_path, getPgTypeByPgName must resolve to the new schema's type");
+      List<org.postgresql.jdbc.PgField> fieldsB =
+          typeInfo.getFields(oidB);
+      assertEquals(1, fieldsB.size(), "schema_b type has one text field");
+      assertEquals("name", fieldsB.get(0).getName());
+    } finally {
+      try (Statement stmt = conn.createStatement()) {
+        stmt.execute("RESET search_path");
+        stmt.execute("DROP SCHEMA IF EXISTS cache_test_schema_a CASCADE");
+        stmt.execute("DROP SCHEMA IF EXISTS cache_test_schema_b CASCADE");
       }
     }
   }
