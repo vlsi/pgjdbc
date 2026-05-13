@@ -381,9 +381,12 @@ public class PgConnection implements BaseConnection {
     TypeInfo typeCache = createTypeInfo(this, unknownLength);
     this.typeCache = typeCache;
 
-    // Initialize codec infrastructure
-    this.codecRegistry = new CodecRegistry();
-    this.javaTypeRegistry = new JavaTypeRegistry();
+    // Initialize codec infrastructure. Share the TypeInfoCache's
+    // JavaTypeRegistry so addDataType updates apply to codec-context lookups
+    // (PgResultSet.getObject's type map check goes through codecContext.javaTypes,
+    // which has to see the user-registered classes).
+    this.codecRegistry = typeCache.getCodecRegistry();
+    this.javaTypeRegistry = typeCache.getJavaTypeRegistry();
 
     initObjectTypes(info);
 
@@ -853,6 +856,24 @@ public class PgConnection implements BaseConnection {
     checkClosed();
     // first add the data type to the type cache
     typeCache.addDataType(type, klass);
+    // then check if this type supports binary transfer
+    if (org.postgresql.util.PGBinaryObject.class.isAssignableFrom(klass)
+        && getPreferQueryMode() != PreferQueryMode.SIMPLE) {
+      // try to get an oid for this type (will return 0 if the type does not
+      // exist in the database)
+      int oid;
+      try {
+        oid = typeCache.getPgTypeByPgName(type).getOid();
+      } catch (SQLException e) {
+        oid = 0;
+      }
+      // check if oid is there and if it is not disabled for binary transfer
+      if (oid > 0 && !binaryDisabledOids.contains(oid)) {
+        // allow using binary transfer for receiving and sending of this type
+        queryExecutor.addBinaryReceiveOid(oid);
+        queryExecutor.addBinarySendOid(oid);
+      }
+    }
   }
 
   // This initialises the objectTypes hash map

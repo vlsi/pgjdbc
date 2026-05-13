@@ -801,6 +801,14 @@ class PgPreparedStatement extends PgStatement implements PreparedStatement {
       setClob(parameterIndex, (Clob) x);
     } else if (x instanceof Array) {
       setArray(parameterIndex, (Array) x);
+    } else if (x instanceof java.sql.Struct) {
+      // PgStruct extends PGobject so we have to check Struct before PGobject;
+      // setPGobject would otherwise bind the (null) value field as NULL.
+      setStruct(parameterIndex, (java.sql.Struct) x);
+    } else if (x instanceof java.sql.SQLData) {
+      // Same reasoning: a SQLData implementation may also subclass PGobject
+      // and we want the composite-encoding path.
+      setSQLData(parameterIndex, (java.sql.SQLData) x);
     } else if (x instanceof PGobject) {
       setPGobject(parameterIndex, (PGobject) x);
     } else if (x instanceof Character) {

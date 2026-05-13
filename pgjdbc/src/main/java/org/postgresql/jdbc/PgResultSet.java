@@ -154,8 +154,12 @@ public class PgResultSet implements ResultSet, PGRefCursorResultSet {
     CodecContext ctx = codecContext;
     if (ctx == null) {
       // Defer to the connection so the codec context picks up the current
-      // typeMap and java.time / convertBooleanToNumeric preferences.
-      ctx = connection.getCodecContext();
+      // typeMap and java.time / convertBooleanToNumeric preferences. Then
+      // bind the per-resultset TimestampUtils so timezone caching is scoped
+      // to this ResultSet (TimezoneCachingTest's contract: each codec call
+      // populates the result set's own dateTimeHelper.defaultTimeZone).
+      ctx = connection.getCodecContext()
+          .withTimestampUtils(dateTimeHelper.getTimestampUtils());
       codecContext = ctx;
     }
     return ctx;
@@ -3066,6 +3070,15 @@ public class PgResultSet implements ResultSet, PGRefCursorResultSet {
     // codec layer otherwise hands back String.
     if (oid == Oid.XML) {
       return getSQLXML(columnIndex);
+    }
+
+    // For date/time columns, the legacy contract is that any getter triggers
+    // the per-resultset default-timezone cache (so subsequent getters with
+    // the same Calendar hit a hot path). Touch the cache here since the
+    // codec path doesn't go through getDefaultCalendar otherwise.
+    if (oid == Oid.DATE || oid == Oid.TIME || oid == Oid.TIMETZ
+        || oid == Oid.TIMESTAMP || oid == Oid.TIMESTAMPTZ) {
+      dateTimeHelper.getDefaultCalendar();
     }
 
     // Use codec for all other types

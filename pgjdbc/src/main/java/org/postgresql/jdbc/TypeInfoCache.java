@@ -66,6 +66,12 @@ public class TypeInfoCache implements TypeInfo {
   private final Map<Integer, PgType> typesByOid = new HashMap<>();
   // Connection-specific name -> PgType cache
   private final Map<String, PgType> typesByPgName = new HashMap<>();
+  // Cache: oid -> visibility-aware display name (e.g. "int4" if on-path or
+  // "\"Schema\".\"Type\"" if off-path). Computed lazily from
+  // pg_type_is_visible. The legacy driver maintained the same map and
+  // several callers (Array.getBaseTypeName, ResultSetMetaData.getColumnTypeName)
+  // rely on its qualified-name semantics.
+  private final Map<Integer, String> displayNameByOid = new HashMap<>();
   // Global oid -> PgType cache which includes only well-known types
   private static final Map<Integer, PgType> DEFAULT_TYPES_BY_OID;
   // Global name -> PgType cache which includes only well-known types
@@ -84,6 +90,7 @@ public class TypeInfoCache implements TypeInfo {
   private @Nullable PreparedStatement findPgTypeByOid;
   private @Nullable PreparedStatement findAllPgTypes;
   private @Nullable PreparedStatement findCompositeFields;
+  private @Nullable PreparedStatement findTypeVisibility;
   private final ResourceLock lock = new ResourceLock();
 
   // Note: this is generated with org.postgresql.jdbc.TypeInfoCacheTest.generateBaseTypes
@@ -380,6 +387,7 @@ public class TypeInfoCache implements TypeInfo {
     // Epoch mismatch, invalidating the caches
     typesByPgName.clear();
     typesByOid.clear();
+    displayNameByOid.clear();
     codecRegistry.invalidateCache();
     // Update epoch after clearing to prevent repeated invalidations
     this.typeCacheEpoch = connectionTypeCacheEpoch;
@@ -435,6 +443,67 @@ public class TypeInfoCache implements TypeInfo {
       typesByPgName.put(pgTypeName, res);
       return castNonNull(res);
     }
+  }
+
+  /**
+   * Resolves the display name for the given type OID using the legacy
+   * driver's "qualified-when-not-visible" rule:
+   *
+   * <ul>
+   *   <li>If the type is reachable via the current search_path with the bare
+   *       {@code typname}, return {@code typname} (e.g. "int4").</li>
+   *   <li>Otherwise return {@code "schema"."typname"} (quoted, qualified)
+   *       so the result is unambiguous (e.g.
+   *       {@code "Composites"."ComplexCompositeTest"}).</li>
+   * </ul>
+   *
+   * <p>The result is cached per-connection and invalidated together with the
+   * rest of the type cache (any CREATE/DROP/ALTER/SET search_path).</p>
+   *
+   * @param oid the type OID
+   * @return the display name, or null if the OID does not refer to a type
+   * @throws SQLException if the visibility lookup fails
+   */
+  public @Nullable String getPGTypeDisplayName(int oid) throws SQLException {
+    if (oid == Oid.UNSPECIFIED) {
+      return null;
+    }
+    try (ResourceLock ignore = lock.obtain()) {
+      invalidateCacheIfNeeded();
+      String cached = displayNameByOid.get(oid);
+      if (cached != null) {
+        return cached;
+      }
+      PreparedStatement ps = prepareFindTypeVisibility();
+      ps.setInt(1, oid);
+      if (!((BaseStatement) ps).executeWithFlags(QueryExecutor.QUERY_SUPPRESS_BEGIN)) {
+        return null;
+      }
+      try (ResultSet rs = castNonNull(ps.getResultSet())) {
+        if (!rs.next()) {
+          return null;
+        }
+        String typname = castNonNull(rs.getString(1));
+        String nspname = castNonNull(rs.getString(2));
+        boolean visible = rs.getBoolean(3);
+        String display = visible ? typname : "\"" + nspname + "\".\"" + typname + "\"";
+        displayNameByOid.put(oid, display);
+        return display;
+      }
+    }
+  }
+
+  private PreparedStatement prepareFindTypeVisibility() throws SQLException {
+    PreparedStatement ps = this.findTypeVisibility;
+    if (ps == null) {
+      ps = conn.prepareStatement(
+          "SELECT t.typname, n.nspname, pg_catalog.pg_type_is_visible(t.oid) "
+              + "FROM pg_catalog.pg_type t "
+              + "JOIN pg_catalog.pg_namespace n ON (t.typnamespace = n.oid) "
+              + "WHERE t.oid = ?");
+      this.findTypeVisibility = ps;
+    }
+    return ps;
   }
 
   private PreparedStatement prepareFindPgTypeByTypname() throws SQLException {

@@ -137,6 +137,13 @@ public class PgType {
    * @return the JDBC SQL type constant from {@link java.sql.Types}
    */
   public static int toJdbcSqlType(int oid, char typcategory, char typtype) {
+    // Domains are JDBC DISTINCT regardless of base typcategory (per JDBC spec).
+    // This precedence matters for callers like PgDatabaseMetaData.getColumns,
+    // where the jdbc3 contract reports DATA_TYPE=DISTINCT for domain columns
+    // while still keeping the base type's COLUMN_SIZE / DECIMAL_DIGITS.
+    if (typtype == 'd') {
+      return Types.DISTINCT;
+    }
     // For built-in types, use OID for precise mapping
     int sqlType = getSqlTypeByOid(oid);
     if (sqlType != Types.OTHER) {
@@ -151,6 +158,10 @@ public class PgType {
    * Used for user-defined types where OID is not known in advance.
    */
   public static int toJdbcSqlType(char typcategory, char typtype) {
+    // Domain precedence over the inherited typcategory (see toJdbcSqlType(oid, ...)).
+    if (typtype == 'd') {
+      return Types.DISTINCT;
+    }
     switch (typcategory) {
       case 'A':
         return Types.ARRAY;
@@ -168,8 +179,6 @@ public class PgType {
     switch (typtype) {
       case 'c':
         return Types.STRUCT;
-      case 'd':
-        return Types.DISTINCT;
       case 'e':
         return Types.VARCHAR;
       default:

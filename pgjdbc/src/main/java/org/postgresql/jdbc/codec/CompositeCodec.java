@@ -643,16 +643,20 @@ public final class CompositeCodec implements BinaryCodec, TextCodec {
         CodecDepth.exit();
       }
     }
-    if (value instanceof PGobject) {
-      String strValue = ((PGobject) value).getValue();
-      return strValue != null ? strValue : "";
-    }
     if (value instanceof Struct) {
+      // Check Struct before PGobject: PgStruct extends PGobject AND implements
+      // Struct, and the PGobject view's value field is intentionally null —
+      // taking the PGobject branch would bind an empty string and the server
+      // would reject it as a malformed record literal.
       // Delegate per-field encoding to the registered TextCodec for each
       // attribute's OID, instead of relying on Object.toString() which is
       // wrong for many types (e.g., Timestamp, byte[], Boolean).
       Struct struct = (Struct) value;
       return encodeAttributesAsText(struct.getAttributes(), type, ctx);
+    }
+    if (value instanceof PGobject) {
+      String strValue = ((PGobject) value).getValue();
+      return strValue != null ? strValue : "";
     }
     throw new PSQLException(
         GT.tr("Cannot convert {0} to composite", value.getClass().getName()),

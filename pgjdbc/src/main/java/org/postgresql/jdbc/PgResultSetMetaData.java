@@ -11,6 +11,7 @@ import org.postgresql.PGResultSetMetaData;
 import org.postgresql.core.BaseConnection;
 import org.postgresql.core.Field;
 import org.postgresql.core.ServerVersion;
+import org.postgresql.core.TypeInfo;
 import org.postgresql.util.GT;
 import org.postgresql.util.Gettable;
 import org.postgresql.util.GettableHashMap;
@@ -440,10 +441,19 @@ public class PgResultSetMetaData implements ResultSetMetaData, PGResultSetMetaDa
   }
 
   protected @Nullable String getPGType(int columnIndex) throws SQLException {
-    // Return the raw pg_type.typname (e.g. "int4", "_int4"), not the
-    // format_type() pretty name — matches the legacy ResultSetMetaData
+    // Return the raw pg_type.typname (e.g. "int4", "_int4") for on-path types,
+    // but a fully qualified \"schema\".\"typname\" form for off-path/shadowed
+    // types (e.g. "Composites"."Table"). Matches the legacy ResultSetMetaData
     // contract used by getColumnTypeName.
-    return getFieldWithType(columnIndex).getPgType().getTypeName().getName();
+    PgType pgType = getFieldWithType(columnIndex).getPgType();
+    TypeInfo typeInfo = connection.getTypeInfo();
+    if (typeInfo instanceof TypeInfoCache) {
+      String displayName = ((TypeInfoCache) typeInfo).getPGTypeDisplayName(pgType.getOid());
+      if (displayName != null) {
+        return displayName;
+      }
+    }
+    return pgType.getTypeName().getName();
   }
 
   protected int getSQLType(int columnIndex) throws SQLException {

@@ -2505,7 +2505,11 @@ public class QueryExecutorImpl extends QueryExecutorBase {
           }
           if (status.startsWith("CREATE ") || status.startsWith("DROP ")
               || status.startsWith("ALTER ")) {
-            deallocateEpoch++;
+            // Bump only the type cache: prepared statements should stay
+            // around so AutoRollback's "cached plan must not change result
+            // type" path (autosave=NEVER + ALTER on the queried table) keeps
+            // surfacing the legacy error, and any plan-reuse benefits aren't
+            // discarded on every DDL.
             typeCacheEpoch++;
           }
 

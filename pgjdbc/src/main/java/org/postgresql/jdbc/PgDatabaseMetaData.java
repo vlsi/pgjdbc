@@ -2777,7 +2777,19 @@ public class PgDatabaseMetaData implements DatabaseMetaData {
       byte[] @Nullable [] tuple = new byte[19][];
       String typname = castNonNull(rs.getString(1));
       int typeOid = (int) rs.getLong(2);
-      PgType pgType = connection.getTypeInfo().getPgTypeByOid(typeOid);
+      PgType pgType;
+      try {
+        pgType = connection.getTypeInfo().getPgTypeByOid(typeOid);
+      } catch (PSQLException e) {
+        // Concurrent DROP TYPE may have removed the type between the outer
+        // SELECT pg_type and this per-oid lookup (TypeCacheDLLStressTest
+        // exercises the race). Skip the row rather than aborting the whole
+        // ResultSet.
+        if (PSQLState.NO_DATA.getState().equals(e.getSQLState())) {
+          continue;
+        }
+        throw e;
+      }
 
       tuple[0] = connection.encodeString(typname);
       int sqlType = pgType.getSqlType();

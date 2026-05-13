@@ -401,8 +401,17 @@ public class PgArray implements Array {
 
   @Override
   public String getBaseTypeName() throws SQLException {
-    // Legacy contract: raw pg_type.typname (e.g. "int4"), not the format_type()
-    // pretty name ("integer").
+    // Legacy contract: raw pg_type.typname (e.g. "int4") for types reachable
+    // via the search_path, but a fully qualified \"schema\".\"typname\" form
+    // for off-path or quoted types (e.g. "Composites"."ComplexCompositeTest").
+    int elemOid = getElementPgType().getOid();
+    TypeInfo typeInfo = getConnection().getTypeInfo();
+    if (typeInfo instanceof TypeInfoCache) {
+      String displayName = ((TypeInfoCache) typeInfo).getPGTypeDisplayName(elemOid);
+      if (displayName != null) {
+        return displayName;
+      }
+    }
     return getElementPgType().getTypeName().getName();
   }
 

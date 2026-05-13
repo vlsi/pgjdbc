@@ -216,9 +216,50 @@ public final class CodecContext {
     if (conn == null || registries == null || javaTypeReg == null) {
       throw new SQLException("withTypeMap is not supported on a connectionless CodecContext");
     }
-    return new CodecContext(conn, registries, javaTypeReg, typeMap,
+    CodecContext copy = new CodecContext(conn, registries, javaTypeReg, typeMap,
         prefersJavaTimeForDate, prefersJavaTimeForTime, prefersJavaTimeForTimetz,
         prefersJavaTimeForTimestamp, prefersJavaTimeForTimestamptz, convertBooleanToNumeric);
+    if (timestampUtils != null) {
+      copy = copy.withTimestampUtils(timestampUtils);
+    }
+    return copy;
+  }
+
+  /**
+   * Returns a new CodecContext that uses the given TimestampUtils instance
+   * for date/time conversions. This is meant for callers like PgResultSet
+   * that maintain a per-instance TimestampUtils (so timezone caching is
+   * scoped to the result set rather than shared at the connection level).
+   *
+   * @param utils the TimestampUtils to use, or null to fall through to the
+   *     connection-level default
+   * @return a new CodecContext that delegates getTimestampUtils to {@code utils}
+   */
+  public CodecContext withTimestampUtils(@Nullable TimestampUtils utils) {
+    if (utils == this.timestampUtils) {
+      return this;
+    }
+    return new CodecContext(this, utils);
+  }
+
+  /**
+   * Copy constructor with a custom TimestampUtils.
+   */
+  private CodecContext(CodecContext source, @Nullable TimestampUtils utils) {
+    this.connection = source.connection;
+    this.typeInfo = source.typeInfo;
+    this.codecs = source.codecs;
+    this.javaTypes = source.javaTypes;
+    this.typeMap = source.typeMap;
+    this.encoding = source.encoding;
+    this.charset = source.charset;
+    this.timestampUtils = utils;
+    this.prefersJavaTimeForDate = source.prefersJavaTimeForDate;
+    this.prefersJavaTimeForTime = source.prefersJavaTimeForTime;
+    this.prefersJavaTimeForTimetz = source.prefersJavaTimeForTimetz;
+    this.prefersJavaTimeForTimestamp = source.prefersJavaTimeForTimestamp;
+    this.prefersJavaTimeForTimestamptz = source.prefersJavaTimeForTimestamptz;
+    this.convertBooleanToNumeric = source.convertBooleanToNumeric;
   }
 
   /**
