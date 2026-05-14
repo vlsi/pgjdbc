@@ -12,6 +12,7 @@ import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import org.postgresql.PGProperty;
 import org.postgresql.test.TestUtil;
 import org.postgresql.test.jdbc2.BaseTest4;
 
@@ -50,6 +51,7 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Properties;
 
 @Execution(ExecutionMode.SAME_THREAD)
 @ParameterizedClass
@@ -87,6 +89,11 @@ class SpringJdbcCompositeConsumerTest extends BaseTest4 {
       stmt.execute("CREATE SCHEMA " + QUOTED_SCHEMA);
       stmt.execute("CREATE TYPE " + QUOTED_ADDRESS_TYPE + " AS (\"streetLine\" text, \"postalCode\" text)");
       stmt.execute("CREATE TABLE " + QUOTED_TABLE + " (id int primary key, \"shippingAddress\" " + QUOTED_ADDRESS_TYPE + ")");
+      stmt.execute("CREATE OR REPLACE FUNCTION " + QUOTED_SCHEMA + ".\"transformaddress\"(address " + QUOTED_ADDRESS_TYPE + ") "
+          + "RETURNS " + QUOTED_ADDRESS_TYPE + " "
+          + "LANGUAGE sql AS $$ "
+          + "  SELECT ROW(($1).\"streetLine\" || ' updated', ($1).\"postalCode\")::" + QUOTED_ADDRESS_TYPE + " "
+        + "$$");
 
       stmt.execute("CREATE TYPE spring_order_line AS (sku text, quantity int)");
       stmt.execute("CREATE TABLE spring_baskets (id int primary key, items spring_order_line[])");
@@ -499,6 +506,51 @@ class SpringJdbcCompositeConsumerTest extends BaseTest4 {
   }
 
   @Test
+  void jdbcTemplate_arraysOfNestedComposites_preserveMixedNulls() {
+    jdbcTemplate.update(connection -> {
+      PreparedStatement ps = connection.prepareStatement("INSERT INTO spring_nested_baskets (id, items) VALUES (?, ?)");
+      Struct firstName = connection.createStruct("spring_person_name", new Object[]{"Ada", null});
+      Struct firstCustomer = connection.createStruct("spring_customer_record", new Object[]{201, firstName, true});
+      Struct firstLine = connection.createStruct("spring_order_line", new Object[]{"sku-10", null});
+      Struct firstItem = connection.createStruct("spring_order_with_customer", new Object[]{firstCustomer, firstLine});
+      Struct thirdCustomer = connection.createStruct("spring_customer_record", new Object[]{202, null, false});
+      Struct thirdLine = connection.createStruct("spring_order_line", new Object[]{"sku-30", 3});
+      Struct thirdItem = connection.createStruct("spring_order_with_customer", new Object[]{thirdCustomer, thirdLine});
+      Array items = connection.createArrayOf("spring_order_with_customer", new Object[]{firstItem, null, thirdItem});
+      ps.setInt(1, 2);
+      ps.setArray(2, items);
+      return ps;
+    });
+
+    Map<String, Class<?>> typeMap = new HashMap<>();
+    typeMap.put("spring_person_name", SpringPersonName.class);
+    typeMap.put("spring_customer_record", SpringCustomerRecord.class);
+    typeMap.put("spring_order_line", SpringOrderLine.class);
+    typeMap.put("spring_order_with_customer", SpringOrderWithCustomer.class);
+
+    Object[] actual = jdbcTemplate.queryForObject(
+        "SELECT items FROM spring_nested_baskets WHERE id = ?",
+        (rs, rowNum) -> (Object[]) rs.getArray(1).getArray(typeMap),
+        2);
+
+    assertNotNull(actual);
+    assertEquals(3, actual.length);
+    SpringOrderWithCustomer first = assertInstanceOf(SpringOrderWithCustomer.class, actual[0]);
+    assertNull(actual[1]);
+    SpringOrderWithCustomer third = assertInstanceOf(SpringOrderWithCustomer.class, actual[2]);
+    assertEquals(201, first.customer.customerId);
+    assertNotNull(first.customer.fullName);
+    assertEquals("Ada", first.customer.fullName.firstName);
+    assertNull(first.customer.fullName.lastName);
+    assertEquals("sku-10", first.line.sku);
+    assertNull(first.line.quantity);
+    assertEquals(202, third.customer.customerId);
+    assertNull(third.customer.fullName);
+    assertEquals("sku-30", third.line.sku);
+    assertEquals(Integer.valueOf(3), third.line.quantity);
+  }
+
+  @Test
   void springCallbacks_respectSearchPathForShadowedTypeNames() throws SQLException {
     jdbcTemplate.execute("SET search_path TO spring_shadow_a");
     jdbcTemplate.update(connection -> {
@@ -533,6 +585,57 @@ class SpringJdbcCompositeConsumerTest extends BaseTest4 {
         1);
     assertNotNull(fromB);
     assertArrayEquals(new Object[]{7}, fromB.getAttributes());
+  }
+
+  @Test
+  void springCallbacks_reusePreparedStatementAcrossSearchPathSwitch() throws SQLException {
+    jdbcTemplate.execute((Connection connection) -> {
+      try (PreparedStatement insert = connection.prepareStatement(
+          "INSERT INTO spring_shadow_a.orders (id, state) VALUES (?, ?)");
+           PreparedStatement select = connection.prepareStatement(
+               "SELECT state FROM spring_shadow_a.orders WHERE id = ?");
+           Statement stmt = connection.createStatement()) {
+        stmt.execute("SET search_path TO spring_shadow_a");
+        Struct firstState = connection.createStruct("shipping_state", new Object[]{"ready"});
+        insert.setInt(1, 11);
+        insert.setObject(2, firstState);
+        assertEquals(1, insert.executeUpdate());
+
+        stmt.execute("SET search_path TO spring_shadow_b");
+        stmt.execute("SET search_path TO spring_shadow_a");
+        select.setInt(1, 11);
+        try (ResultSet rs = select.executeQuery()) {
+          assertTrue(rs.next());
+          Struct actual = rs.getObject(1, Struct.class);
+          assertArrayEquals(new Object[]{"ready"}, actual.getAttributes());
+        }
+      }
+      return null;
+    });
+
+    jdbcTemplate.execute((Connection connection) -> {
+      try (PreparedStatement insert = connection.prepareStatement(
+          "INSERT INTO spring_shadow_b.orders (id, state) VALUES (?, ?)");
+           PreparedStatement select = connection.prepareStatement(
+               "SELECT state FROM spring_shadow_b.orders WHERE id = ?");
+           Statement stmt = connection.createStatement()) {
+        stmt.execute("SET search_path TO spring_shadow_b");
+        Struct secondState = connection.createStruct("shipping_state", new Object[]{17});
+        insert.setInt(1, 12);
+        insert.setObject(2, secondState);
+        assertEquals(1, insert.executeUpdate());
+
+        stmt.execute("SET search_path TO spring_shadow_a");
+        stmt.execute("SET search_path TO spring_shadow_b");
+        select.setInt(1, 12);
+        try (ResultSet rs = select.executeQuery()) {
+          assertTrue(rs.next());
+          Struct actual = rs.getObject(1, Struct.class);
+          assertArrayEquals(new Object[]{17}, actual.getAttributes());
+        }
+      }
+      return null;
+    });
   }
 
   @Test
@@ -605,6 +708,35 @@ class SpringJdbcCompositeConsumerTest extends BaseTest4 {
   }
 
   @Test
+  void simpleJdbcCall_withQuotedIdentifiers_roundTripsCompositeFunction() throws SQLException {
+    jdbcTemplate.execute("SET search_path TO " + QUOTED_SCHEMA);
+
+    SimpleJdbcCall call = new SimpleJdbcCall(jdbcTemplate)
+        .withFunctionName("\"transformaddress\"")
+        .withoutProcedureColumnMetaDataAccess()
+        .declareParameters(
+            new SqlOutParameter("return", Types.STRUCT, QUOTED_ADDRESS_TYPE),
+            new org.springframework.jdbc.core.SqlParameter("address", Types.STRUCT, QUOTED_ADDRESS_TYPE));
+
+    Struct struct = call.executeFunction(
+        Struct.class,
+        new MapSqlParameterSource()
+            .addValue("address", new SpringSqlStructValue(QUOTED_ADDRESS_TYPE,
+                new Object[]{"221B Baker Street", "NW1"}), Types.STRUCT, QUOTED_ADDRESS_TYPE));
+
+    Map<String, Class<?>> typeMap = new HashMap<>();
+    typeMap.put(QUOTED_ADDRESS_TYPE, SpringQuotedPostalAddress.class);
+
+    assertNotNull(struct);
+    Object decoded = struct.getAttributes(typeMap);
+    Object[] attrs = (Object[]) decoded;
+    assertEquals("221B Baker Street updated", attrs[0]);
+    assertEquals("NW1", attrs[1]);
+
+    jdbcTemplate.execute("RESET search_path");
+  }
+
+  @Test
   void simpleJdbcCall_metadataAutodiscovery_materializesCompositeFunctionReturn() throws SQLException {
     SimpleJdbcCall call = new SimpleJdbcCall(jdbcTemplate)
         .withFunctionName("spring_transform_order_line_default_fn");
@@ -618,6 +750,30 @@ class SpringJdbcCompositeConsumerTest extends BaseTest4 {
     SpringOrderLine actual = toOrderLine(struct, typeMap);
     assertEquals("sku-meta-done", actual.sku);
     assertEquals(Integer.valueOf(14), actual.quantity);
+  }
+
+  @Test
+  void simpleJdbcCall_metadataAutodiscovery_roundTripsProcedureInOutComposite() throws SQLException {
+    Properties props = new Properties();
+    PGProperty.ESCAPE_SYNTAX_CALL_MODE.set(props, "callIfNoReturn");
+
+    try (Connection connection = TestUtil.openDB(props)) {
+      SingleConnectionDataSource dataSource = new SingleConnectionDataSource(connection, true);
+      SimpleJdbcCall call = new SimpleJdbcCall(new JdbcTemplate(dataSource))
+          .withProcedureName("spring_transform_order_line");
+
+      Map<String, Object> out = call.execute(new MapSqlParameterSource()
+          .addValue("line", new SpringSqlStructValue("spring_order_line", new Object[]{"sku-proc", 8}),
+              Types.STRUCT, "spring_order_line"));
+
+      Object value = out.get("line");
+      Struct struct = assertInstanceOf(Struct.class, value, out.toString());
+      Map<String, Class<?>> typeMap = new HashMap<>();
+      typeMap.put("spring_order_line", SpringOrderLine.class);
+      SpringOrderLine actual = toOrderLine(struct, typeMap);
+      assertEquals("sku-proc-done", actual.sku);
+      assertEquals(Integer.valueOf(18), actual.quantity);
+    }
   }
 
   private static SpringOrderLine[] castOrderLines(Object[] raw) {
