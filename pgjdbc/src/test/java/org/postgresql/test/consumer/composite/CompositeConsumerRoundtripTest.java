@@ -315,7 +315,7 @@ public class CompositeConsumerRoundtripTest extends BaseTest4 {
       insert.setObject(2, new BatchCustomer("beta@example.test", 3));
       insert.addBatch();
 
-      assertArrayEquals(new int[]{1, 1}, insert.executeBatch());
+      assertBatchSucceeded(2, insert.executeBatch());
 
       Map<String, Class<?>> typeMap = new HashMap<>();
       typeMap.put("consumer_batch_customer", BatchCustomer.class);
@@ -424,6 +424,17 @@ public class CompositeConsumerRoundtripTest extends BaseTest4 {
         assertEquals("ghost", attrs[1]);
         assertEquals(null, attrs[2]);
       }
+    }
+  }
+
+  // Batch counts can be -2 (Statement.SUCCESS_NO_INFO) when
+  // rewriteBatchedInserts collapses inserts into a single statement.
+  private static void assertBatchSucceeded(int expectedLength, int[] counts) {
+    assertEquals(expectedLength, counts.length);
+    for (int i = 0; i < counts.length; i++) {
+      int count = counts[i];
+      assertTrue(count == 1 || count == Statement.SUCCESS_NO_INFO,
+          "Batch update count at index " + i + " was " + count);
     }
   }
 

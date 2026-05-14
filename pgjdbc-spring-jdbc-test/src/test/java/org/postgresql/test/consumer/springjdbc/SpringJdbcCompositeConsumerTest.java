@@ -287,7 +287,7 @@ public class SpringJdbcCompositeConsumerTest extends BaseTest4 {
             toBatchParameterSource(second)
         });
 
-    assertArrayEquals(new int[]{1, 1}, counts);
+    assertBatchSucceeded(2, counts);
 
     Map<String, Class<?>> typeMap = new HashMap<>();
     typeMap.put("spring_person_name", SpringPersonName.class);
@@ -364,7 +364,7 @@ public class SpringJdbcCompositeConsumerTest extends BaseTest4 {
         });
 
     assertEquals(1, counts.length);
-    assertArrayEquals(new int[]{1, 1}, counts[0]);
+    assertBatchSucceeded(2, counts[0]);
 
     Map<String, Class<?>> typeMap = new HashMap<>();
     typeMap.put("spring_person_name", SpringPersonName.class);
@@ -773,6 +773,17 @@ public class SpringJdbcCompositeConsumerTest extends BaseTest4 {
       SpringOrderLine actual = toOrderLine(struct, typeMap);
       assertEquals("sku-proc-done", actual.sku);
       assertEquals(Integer.valueOf(18), actual.quantity);
+    }
+  }
+
+  // Batch counts can be -2 (Statement.SUCCESS_NO_INFO) when
+  // rewriteBatchedInserts collapses inserts into a single statement.
+  private static void assertBatchSucceeded(int expectedLength, int[] counts) {
+    assertEquals(expectedLength, counts.length);
+    for (int i = 0; i < counts.length; i++) {
+      int count = counts[i];
+      assertTrue(count == 1 || count == Statement.SUCCESS_NO_INFO,
+          "Batch update count at index " + i + " was " + count);
     }
   }
 
