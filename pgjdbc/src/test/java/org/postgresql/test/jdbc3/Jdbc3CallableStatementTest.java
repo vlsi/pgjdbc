@@ -168,7 +168,13 @@ public class Jdbc3CallableStatementTest extends BaseTest4 {
    */
   @Test
   public void testGetObjectWithType_issue2647() throws Throwable {
-    assumeMinimumServerVersion(ServerVersion.v11);
+    // OUT arguments for procedures were added in PostgreSQL 14
+    // (https://www.postgresql.org/docs/14/sql-createprocedure.html). On
+    // PG 11–13 the CREATE PROCEDURE below fails with
+    // "procedures cannot have OUT arguments", so skip those servers —
+    // the issue #2647 reproducer only makes sense once the server
+    // supports the syntax the user reported it with.
+    assumeMinimumServerVersion(ServerVersion.v14);
     try (Statement stmt = con.createStatement()) {
       stmt.execute("CREATE OR REPLACE PROCEDURE test_2647(OUT result BIGINT) AS "
           + "$$ BEGIN result := 42; END $$ LANGUAGE plpgsql");
