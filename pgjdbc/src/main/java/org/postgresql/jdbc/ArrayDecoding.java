@@ -452,7 +452,13 @@ public final class ArrayDecoding {
       bytes.get(copy);
       CodecContext ctx = connection.getCodecContext();
       BinaryCodec codec = ctx.getCodecs().getBinaryCodec(elementOid, elementType);
-      return codec.decodeBinary(copy, elementType, ctx);
+      if (codec == null) {
+        throw new PSQLException(
+            GT.tr("No binary codec registered for element type {0}",
+                elementType.getFullName()),
+            PSQLState.DATA_TYPE_MISMATCH);
+      }
+      return castNonNull(codec.decodeBinary(copy, elementType, ctx));
     }
 
     /**
@@ -462,7 +468,13 @@ public final class ArrayDecoding {
     Object parseValue(String stringVal, BaseConnection connection) throws SQLException {
       CodecContext ctx = connection.getCodecContext();
       TextCodec codec = ctx.getCodecs().getTextCodec(elementOid, elementType);
-      return codec.decodeText(stringVal, elementType, ctx);
+      if (codec == null) {
+        throw new PSQLException(
+            GT.tr("No text codec registered for element type {0}",
+                elementType.getFullName()),
+            PSQLState.DATA_TYPE_MISMATCH);
+      }
+      return castNonNull(codec.decodeText(stringVal, elementType, ctx));
     }
   }
 
