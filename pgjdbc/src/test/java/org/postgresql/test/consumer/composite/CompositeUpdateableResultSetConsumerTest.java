@@ -192,6 +192,109 @@ class CompositeUpdateableResultSetConsumerTest extends BaseTest4 {
     assertPersistedItems(5, new Object[][]{{"sku-i1", 1}, {"sku-i2", 2}});
   }
 
+  @Test
+  void updateRow_thenReadStructFromSameResultSet_reflectsNewValue() throws SQLException {
+    try (Statement seed = con.createStatement()) {
+      seed.executeUpdate(
+          "INSERT INTO updateable_orders (id, line) VALUES (6, ROW('sku-old', 0)::updateable_order_line)");
+    }
+    Struct replacement = con.createStruct("updateable_order_line", new Object[]{"sku-rs", 99});
+
+    try (Statement stmt = con.createStatement(ResultSet.TYPE_SCROLL_INSENSITIVE,
+        ResultSet.CONCUR_UPDATABLE);
+         ResultSet rs = stmt.executeQuery(
+             "SELECT id, line, items FROM updateable_orders WHERE id = 6")) {
+      assertTrue(rs.next());
+      rs.updateObject(2, replacement);
+      rs.updateRow();
+
+      Struct actual = rs.getObject(2, Struct.class);
+      assertNotNull(actual);
+      Object[] attrs = actual.getAttributes();
+      assertEquals("sku-rs", attrs[0]);
+      assertEquals(99, attrs[1]);
+    }
+  }
+
+  @Test
+  void updateRow_thenReadArrayFromSameResultSet_reflectsNewValue() throws SQLException {
+    try (Statement seed = con.createStatement()) {
+      seed.executeUpdate(
+          "INSERT INTO updateable_orders (id, items) VALUES (7, ARRAY[ROW('sku-old', 0)::updateable_order_line])");
+    }
+    Struct first = con.createStruct("updateable_order_line", new Object[]{"sku-p", 11});
+    Struct second = con.createStruct("updateable_order_line", new Object[]{"sku-q", 22});
+    Array items = con.createArrayOf("updateable_order_line", new Object[]{first, second});
+
+    try (Statement stmt = con.createStatement(ResultSet.TYPE_SCROLL_INSENSITIVE,
+        ResultSet.CONCUR_UPDATABLE);
+         ResultSet rs = stmt.executeQuery(
+             "SELECT id, line, items FROM updateable_orders WHERE id = 7")) {
+      assertTrue(rs.next());
+      rs.updateArray(3, items);
+      rs.updateRow();
+
+      Array actual = rs.getArray(3);
+      assertNotNull(actual);
+      Object[] elements = (Object[]) actual.getArray();
+      assertEquals(2, elements.length);
+      assertArrayEquals(new Object[]{"sku-p", 11}, ((Struct) elements[0]).getAttributes());
+      assertArrayEquals(new Object[]{"sku-q", 22}, ((Struct) elements[1]).getAttributes());
+    }
+  }
+
+  @Test
+  void insertRow_thenReadStructFromSameResultSet_reflectsInsertedValue() throws SQLException {
+    Struct line = con.createStruct("updateable_order_line", new Object[]{"sku-ir", 5});
+
+    try (Statement stmt = con.createStatement(ResultSet.TYPE_SCROLL_INSENSITIVE,
+        ResultSet.CONCUR_UPDATABLE);
+         ResultSet rs = stmt.executeQuery("SELECT id, line, items FROM updateable_orders")) {
+      rs.moveToInsertRow();
+      rs.updateInt(1, 8);
+      rs.updateObject(2, line);
+      rs.insertRow();
+
+      Struct actual = rs.getObject(2, Struct.class);
+      assertNotNull(actual);
+      Object[] attrs = actual.getAttributes();
+      assertEquals("sku-ir", attrs[0]);
+      assertEquals(5, attrs[1]);
+    }
+  }
+
+  @Test
+  void refreshRow_afterUpdate_pullsServerStateForCompositeAndArray() throws SQLException {
+    try (Statement seed = con.createStatement()) {
+      seed.executeUpdate("INSERT INTO updateable_orders (id, line, items) VALUES (9, "
+          + "ROW('sku-orig', 1)::updateable_order_line, "
+          + "ARRAY[ROW('sku-arr-orig', 1)::updateable_order_line])");
+    }
+    Struct line = con.createStruct("updateable_order_line", new Object[]{"sku-refresh", 7});
+    Array items = con.createArrayOf("updateable_order_line",
+        new Object[]{con.createStruct("updateable_order_line", new Object[]{"sku-arr-refresh", 7})});
+
+    try (Statement stmt = con.createStatement(ResultSet.TYPE_SCROLL_INSENSITIVE,
+        ResultSet.CONCUR_UPDATABLE);
+         ResultSet rs = stmt.executeQuery(
+             "SELECT id, line, items FROM updateable_orders WHERE id = 9")) {
+      assertTrue(rs.next());
+      rs.updateObject(2, line);
+      rs.updateArray(3, items);
+      rs.updateRow();
+      rs.refreshRow();
+
+      Struct actualLine = rs.getObject(2, Struct.class);
+      assertNotNull(actualLine);
+      assertArrayEquals(new Object[]{"sku-refresh", 7}, actualLine.getAttributes());
+
+      Object[] elements = (Object[]) rs.getArray(3).getArray();
+      assertEquals(1, elements.length);
+      assertArrayEquals(new Object[]{"sku-arr-refresh", 7},
+          ((Struct) elements[0]).getAttributes());
+    }
+  }
+
   private void assertPersistedLine(int id, String expectedSku, int expectedQuantity)
       throws SQLException {
     try (Statement stmt = con.createStatement();
