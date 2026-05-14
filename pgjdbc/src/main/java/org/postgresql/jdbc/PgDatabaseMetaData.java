@@ -1334,7 +1334,7 @@ public class PgDatabaseMetaData implements DatabaseMetaData {
       }
 
       // decide if we are returning a single column result.
-      if ("b".equals(returnTypeType) || "d".equals(returnTypeType) || "e".equals(returnTypeType)
+      if ("b".equals(returnTypeType) || "c".equals(returnTypeType) || "d".equals(returnTypeType) || "e".equals(returnTypeType)
           || ("p".equals(returnTypeType) && argModesArray == null)) {
         byte[] @Nullable [] tuple = new byte[columns][];
         tuple[0] = catalogName;
@@ -1412,7 +1412,7 @@ public class PgDatabaseMetaData implements DatabaseMetaData {
       }
 
       // if we are returning a multi-column result.
-      if ("c".equals(returnTypeType) || ("p".equals(returnTypeType) && argModesArray != null)) {
+      if (("c".equals(returnTypeType) && argModesArray != null) || ("p".equals(returnTypeType) && argModesArray != null)) {
         PreparedStatement columnstmt = connection.prepareStatement(
             "SELECT a.attname,a.atttypid FROM pg_catalog.pg_attribute a "
                 + " WHERE a.attrelid = ?"
@@ -3461,7 +3461,7 @@ public class PgDatabaseMetaData implements DatabaseMetaData {
       }
 
       // decide if we are returning a single column result.
-      if ("b".equals(returnTypeType) || "d".equals(returnTypeType) || "e".equals(returnTypeType)
+      if ("b".equals(returnTypeType) || "c".equals(returnTypeType) || "d".equals(returnTypeType) || "e".equals(returnTypeType)
           || ("p".equals(returnTypeType) && argModesArray == null)) {
         byte[] @Nullable [] tuple = new byte[columns][];
         tuple[0] = catalogName;
@@ -3539,7 +3539,7 @@ public class PgDatabaseMetaData implements DatabaseMetaData {
       }
 
       // if we are returning a multi-column result.
-      if ("c".equals(returnTypeType) || ("p".equals(returnTypeType) && argModesArray != null)) {
+      if (("c".equals(returnTypeType) && argModesArray != null) || ("p".equals(returnTypeType) && argModesArray != null)) {
         PreparedStatement columnstmt = connection.prepareStatement(
             "SELECT a.attname,a.atttypid FROM pg_catalog.pg_attribute a "
                 + " WHERE a.attrelid = ?"

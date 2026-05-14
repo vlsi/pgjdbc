@@ -227,6 +227,7 @@ public class PgArray implements Array {
     if (array == null) {
       return;
     }
+    CodecContext ctx = codecContext.withTypeMap(map);
     for (int i = 0; i < array.length; i++) {
       Object element = array[i];
       if (element instanceof PGobject) {
@@ -238,7 +239,7 @@ public class PgArray implements Array {
             int elementOid = getPgType().getTypelem();
             PgType elementType = castNonNull(connection).getTypeInfo().getPgTypeByOid(elementOid);
             Object decoded = CompositeCodec.INSTANCE.decodeTextAs(
-                value, elementType, (Class<? extends SQLData>) targetClass, codecContext);
+                value, elementType, (Class<? extends SQLData>) targetClass, ctx);
             if (decoded != null) {
               array[i] = decoded;
             }
