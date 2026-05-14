@@ -670,6 +670,9 @@ class PgPreparedStatement extends PgStatement implements PreparedStatement {
       case Types.DISTINCT:
         bindString(parameterIndex, in.toString(), Oid.UNSPECIFIED);
         break;
+      case Types.STRUCT:
+        setObject(parameterIndex, in);
+        break;
       case Types.OTHER:
         if (in instanceof PGobject) {
           setPGobject(parameterIndex, (PGobject) in);
