@@ -503,7 +503,7 @@ class PgCallableStatement extends PgPreparedStatement implements CallableStateme
     // If the target is an SQLData implementation, decode using CompositeCodec
     if (java.sql.SQLData.class.isAssignableFrom(targetClass)) {
       PgType pgType = connection.getTypeInfo().getPgTypeByPgName(typeName);
-      CodecContext ctx = connection.getCodecContext();
+      CodecContext ctx = connection.getCodecContext().withTypeMap(map);
       @SuppressWarnings("unchecked")
       Class<? extends java.sql.SQLData> sqlDataClass = (Class<? extends java.sql.SQLData>) targetClass;
 

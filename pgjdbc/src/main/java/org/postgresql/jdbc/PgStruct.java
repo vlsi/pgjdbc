@@ -91,6 +91,23 @@ public class PgStruct extends org.postgresql.util.PGobject implements Struct {
     return result;
   }
 
+  @Override
+  public @Nullable String getValue() {
+    String value = super.getValue();
+    if (value != null || attributes == null || connection == null) {
+      return value;
+    }
+    try {
+      PgType pgType = connection.getTypeInfo().getPgTypeByPgName(typeName);
+      CodecContext ctx = connection.getCodecContext();
+      String text = CompositeCodec.encodeAttributesAsText(attributes, pgType, ctx);
+      super.setValue(text);
+      return text;
+    } catch (SQLException e) {
+      return value;
+    }
+  }
+
   /**
    * Converts an attribute value according to the type map.
    */
@@ -153,7 +170,9 @@ public class PgStruct extends org.postgresql.util.PGobject implements Struct {
 
   @Override
   public String toString() {
-    return "PgStruct{typeName='" + typeName + "', attributes=" + Arrays.toString(attributes) + "}";
+    String value = getValue();
+    return value != null ? value
+        : "PgStruct{typeName='" + typeName + "', attributes=" + Arrays.toString(attributes) + "}";
   }
 
   @Override

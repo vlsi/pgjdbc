@@ -189,13 +189,14 @@ public final class PgSQLInputText extends PgSQLInput<String> {
 
   @Override
   protected @Nullable Object decodeObject(String data, PgType fieldType) throws SQLException {
-    // Honor typeMap: if the user registered a Java class for this field's type,
-    // route through decodeTextAs so SQLData (or PGobject subclass) mappings
-    // take effect when SQLData.readSQL calls SQLInput.readObject().
+    // Honor only the explicit JDBC typeMap here. If no explicit mapping is
+    // present, return the codec's default Java type so SPI-provided codecs can
+    // surface their own Java objects instead of being forced through the
+    // legacy PGobject registry.
     PgType currentType = getCurrentType();
-    Class<?> mapped = ctx.getMappedClass(currentType.getFullName());
+    Class<?> mapped = ctx.getTypeMap().get(currentType.getFullName());
     if (mapped == null) {
-      mapped = ctx.getMappedClass(currentType.getTypeName().getName());
+      mapped = ctx.getTypeMap().get(currentType.getTypeName().getName());
     }
     if (mapped != null) {
       return getCodec().decodeTextAs(data, currentType, mapped, ctx);

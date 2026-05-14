@@ -114,6 +114,7 @@ public class CodecRegistry {
     // point (oidCache is set above; the registration maps are final and assigned
     // in their declarations), so the constructor escape is safe.
     registerBuiltinCodecs();
+    registerSpiCodecs();
   }
 
   /**
@@ -253,6 +254,17 @@ public class CodecRegistry {
     registerByClass(java.util.UUID.class, UuidCodec.INSTANCE);
     registerByClass(byte[].class, ByteaCodec.INSTANCE);
     registerByClass(org.postgresql.util.PGRange.class, RangeCodec.INSTANCE);
+  }
+
+  /**
+   * Applies SPI-loaded codecs to this registry after built-ins so a consumer
+   * can override default codecs from the test/application classpath.
+   */
+  private void registerSpiCodecs() {
+    for (Codec codec : spiCodecs.values()) {
+      registerByName(codec);
+      registerByClass(codec.getDefaultJavaType(), codec);
+    }
   }
 
   /**

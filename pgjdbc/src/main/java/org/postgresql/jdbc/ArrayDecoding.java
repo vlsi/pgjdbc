@@ -7,6 +7,8 @@ package org.postgresql.jdbc;
 
 import static org.postgresql.util.internal.Nullness.castNonNull;
 
+import org.postgresql.api.codec.BinaryCodec;
+import org.postgresql.api.codec.TextCodec;
 import org.postgresql.Driver;
 import org.postgresql.core.BaseConnection;
 import org.postgresql.core.Oid;
@@ -432,11 +434,13 @@ public final class ArrayDecoding {
 
   private static final class MappedTypeObjectArrayDecoder extends AbstractObjectArrayDecoder<Object[]> {
 
-    private final String typeName;
+    private final PgType elementType;
+    private final int elementOid;
 
-    MappedTypeObjectArrayDecoder(String baseTypeName) {
+    MappedTypeObjectArrayDecoder(PgType elementType) {
       super(Object.class);
-      this.typeName = baseTypeName;
+      this.elementType = elementType;
+      this.elementOid = elementType.getOid();
     }
 
     /**
@@ -446,7 +450,9 @@ public final class ArrayDecoding {
     Object parseValue(int length, ByteBuffer bytes, BaseConnection connection) throws SQLException {
       final byte[] copy = new byte[length];
       bytes.get(copy);
-      return connection.getObject(typeName, null, copy);
+      CodecContext ctx = connection.getCodecContext();
+      BinaryCodec codec = ctx.getCodecs().getBinaryCodec(elementOid, elementType);
+      return codec.decodeBinary(copy, elementType, ctx);
     }
 
     /**
@@ -454,7 +460,9 @@ public final class ArrayDecoding {
      */
     @Override
     Object parseValue(String stringVal, BaseConnection connection) throws SQLException {
-      return connection.getObject(typeName, stringVal, null);
+      CodecContext ctx = connection.getCodecContext();
+      TextCodec codec = ctx.getCodecs().getTextCodec(elementOid, elementType);
+      return codec.decodeText(stringVal, elementType, ctx);
     }
   }
 
@@ -474,14 +482,13 @@ public final class ArrayDecoding {
     }
 
     PgType elementType = connection.getTypeInfo().getPgTypeByOid(elementOid);
-    String typeName = elementType.getFullName();
 
     // 42.2.x should return enums as strings
     int type = elementType.getSqlType();
     if (type == Types.CHAR || type == Types.VARCHAR) {
       return (ArrayDecoder<A>) STRING_ONLY_DECODER;
     }
-    return (ArrayDecoder<A>) new MappedTypeObjectArrayDecoder(typeName);
+    return (ArrayDecoder<A>) new MappedTypeObjectArrayDecoder(elementType);
   }
 
   /**

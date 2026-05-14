@@ -778,7 +778,7 @@ public class PgResultSet implements ResultSet, PGRefCursorResultSet {
       PgType pgType = field.getPgType();
       @SuppressWarnings("unchecked")
       Class<? extends SQLData> sqlDataClass = (Class<? extends SQLData>) targetClass;
-      CodecContext ctx = getCodecContext();
+      CodecContext ctx = getCodecContext().withTypeMap(map);
       if (isBinary(i)) {
         return CompositeCodec.INSTANCE.decodeBinaryAs(value, pgType, sqlDataClass, ctx);
       } else {
