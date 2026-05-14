@@ -7,9 +7,9 @@ package org.postgresql.jdbc;
 
 import static org.postgresql.util.internal.Nullness.castNonNull;
 
+import org.postgresql.Driver;
 import org.postgresql.api.codec.BinaryCodec;
 import org.postgresql.api.codec.TextCodec;
-import org.postgresql.Driver;
 import org.postgresql.core.BaseConnection;
 import org.postgresql.core.Oid;
 import org.postgresql.core.Parser;
