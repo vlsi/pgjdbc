@@ -28,9 +28,9 @@ import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.core.SqlOutParameter;
 import org.springframework.jdbc.core.namedparam.MapSqlParameterSource;
 import org.springframework.jdbc.core.namedparam.NamedParameterJdbcTemplate;
+import org.springframework.jdbc.core.simple.SimpleJdbcCall;
 import org.springframework.jdbc.core.support.AbstractSqlTypeValue;
 import org.springframework.jdbc.datasource.SingleConnectionDataSource;
-import org.springframework.jdbc.core.simple.SimpleJdbcCall;
 
 import java.sql.Array;
 import java.sql.CallableStatement;
@@ -56,7 +56,7 @@ import java.util.Properties;
 @Execution(ExecutionMode.SAME_THREAD)
 @ParameterizedClass
 @MethodSource("data")
-class SpringJdbcCompositeConsumerTest extends BaseTest4 {
+public class SpringJdbcCompositeConsumerTest extends BaseTest4 {
   private static final String QUOTED_SCHEMA = "\"SpringQuotedSchema\"";
   private static final String QUOTED_ADDRESS_TYPE = QUOTED_SCHEMA + ".\"PostalAddress\"";
   private static final String QUOTED_TABLE = QUOTED_SCHEMA + ".\"QuotedOrders\"";
@@ -93,7 +93,7 @@ class SpringJdbcCompositeConsumerTest extends BaseTest4 {
           + "RETURNS " + QUOTED_ADDRESS_TYPE + " "
           + "LANGUAGE sql AS $$ "
           + "  SELECT ROW(($1).\"streetLine\" || ' updated', ($1).\"postalCode\")::" + QUOTED_ADDRESS_TYPE + " "
-        + "$$");
+          + "$$");
 
       stmt.execute("CREATE TYPE spring_order_line AS (sku text, quantity int)");
       stmt.execute("CREATE TABLE spring_baskets (id int primary key, items spring_order_line[])");
@@ -855,7 +855,7 @@ class SpringJdbcCompositeConsumerTest extends BaseTest4 {
     }
   }
 
-  public static final class SpringOrderLine implements SQLData {
+  public static class SpringOrderLine implements SQLData {
     String sku;
     Integer quantity;
 

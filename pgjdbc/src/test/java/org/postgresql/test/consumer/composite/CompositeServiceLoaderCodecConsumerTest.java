@@ -20,8 +20,8 @@ import org.junit.jupiter.api.parallel.ExecutionMode;
 
 import java.sql.Connection;
 import java.sql.ResultSet;
-import java.sql.SQLException;
 import java.sql.SQLData;
+import java.sql.SQLException;
 import java.sql.SQLInput;
 import java.sql.SQLOutput;
 import java.sql.Statement;

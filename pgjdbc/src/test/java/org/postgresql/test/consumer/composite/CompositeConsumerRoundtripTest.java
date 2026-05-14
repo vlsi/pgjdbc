@@ -42,12 +42,12 @@ import java.util.Map;
 @Execution(ExecutionMode.SAME_THREAD)
 @ParameterizedClass
 @MethodSource("data")
-class CompositeConsumerRoundtripTest extends BaseTest4 {
+public class CompositeConsumerRoundtripTest extends BaseTest4 {
   private static final String QUOTED_SCHEMA = "\"ConsumerCaseSchema\"";
   private static final String QUOTED_ADDRESS_TYPE = QUOTED_SCHEMA + ".\"PostalAddress\"";
   private static final String QUOTED_TABLE = QUOTED_SCHEMA + ".\"QuotedOrders\"";
 
-  public CompositeConsumerRoundtripTest(BinaryMode binaryMode) {
+  CompositeConsumerRoundtripTest(BinaryMode binaryMode) {
     setBinaryMode(binaryMode);
   }
 
@@ -496,7 +496,7 @@ class CompositeConsumerRoundtripTest extends BaseTest4 {
     }
   }
 
-  public static final class BatchCustomer implements SQLData {
+  public static class BatchCustomer implements SQLData {
     String email;
     int loyaltyTier;
 
@@ -526,7 +526,7 @@ class CompositeConsumerRoundtripTest extends BaseTest4 {
     }
   }
 
-  public static final class ConsumerOrderLine implements SQLData {
+  public static class ConsumerOrderLine implements SQLData {
     String sku;
     Integer quantity;
 
