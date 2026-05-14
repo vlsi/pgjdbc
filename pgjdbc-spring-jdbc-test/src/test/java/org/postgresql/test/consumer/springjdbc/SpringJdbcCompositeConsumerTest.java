@@ -139,8 +139,9 @@ public class SpringJdbcCompositeConsumerTest extends BaseTest4 {
   }
 
   private static void cleanup(Statement stmt) throws SQLException {
-    stmt.execute("DROP TABLE IF EXISTS spring_shadow_b.orders");
-    stmt.execute("DROP TABLE IF EXISTS spring_shadow_a.orders");
+    // DROP TABLE IF EXISTS schema.table still errors on PG 9.1 when the
+    // schema itself is missing, so let DROP SCHEMA ... CASCADE remove the
+    // qualified tables along with the schema.
     stmt.execute("DROP SCHEMA IF EXISTS spring_shadow_b CASCADE");
     stmt.execute("DROP SCHEMA IF EXISTS spring_shadow_a CASCADE");
     stmt.execute("DROP TABLE IF EXISTS spring_nested_baskets");
@@ -738,6 +739,14 @@ public class SpringJdbcCompositeConsumerTest extends BaseTest4 {
 
   @Test
   void simpleJdbcCall_metadataAutodiscovery_materializesCompositeFunctionReturn() throws SQLException {
+    // Spring's SimpleJdbcCall metadata autodiscovery rewrites the call as
+    // {? = call func()}. In simple-query mode pgjdbc has to inline the
+    // return-value placeholder as NULL::unknown, which makes the server
+    // reject the call with "function func(unknown) does not exist". The
+    // codec/composite behavior is independent of this Spring-side issue,
+    // so we skip the check in simple-query mode.
+    assumeNotSimpleQueryMode();
+
     SimpleJdbcCall call = new SimpleJdbcCall(jdbcTemplate)
         .withFunctionName("spring_transform_order_line_default_fn");
 

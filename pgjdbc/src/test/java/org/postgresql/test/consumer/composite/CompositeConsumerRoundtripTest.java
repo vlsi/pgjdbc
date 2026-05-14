@@ -108,8 +108,9 @@ public class CompositeConsumerRoundtripTest extends BaseTest4 {
   }
 
   private static void cleanup(Statement stmt) throws SQLException {
-    stmt.execute("DROP TABLE IF EXISTS consumer_shadow_b.orders");
-    stmt.execute("DROP TABLE IF EXISTS consumer_shadow_a.orders");
+    // DROP TABLE IF EXISTS schema.table still errors on PG 9.1 when the
+    // schema itself is missing, so let DROP SCHEMA ... CASCADE remove the
+    // qualified tables along with the schema.
     stmt.execute("DROP SCHEMA IF EXISTS consumer_shadow_b CASCADE");
     stmt.execute("DROP SCHEMA IF EXISTS consumer_shadow_a CASCADE");
     stmt.execute("DROP TABLE IF EXISTS consumer_batch_events");
@@ -121,8 +122,6 @@ public class CompositeConsumerRoundtripTest extends BaseTest4 {
     stmt.execute("DROP TABLE IF EXISTS consumer_customer_records");
     stmt.execute("DROP TYPE IF EXISTS consumer_customer_record CASCADE");
     stmt.execute("DROP TYPE IF EXISTS consumer_person_name CASCADE");
-    stmt.execute("DROP TABLE IF EXISTS " + QUOTED_TABLE);
-    stmt.execute("DROP TYPE IF EXISTS " + QUOTED_ADDRESS_TYPE + " CASCADE");
     stmt.execute("DROP SCHEMA IF EXISTS " + QUOTED_SCHEMA + " CASCADE");
   }
 
