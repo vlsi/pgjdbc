@@ -23,6 +23,7 @@ import org.junit.jupiter.params.ParameterizedClass;
 import org.junit.jupiter.params.provider.MethodSource;
 
 import java.sql.Array;
+import java.sql.CallableStatement;
 import java.sql.Connection;
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
@@ -32,6 +33,7 @@ import java.sql.SQLInput;
 import java.sql.SQLOutput;
 import java.sql.Statement;
 import java.sql.Struct;
+import java.sql.Types;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.HashMap;
@@ -75,9 +77,18 @@ class CompositeConsumerRoundtripTest extends BaseTest4 {
 
       stmt.execute("CREATE TYPE consumer_order_line AS (sku text, quantity int)");
       stmt.execute("CREATE TABLE consumer_baskets (id int primary key, items consumer_order_line[])");
+      stmt.execute("CREATE OR REPLACE PROCEDURE consumer_transform_order_line(INOUT line consumer_order_line) "
+          + "LANGUAGE plpgsql AS $$ "
+          + "BEGIN "
+          + "  line := ROW((line).sku || '-done', (line).quantity + 10)::consumer_order_line; "
+          + "END "
+          + "$$");
 
       stmt.execute("CREATE TYPE consumer_batch_customer AS (email text, loyalty_tier int)");
       stmt.execute("CREATE TABLE consumer_batch_events (id int primary key, customer consumer_batch_customer)");
+
+      stmt.execute("CREATE TYPE consumer_nullable_customer AS (customer_id int, nickname text, full_name consumer_person_name)");
+      stmt.execute("CREATE TABLE consumer_nullable_customers (id int primary key, payload consumer_nullable_customer)");
 
       stmt.execute("CREATE SCHEMA consumer_shadow_a");
       stmt.execute("CREATE SCHEMA consumer_shadow_b");
@@ -103,6 +114,8 @@ class CompositeConsumerRoundtripTest extends BaseTest4 {
     stmt.execute("DROP SCHEMA IF EXISTS consumer_shadow_a CASCADE");
     stmt.execute("DROP TABLE IF EXISTS consumer_batch_events");
     stmt.execute("DROP TYPE IF EXISTS consumer_batch_customer CASCADE");
+    stmt.execute("DROP TABLE IF EXISTS consumer_nullable_customers");
+    stmt.execute("DROP TYPE IF EXISTS consumer_nullable_customer CASCADE");
     stmt.execute("DROP TABLE IF EXISTS consumer_baskets");
     stmt.execute("DROP TYPE IF EXISTS consumer_order_line CASCADE");
     stmt.execute("DROP TABLE IF EXISTS consumer_customer_records");
@@ -121,6 +134,7 @@ class CompositeConsumerRoundtripTest extends BaseTest4 {
       stmt.execute("TRUNCATE TABLE consumer_customer_records");
       stmt.execute("TRUNCATE TABLE consumer_baskets");
       stmt.execute("TRUNCATE TABLE consumer_batch_events");
+      stmt.execute("TRUNCATE TABLE consumer_nullable_customers");
       stmt.execute("TRUNCATE TABLE consumer_shadow_a.orders");
       stmt.execute("TRUNCATE TABLE consumer_shadow_b.orders");
       stmt.execute("RESET search_path");
@@ -255,6 +269,39 @@ class CompositeConsumerRoundtripTest extends BaseTest4 {
   }
 
   @Test
+  void arrayGetArrayMap_materializesCompositeSqlDataElements() throws SQLException {
+    Struct first = con.createStruct("consumer_order_line", new Object[]{"sku-10", 1});
+    Struct second = con.createStruct("consumer_order_line", new Object[]{"sku-20", 4});
+    Array items = con.createArrayOf("consumer_order_line", new Object[]{first, second});
+
+    try (PreparedStatement insert = con.prepareStatement(
+        "INSERT INTO consumer_baskets (id, items) VALUES (?, ?)");
+         PreparedStatement select = con.prepareStatement(
+             "SELECT items FROM consumer_baskets WHERE id = ?")) {
+      insert.setInt(1, 2);
+      insert.setArray(2, items);
+      assertEquals(1, insert.executeUpdate());
+
+      Map<String, Class<?>> typeMap = new HashMap<>();
+      typeMap.put("consumer_order_line", ConsumerOrderLine.class);
+
+      select.setInt(1, 2);
+      try (ResultSet rs = select.executeQuery()) {
+        assertTrue(rs.next());
+        Object[] actual = (Object[]) rs.getArray(1).getArray(typeMap);
+        assertEquals(2, actual.length);
+
+        ConsumerOrderLine firstLine = assertInstanceOf(ConsumerOrderLine.class, actual[0]);
+        ConsumerOrderLine secondLine = assertInstanceOf(ConsumerOrderLine.class, actual[1]);
+        assertEquals("sku-10", firstLine.sku);
+        assertEquals(1, firstLine.quantity);
+        assertEquals("sku-20", secondLine.sku);
+        assertEquals(4, secondLine.quantity);
+      }
+    }
+  }
+
+  @Test
   void batchInsert_sqlDataValuesRemainReadable() throws SQLException {
     try (PreparedStatement insert = con.prepareStatement(
         "INSERT INTO consumer_batch_events (id, customer) VALUES (?, ?)");
@@ -279,6 +326,103 @@ class CompositeConsumerRoundtripTest extends BaseTest4 {
         BatchCustomer actual = (BatchCustomer) rs.getObject(1, typeMap);
         assertEquals("beta@example.test", actual.email);
         assertEquals(3, actual.loyaltyTier);
+      }
+    }
+  }
+
+  @Test
+  void callableStatement_inoutCompositeRoundTripsAsSqlData() throws SQLException {
+    assumeCallableStatementsSupported();
+
+    try (CallableStatement call = con.prepareCall("call consumer_transform_order_line(?)")) {
+      call.setObject(1, new ConsumerOrderLine("sku-call", 5));
+      call.registerOutParameter(1, Types.STRUCT, "consumer_order_line");
+      call.execute();
+
+      Map<String, Class<?>> typeMap = new HashMap<>();
+      typeMap.put("consumer_order_line", ConsumerOrderLine.class);
+      ConsumerOrderLine actual = (ConsumerOrderLine) call.getObject(1, typeMap);
+      assertEquals("sku-call-done", actual.sku);
+      assertEquals(15, actual.quantity);
+    }
+  }
+
+  @Test
+  void rowTypeAfterAlterTable_structReflectsNewColumns() throws SQLException {
+    try (Statement stmt = con.createStatement()) {
+      stmt.execute("DROP TABLE IF EXISTS consumer_alterable_rowtype");
+      stmt.execute("CREATE TABLE consumer_alterable_rowtype (id int primary key, status text)");
+      stmt.execute("INSERT INTO consumer_alterable_rowtype VALUES (1, 'new')");
+
+      try (PreparedStatement select = con.prepareStatement(
+          "SELECT r FROM consumer_alterable_rowtype r WHERE id = ?")) {
+        select.setInt(1, 1);
+        try (ResultSet rs = select.executeQuery()) {
+          assertTrue(rs.next());
+          Struct before = rs.getObject(1, Struct.class);
+          assertArrayEquals(new Object[]{1, "new"}, before.getAttributes());
+        }
+
+        stmt.execute("ALTER TABLE consumer_alterable_rowtype ADD COLUMN priority int");
+        stmt.execute("UPDATE consumer_alterable_rowtype SET priority = 9 WHERE id = 1");
+
+        select.setInt(1, 1);
+        try (ResultSet rs = select.executeQuery()) {
+          assertTrue(rs.next());
+          Struct after = rs.getObject(1, Struct.class);
+          assertArrayEquals(new Object[]{1, "new", 9}, after.getAttributes());
+        }
+      }
+    } finally {
+      try (Statement cleanup = con.createStatement()) {
+        cleanup.execute("DROP TABLE IF EXISTS consumer_alterable_rowtype");
+      }
+    }
+  }
+
+  @Test
+  void nullHeavyNestedCompositeCases_preserveNullsInStructAndSqlData() throws SQLException {
+    Struct sparseName = con.createStruct("consumer_person_name", new Object[]{null, "Solo"});
+    Struct payloadWithNestedNulls = con.createStruct("consumer_nullable_customer",
+        new Object[]{77, null, sparseName});
+    Struct payloadWithNullNestedComposite = con.createStruct("consumer_nullable_customer",
+        new Object[]{78, "ghost", null});
+
+    try (PreparedStatement insert = con.prepareStatement(
+        "INSERT INTO consumer_nullable_customers (id, payload) VALUES (?, ?)");
+         PreparedStatement select = con.prepareStatement(
+             "SELECT payload FROM consumer_nullable_customers WHERE id = ?")) {
+      insert.setInt(1, 1);
+      insert.setObject(2, payloadWithNestedNulls);
+      assertEquals(1, insert.executeUpdate());
+
+      insert.setInt(1, 2);
+      insert.setObject(2, payloadWithNullNestedComposite);
+      assertEquals(1, insert.executeUpdate());
+
+      Map<String, Class<?>> typeMap = new HashMap<>();
+      typeMap.put("consumer_person_name", ConsumerPersonName.class);
+      typeMap.put("consumer_nullable_customer", NullableCustomer.class);
+
+      select.setInt(1, 1);
+      try (ResultSet rs = select.executeQuery()) {
+        assertTrue(rs.next());
+        NullableCustomer actual = (NullableCustomer) rs.getObject(1, typeMap);
+        assertEquals(Integer.valueOf(77), actual.customerId);
+        assertEquals(null, actual.nickname);
+        assertNotNull(actual.fullName);
+        assertEquals(null, actual.fullName.firstName);
+        assertEquals("Solo", actual.fullName.lastName);
+      }
+
+      select.setInt(1, 2);
+      try (ResultSet rs = select.executeQuery()) {
+        assertTrue(rs.next());
+        Struct actual = rs.getObject(1, Struct.class);
+        Object[] attrs = actual.getAttributes();
+        assertEquals(78, attrs[0]);
+        assertEquals("ghost", attrs[1]);
+        assertEquals(null, attrs[2]);
       }
     }
   }
@@ -379,6 +523,61 @@ class CompositeConsumerRoundtripTest extends BaseTest4 {
     public void writeSQL(SQLOutput stream) throws SQLException {
       stream.writeString(email);
       stream.writeInt(loyaltyTier);
+    }
+  }
+
+  public static final class ConsumerOrderLine implements SQLData {
+    String sku;
+    Integer quantity;
+
+    public ConsumerOrderLine() {
+    }
+
+    ConsumerOrderLine(String sku, Integer quantity) {
+      this.sku = sku;
+      this.quantity = quantity;
+    }
+
+    @Override
+    public String getSQLTypeName() {
+      return "consumer_order_line";
+    }
+
+    @Override
+    public void readSQL(SQLInput stream, String typeName) throws SQLException {
+      sku = stream.readString();
+      int rawQuantity = stream.readInt();
+      quantity = stream.wasNull() ? null : rawQuantity;
+    }
+
+    @Override
+    public void writeSQL(SQLOutput stream) throws SQLException {
+      stream.writeString(sku);
+      stream.writeInt(quantity);
+    }
+  }
+
+  public static final class NullableCustomer implements SQLData {
+    Integer customerId;
+    String nickname;
+    ConsumerPersonName fullName;
+
+    @Override
+    public String getSQLTypeName() {
+      return "consumer_nullable_customer";
+    }
+
+    @Override
+    public void readSQL(SQLInput stream, String typeName) throws SQLException {
+      int rawCustomerId = stream.readInt();
+      customerId = stream.wasNull() ? null : rawCustomerId;
+      nickname = stream.readString();
+      fullName = (ConsumerPersonName) stream.readObject();
+    }
+
+    @Override
+    public void writeSQL(SQLOutput stream) throws SQLException {
+      throw new UnsupportedOperationException("write path is not exercised in this regression test");
     }
   }
 }
