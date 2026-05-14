@@ -38,7 +38,13 @@ class CompositeServiceLoaderCodecConsumerTest {
          Statement stmt = conn.createStatement()) {
       stmt.execute("DROP TABLE IF EXISTS consumer_service_loader_events");
       stmt.execute("DROP TYPE IF EXISTS consumer_service_loader_payload CASCADE");
-      stmt.execute("CREATE TYPE consumer_service_loader_payload AS (name text, location point)");
+      stmt.execute("DROP DOMAIN IF EXISTS consumer_service_loader_service_point");
+      // Custom domain over point so the ServiceLoader-registered codec
+      // does not collide with the built-in "point" type that other
+      // tests (e.g. ParameterMetaDataTest) rely on.
+      stmt.execute("CREATE DOMAIN consumer_service_loader_service_point AS point");
+      stmt.execute("CREATE TYPE consumer_service_loader_payload AS "
+          + "(name text, location consumer_service_loader_service_point)");
       stmt.execute("CREATE TABLE consumer_service_loader_events (id int primary key, payload consumer_service_loader_payload)");
       stmt.execute("INSERT INTO consumer_service_loader_events VALUES "
           + "(1, ROW('dock', point(12.5, 48.0))::consumer_service_loader_payload)");
@@ -51,6 +57,7 @@ class CompositeServiceLoaderCodecConsumerTest {
          Statement stmt = conn.createStatement()) {
       stmt.execute("DROP TABLE IF EXISTS consumer_service_loader_events");
       stmt.execute("DROP TYPE IF EXISTS consumer_service_loader_payload CASCADE");
+      stmt.execute("DROP DOMAIN IF EXISTS consumer_service_loader_service_point");
     }
   }
 

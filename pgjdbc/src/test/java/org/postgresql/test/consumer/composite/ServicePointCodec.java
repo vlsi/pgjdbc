@@ -12,9 +12,12 @@ import org.postgresql.jdbc.PgType;
 import java.sql.SQLException;
 
 public final class ServicePointCodec implements TextCodec {
+  // A test-owned type name so the ServiceLoader registration does
+  // not shadow the built-in geometric "point" type globally for
+  // every test that touches PGpoint.
   @Override
   public String getTypeName() {
-    return "point";
+    return "consumer_service_loader_service_point";
   }
 
   @Override
