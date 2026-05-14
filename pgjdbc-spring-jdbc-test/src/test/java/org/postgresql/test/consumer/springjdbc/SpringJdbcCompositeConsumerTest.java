@@ -13,6 +13,7 @@ import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import org.postgresql.PGProperty;
+import org.postgresql.core.ServerVersion;
 import org.postgresql.test.TestUtil;
 import org.postgresql.test.jdbc2.BaseTest4;
 
@@ -97,12 +98,16 @@ public class SpringJdbcCompositeConsumerTest extends BaseTest4 {
 
       stmt.execute("CREATE TYPE spring_order_line AS (sku text, quantity int)");
       stmt.execute("CREATE TABLE spring_baskets (id int primary key, items spring_order_line[])");
-      stmt.execute("CREATE OR REPLACE PROCEDURE spring_transform_order_line(INOUT line spring_order_line) "
-          + "LANGUAGE plpgsql AS $$ "
-          + "BEGIN "
-          + "  line := ROW((line).sku || '-done', (line).quantity + 10)::spring_order_line; "
-          + "END "
-          + "$$");
+      // CREATE PROCEDURE is PG 11+. Callable-/procedure-based tests skip
+      // themselves on earlier servers via assumeMinimumServerVersion.
+      if (TestUtil.haveMinimumServerVersion(conn, ServerVersion.v11)) {
+        stmt.execute("CREATE OR REPLACE PROCEDURE spring_transform_order_line(INOUT line spring_order_line) "
+            + "LANGUAGE plpgsql AS $$ "
+            + "BEGIN "
+            + "  line := ROW((line).sku || '-done', (line).quantity + 10)::spring_order_line; "
+            + "END "
+            + "$$");
+      }
       stmt.execute("CREATE OR REPLACE FUNCTION spring_transform_order_line_fn(line spring_order_line) "
           + "RETURNS spring_order_line "
           + "LANGUAGE sql AS $$ "
@@ -311,7 +316,11 @@ public class SpringJdbcCompositeConsumerTest extends BaseTest4 {
   }
 
   @Test
-  void jdbcTemplate_callableStatement_roundTripsCompositeInOut() {
+  void jdbcTemplate_callableStatement_roundTripsCompositeInOut() throws SQLException {
+    assumeCallableStatementsSupported();
+    // The spring_transform_order_line procedure requires PG 11+.
+    assumeMinimumServerVersion("INOUT CALL requires PostgreSQL 11", ServerVersion.v11);
+
     Map<String, Class<?>> typeMap = new HashMap<>();
     typeMap.put("spring_order_line", SpringOrderLine.class);
 
@@ -686,6 +695,11 @@ public class SpringJdbcCompositeConsumerTest extends BaseTest4 {
 
   @Test
   void simpleJdbcCall_roundTripsCompositeInOut() throws SQLException {
+    // SimpleJdbcCall.executeFunction emits {? = call fn(?)}. In simple-query
+    // mode pgjdbc has to inline parameters as NULL::unknown, which the server
+    // cannot resolve to a typed overload (fn(unknown, unknown) does not exist).
+    assumeNotSimpleQueryMode();
+
     SimpleJdbcCall call = new SimpleJdbcCall(jdbcTemplate)
         .withFunctionName("spring_transform_order_line_fn")
         .withoutProcedureColumnMetaDataAccess()
@@ -710,6 +724,10 @@ public class SpringJdbcCompositeConsumerTest extends BaseTest4 {
 
   @Test
   void simpleJdbcCall_withQuotedIdentifiers_roundTripsCompositeFunction() throws SQLException {
+    // See simpleJdbcCall_roundTripsCompositeInOut: SimpleJdbcCall.executeFunction
+    // is incompatible with preferQueryMode=simple regardless of the codec path.
+    assumeNotSimpleQueryMode();
+
     jdbcTemplate.execute("SET search_path TO " + QUOTED_SCHEMA);
 
     SimpleJdbcCall call = new SimpleJdbcCall(jdbcTemplate)
@@ -763,6 +781,9 @@ public class SpringJdbcCompositeConsumerTest extends BaseTest4 {
 
   @Test
   void simpleJdbcCall_metadataAutodiscovery_roundTripsProcedureInOutComposite() throws SQLException {
+    // The spring_transform_order_line procedure requires PG 11+.
+    assumeMinimumServerVersion("INOUT CALL requires PostgreSQL 11", ServerVersion.v11);
+
     Properties props = new Properties();
     PGProperty.ESCAPE_SYNTAX_CALL_MODE.set(props, "callIfNoReturn");
 

@@ -11,6 +11,7 @@ import static org.junit.jupiter.api.Assertions.assertInstanceOf;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import org.postgresql.core.ServerVersion;
 import org.postgresql.test.TestUtil;
 import org.postgresql.test.jdbc2.BaseTest4;
 
@@ -77,12 +78,17 @@ public class CompositeConsumerRoundtripTest extends BaseTest4 {
 
       stmt.execute("CREATE TYPE consumer_order_line AS (sku text, quantity int)");
       stmt.execute("CREATE TABLE consumer_baskets (id int primary key, items consumer_order_line[])");
-      stmt.execute("CREATE OR REPLACE PROCEDURE consumer_transform_order_line(INOUT line consumer_order_line) "
-          + "LANGUAGE plpgsql AS $$ "
-          + "BEGIN "
-          + "  line := ROW((line).sku || '-done', (line).quantity + 10)::consumer_order_line; "
-          + "END "
-          + "$$");
+      // CREATE PROCEDURE is PG 11+. The procedure is used only by
+      // callableStatement_inoutCompositeRoundTripsAsSqlData, which skips
+      // itself on earlier servers via assumeMinimumServerVersion.
+      if (TestUtil.haveMinimumServerVersion(conn, ServerVersion.v11)) {
+        stmt.execute("CREATE OR REPLACE PROCEDURE consumer_transform_order_line(INOUT line consumer_order_line) "
+            + "LANGUAGE plpgsql AS $$ "
+            + "BEGIN "
+            + "  line := ROW((line).sku || '-done', (line).quantity + 10)::consumer_order_line; "
+            + "END "
+            + "$$");
+      }
 
       stmt.execute("CREATE TYPE consumer_batch_customer AS (email text, loyalty_tier int)");
       stmt.execute("CREATE TABLE consumer_batch_events (id int primary key, customer consumer_batch_customer)");
@@ -332,6 +338,8 @@ public class CompositeConsumerRoundtripTest extends BaseTest4 {
   @Test
   void callableStatement_inoutCompositeRoundTripsAsSqlData() throws SQLException {
     assumeCallableStatementsSupported();
+    // CREATE PROCEDURE / CALL syntax require PG 11+.
+    assumeMinimumServerVersion("INOUT CALL requires PostgreSQL 11", ServerVersion.v11);
 
     try (CallableStatement call = con.prepareCall("call consumer_transform_order_line(?)")) {
       call.setObject(1, new ConsumerOrderLine("sku-call", 5));
