@@ -20,7 +20,14 @@ tasks.configureEach<Test> {
         inputs.file("../ssltest.local.properties")
     }
     testLogging {
-        showStandardStreams = true
+        // Keep console output focused on failures; stdout/stderr of each
+        // test is still captured into build/reports/tests for inspection
+        // when something actually breaks.
+        showStandardStreams = false
+        events("failed")
+        showExceptions = true
+        showStackTraces = true
+        exceptionFormat = org.gradle.api.tasks.testing.logging.TestExceptionFormat.FULL
     }
     exclude("**/*Suite*")
     jvmArgs("-Xmx1536m")
