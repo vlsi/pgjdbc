@@ -23,6 +23,7 @@ import org.postgresql.jdbc.codec.Float8Codec;
 import org.postgresql.jdbc.codec.GeometricCodec;
 import org.postgresql.jdbc.codec.HstoreCodec;
 import org.postgresql.jdbc.codec.Int2Codec;
+import org.postgresql.jdbc.codec.Int4ArrayCodec;
 import org.postgresql.jdbc.codec.Int4Codec;
 import org.postgresql.jdbc.codec.Int8Codec;
 import org.postgresql.jdbc.codec.IntervalCodec;
@@ -185,6 +186,10 @@ public class CodecRegistry {
     registerByName(ArrayCodec.INSTANCE);
     registerByName(CompositeCodec.INSTANCE);
     registerByName(DomainCodec.INSTANCE);
+
+    // Specialized primitive array codecs (POC — replaces ArrayEncoding's
+    // NumberArrayEncoder hot path with a per-OID codec).
+    registerByName(Int4ArrayCodec.INSTANCE);
 
     // Range types
     registerByName(RangeCodec.INSTANCE);

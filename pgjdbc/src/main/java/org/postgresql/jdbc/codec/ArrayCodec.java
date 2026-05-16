@@ -14,12 +14,15 @@ import org.postgresql.jdbc.CodecContext;
 import org.postgresql.jdbc.CodecDepth;
 import org.postgresql.jdbc.PgArray;
 import org.postgresql.jdbc.PgType;
+import org.postgresql.util.ByteConverter;
 import org.postgresql.util.GT;
 import org.postgresql.util.PSQLException;
 import org.postgresql.util.PSQLState;
 
 import org.checkerframework.checker.nullness.qual.Nullable;
 
+import java.io.ByteArrayOutputStream;
+import java.io.IOException;
 import java.sql.Array;
 import java.sql.SQLException;
 
@@ -91,9 +94,70 @@ public final class ArrayCodec implements BinaryCodec, TextCodec {
 
   @SuppressWarnings("unchecked")
   private byte[] encodeBinaryJavaArray(Object javaArray, PgType type, CodecContext ctx) throws SQLException {
-    ArrayEncoding.ArrayEncoder<Object> encoder = ArrayEncoding.getArrayEncoder(javaArray);
-    BaseConnection conn = ctx.getConnection();
-    return encoder.toBinaryRepresentation(conn, javaArray, type.getOid());
+    int arrayOid = type.getOid();
+    if (ArrayEncoding.hasNativeEncoder(javaArray)) {
+      ArrayEncoding.ArrayEncoder<Object> encoder = ArrayEncoding.getArrayEncoder(javaArray);
+      if (encoder.supportBinaryRepresentation(arrayOid)) {
+        return encoder.toBinaryRepresentation(ctx.getConnection(), javaArray, arrayOid);
+      }
+    }
+    if (!(javaArray instanceof Object[])) {
+      // No native encoder and not an Object[] (e.g. a primitive multi-dim array
+      // whose oid we do not support binary-wise). Defer to ArrayEncoding so it
+      // produces the same error message it always has.
+      ArrayEncoding.ArrayEncoder<Object> encoder = ArrayEncoding.getArrayEncoder(javaArray);
+      return encoder.toBinaryRepresentation(ctx.getConnection(), javaArray, arrayOid);
+    }
+    return encodeBinaryArrayViaCodec(javaArray, type, ctx);
+  }
+
+  /**
+   * Encodes a generic {@code Object[]} (any rank) by dispatching each leaf
+   * element through the registered binary codec for the array's element type.
+   * Used for element types that {@link ArrayEncoding} cannot encode natively
+   * (composite, SQLData, domain over composite, etc.). Multi-dim header /
+   * dimension walking is shared with {@link Int4ArrayCodec} via
+   * {@link MultiDimArrayBinary}.
+   */
+  private byte[] encodeBinaryArrayViaCodec(Object javaArray, PgType arrayType, CodecContext ctx)
+      throws SQLException {
+    int elementOid = arrayType.getTypelem();
+    PgType elementType = ctx.getTypeInfo().getPgTypeByOid(elementOid);
+    BinaryCodec elementCodec = ctx.getCodecs().getBinaryCodec(elementOid, elementType);
+    if (elementCodec == null) {
+      throw new PSQLException(
+          GT.tr("No binary codec registered for array element oid {0}", elementOid),
+          PSQLState.INVALID_PARAMETER_TYPE);
+    }
+    MultiDimArrayBinary.LeafBinaryWriter leafWriter = new MultiDimArrayBinary.LeafBinaryWriter() {
+      @Override
+      public void writeLeaf(Object leaf, ByteArrayOutputStream out, byte[] buf)
+          throws IOException, SQLException {
+        Object[] arr = (Object[]) leaf;
+        for (Object element : arr) {
+          if (element == null) {
+            ByteConverter.int4(buf, 0, -1);
+            out.write(buf);
+          } else {
+            byte[] encoded = elementCodec.encodeBinary(element, elementType, ctx);
+            ByteConverter.int4(buf, 0, encoded.length);
+            out.write(buf);
+            out.write(encoded);
+          }
+        }
+      }
+
+      @Override
+      public boolean containsNulls(Object leaf) {
+        for (Object element : (Object[]) leaf) {
+          if (element == null) {
+            return true;
+          }
+        }
+        return false;
+      }
+    };
+    return MultiDimArrayBinary.encode(javaArray, elementOid, leafWriter);
   }
 
   @Override
@@ -111,12 +175,55 @@ public final class ArrayCodec implements BinaryCodec, TextCodec {
       return str != null ? str : "NULL";
     }
     if (value.getClass().isArray()) {
+      if (ArrayEncoding.hasNativeEncoder(value)) {
+        ArrayEncoding.ArrayEncoder<Object> encoder = ArrayEncoding.getArrayEncoder(value);
+        return encoder.toArrayString(type.getDelimiter(), value);
+      }
+      if (value instanceof Object[]) {
+        return encodeTextArrayViaCodec(value, type, ctx);
+      }
+      // No native encoder and not an Object[]; let ArrayEncoding produce its
+      // standard error.
       ArrayEncoding.ArrayEncoder<Object> encoder = ArrayEncoding.getArrayEncoder(value);
       return encoder.toArrayString(type.getDelimiter(), value);
     }
     throw new PSQLException(
         GT.tr("Cannot convert {0} to array", value.getClass().getName()),
         PSQLState.INVALID_PARAMETER_TYPE);
+  }
+
+  /**
+   * Encodes a generic {@code Object[]} (any rank) as a PostgreSQL text array
+   * literal, dispatching each leaf element through the registered text codec
+   * for the array's element type. Multi-dim brace walking is shared with
+   * {@link Int4ArrayCodec} via {@link MultiDimArrayText}.
+   */
+  private String encodeTextArrayViaCodec(Object javaArray, PgType arrayType, CodecContext ctx)
+      throws SQLException {
+    int elementOid = arrayType.getTypelem();
+    PgType elementType = ctx.getTypeInfo().getPgTypeByOid(elementOid);
+    TextCodec elementCodec = ctx.getCodecs().getTextCodec(elementOid, elementType);
+    if (elementCodec == null) {
+      throw new PSQLException(
+          GT.tr("No text codec registered for array element oid {0}", elementOid),
+          PSQLState.INVALID_PARAMETER_TYPE);
+    }
+    MultiDimArrayText.LeafTextWriter leafWriter = (sb, leaf, delim) -> {
+      Object[] arr = (Object[]) leaf;
+      for (int i = 0; i < arr.length; i++) {
+        if (i > 0) {
+          sb.append(delim);
+        }
+        Object element = arr[i];
+        if (element == null) {
+          sb.append("NULL");
+        } else {
+          String elementText = elementCodec.encodeText(element, elementType, ctx);
+          PgArray.escapeArrayElement(sb, elementText);
+        }
+      }
+    };
+    return MultiDimArrayText.encode(javaArray, arrayType.getDelimiter(), leafWriter);
   }
 
   @Override
