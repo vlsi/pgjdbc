@@ -1,0 +1,14 @@
+{
+  "name": "pgjdbc-doc-diff",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build-baseline": "bash ./build-baseline.sh",
+    "diff": "node diff.mjs"
+  },
+  "dependencies": {
+    "cheerio": "^1.0.0",
+    "lunr": "^2.3.9"
+  }
+}

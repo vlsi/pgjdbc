@@ -1,0 +1,170 @@
+name: Doc Diff Preview
+
+# Builds the current branch's docs, annotates every <p>/<li>/<pre> with how
+# it compares to origin/master (reused/modified/new), and deploys the result
+# to GitHub Pages. Reviewers open the deployed site, click "Diff" in the
+# corner, and instantly see which paragraphs are new vs. ported.
+#
+# Lives alongside the canonical docs.yml — they share the `pages`
+# concurrency group, so whichever ran most recently wins the deploy slot.
+# On a fork that doesn't cut releases, that's almost always this workflow.
+
+on:
+  push:
+    branches-ignore:
+      - master
+    paths:
+      - 'docs/**'
+      - 'docs-tools/**'
+      - 'doc-diff/**'
+      - '.github/workflows/doc-diff.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+# GitHub Pages is one site per repo — let the latest push win. If you'd
+# rather queue, change to `cancel-in-progress: false`.
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          # fetch-depth: 0 so `git rev-parse origin/master` resolves and the
+          # baseline worktree can check it out. fetch-tags mirrors docs.yml
+          # for the release-history generator.
+          fetch-depth: 0
+          fetch-tags: true
+
+      - name: Setup Hugo
+        uses: peaceiris/actions-hugo@16361eb4acea8698b220b76c0d4e84e1fd22c61d # v2.6.0
+        with:
+          hugo-version: 'latest'
+          extended: true
+
+      - name: Set up JDK 21
+        uses: actions/setup-java@be666c2fcd27ec809703dec50e508c2fdc7f6654 # v5.2.0
+        with:
+          distribution: zulu
+          java-version: 21
+
+      - name: Set up Node 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: doc-diff/package-lock.json
+
+      # enablement: true lets a fresh fork run this without first toggling
+      # Settings → Pages by hand. Sets steps.pages.outputs.base_url to e.g.
+      # https://vlsi.github.io/pgjdbc/ — no hardcoded fork owner.
+      - name: Setup Pages
+        id: pages
+        uses: actions/configure-pages@45bfe0192ca1faeb007ade9deae92b16b8254a0d # v6.0.0
+        with:
+          enablement: true
+
+      # ── Build the new (current branch) site ───────────────────────────────
+      # Identical to docs.yml: :docs-tools:buildDocs runs the property
+      # generator then hugo, with --baseURL pinned to the Pages site so
+      # asset URLs work when deployed.
+      - name: Build new site
+        uses: burrunan/gradle-cache-action@663fbad34e03c8f12b27f4999ac46e3d90f87eca # v3.0.1
+        env:
+          HUGO_BASEURL: ${{ steps.pages.outputs.base_url }}
+          S3_BUILD_CACHE_ACCESS_KEY_ID: ${{ secrets.S3_BUILD_CACHE_ACCESS_KEY_ID }}
+          S3_BUILD_CACHE_SECRET_KEY: ${{ secrets.S3_BUILD_CACHE_SECRET_KEY }}
+          GH_TOKEN: ${{ github.token }}
+        with:
+          job-id: docs-build
+          arguments: --no-parallel --no-daemon :docs-tools:buildDocs
+
+      # ── Baseline (pgjdbc/pgjdbc master, the canonical upstream) ──────────
+      # actions/checkout only wires `origin` to the workflow's own repo —
+      # which on a fork is the fork, not upstream. We add the canonical
+      # pgjdbc/pgjdbc as `pg` and compare against pg/master, so the preview
+      # surfaces a fork's deltas vs. upstream regardless of where the fork's
+      # origin/master happens to point.
+      - name: Add upstream remote (pg → pgjdbc/pgjdbc)
+        run: |
+          if ! git remote get-url pg >/dev/null 2>&1; then
+            git remote add pg https://github.com/pgjdbc/pgjdbc.git
+          fi
+          git fetch --no-tags pg master
+
+      # Cached by pg/master SHA: rebuild only when upstream moves. First
+      # run is ~3–5 min, repeats are seconds.
+      - name: Resolve baseline SHA
+        id: baseline-sha
+        run: echo "sha=$(git rev-parse pg/master)" >> "$GITHUB_OUTPUT"
+
+      - name: Restore baseline cache
+        id: baseline-cache
+        uses: actions/cache@v4
+        with:
+          path: /tmp/pgjdbc-doc-diff-baseline/docs/public
+          key: doc-diff-baseline-${{ steps.baseline-sha.outputs.sha }}
+
+      - name: Build baseline
+        if: steps.baseline-cache.outputs.cache-hit != 'true'
+        # Plain hugo here, not :docs-tools:buildDocs — older baselines (incl.
+        # current upstream master) don't have the Gradle wiring. baseURL is
+        # irrelevant: diff.mjs only indexes the body text and reads
+        # <link rel=canonical> for page paths.
+        run: |
+          git worktree add --detach /tmp/pgjdbc-doc-diff-baseline pg/master
+          ( cd /tmp/pgjdbc-doc-diff-baseline/docs && hugo --quiet --minify=false --baseURL https://jdbc.postgresql.org/ )
+
+      # ── Annotate + summary ────────────────────────────────────────────────
+      - name: Install doc-diff deps
+        working-directory: doc-diff
+        run: npm ci
+
+      - name: Annotate new site
+        working-directory: doc-diff
+        env:
+          BASELINE_DIR: /tmp/pgjdbc-doc-diff-baseline
+          # data-source links inside the overlay point at the upstream live
+          # site — that's the canonical "old version" reviewers compare to.
+          LIVE_BASE: https://jdbc.postgresql.org
+          # summary.md rows point at this very deployment, so clicking a row
+          # lands on the annotated page (with the Diff toggle).
+          SUMMARY_BASE: ${{ steps.pages.outputs.base_url }}
+          # Forks deploy under /<repo>/ (e.g. /pgjdbc/), so overlay assets
+          # must be injected with that prefix or the browser 404s on
+          # /_doc-diff/overlay.{css,js}. diff.mjs accepts the full URL and
+          # extracts the pathname.
+          BASE_PATH: ${{ steps.pages.outputs.base_url }}
+        run: node diff.mjs
+
+      - name: Stage summary into public/
+        run: |
+          mkdir -p docs/public/_doc-diff
+          cp doc-diff/summary.md   docs/public/_doc-diff/summary.md
+          cp doc-diff/summary.html docs/public/_doc-diff/index.html
+
+      - name: Upload artifact
+        uses: actions/upload-pages-artifact@fc324d3547104276b827a68afc52ff2a11cc49c9 # v5
+        with:
+          path: ./docs/public
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      # Surface the summary URL on the workflow run page — one click and the
+      # reviewer is at the per-page table.
+      url: ${{ steps.deployment.outputs.page_url }}_doc-diff/
+    steps:
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@cd2ce8fcbc39b97be8ca5fce6e763baed58fa128 # v5

@@ -1,0 +1,122 @@
+/*
+ * doc-diff overlay
+ *
+ * Highlight rules are gated on body.doc-diff-on so they're invisible until
+ * the floating toggle button is clicked. State is remembered in localStorage.
+ */
+
+#doc-diff-toggle {
+    position: fixed;
+    right: 16px;
+    bottom: 16px;
+    z-index: 99999;
+    padding: 8px 14px;
+    border: none;
+    border-radius: 6px;
+    background: #222;
+    color: #eee;
+    font: 13px/1 system-ui, -apple-system, sans-serif;
+    cursor: pointer;
+    opacity: 0.85;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.25);
+}
+
+#doc-diff-toggle:hover {
+    opacity: 1;
+}
+
+#doc-diff-legend {
+    position: fixed;
+    right: 16px;
+    bottom: 56px;
+    z-index: 99999;
+    display: none;
+    padding: 10px 14px;
+    border-radius: 6px;
+    background: #fff;
+    color: #222;
+    font: 12px/1.55 system-ui, -apple-system, sans-serif;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2);
+}
+
+#doc-diff-legend strong {
+    display: block;
+    margin-bottom: 4px;
+}
+
+#doc-diff-legend .swatch {
+    display: inline-block;
+    width: 14px;
+    height: 14px;
+    margin-right: 4px;
+    vertical-align: -2px;
+    border-radius: 2px;
+}
+
+#doc-diff-legend .swatch.reused   { background: rgba( 80, 200, 100, 0.30); }
+#doc-diff-legend .swatch.modified { background: rgba(255, 200,  80, 0.50); border-left: 3px solid #e8a000; }
+#doc-diff-legend .swatch.new      { background: rgba(255, 120, 120, 0.40); border-left: 3px solid #d33; }
+
+#doc-diff-legend small {
+    display: block;
+    margin-top: 6px;
+    color: #666;
+}
+
+body.doc-diff-on #doc-diff-legend {
+    display: block;
+}
+
+/* Highlight rules — only when overlay is on. */
+body.doc-diff-on [data-origin="reused"] {
+    background: rgba(80, 200, 100, 0.10);
+}
+
+body.doc-diff-on [data-origin="modified"] {
+    background: rgba(255, 200, 80, 0.25);
+    box-shadow: -3px 0 0 0 #e8a000;
+    padding-left: 6px;
+}
+
+body.doc-diff-on [data-origin="new"] {
+    background: rgba(255, 120, 120, 0.18);
+    box-shadow: -3px 0 0 0 #d33;
+    padding-left: 6px;
+}
+
+body.doc-diff-on [data-source] {
+    cursor: help;
+}
+
+body.doc-diff-on [data-source]::after {
+    content: "↗";
+    display: inline-block;
+    margin-left: 4px;
+    padding: 0 4px;
+    font-size: 10px;
+    line-height: 14px;
+    vertical-align: 1px;
+    color: #fff;
+    background: #555;
+    border-radius: 3px;
+    text-decoration: none;
+    opacity: 0;
+    transition: opacity 0.1s;
+}
+
+body.doc-diff-on [data-source]:hover::after {
+    opacity: 1;
+}
+
+body.doc-diff-on [data-origin="modified"][data-similarity]::before {
+    content: attr(data-similarity);
+    display: inline-block;
+    margin-right: 6px;
+    padding: 0 4px;
+    font-size: 10px;
+    line-height: 14px;
+    vertical-align: 1px;
+    color: #fff;
+    background: #e8a000;
+    border-radius: 3px;
+}
