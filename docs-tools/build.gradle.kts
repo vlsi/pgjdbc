@@ -116,13 +116,57 @@ val generateReleaseHistory by tasks.registering(JavaExec::class) {
     errorOutput = System.err
 }
 
+// ===== fetchKnownCves ====================================================
+//
+// Cross-references local git tags with `gh api repos/<repo>/security-advisories`
+// and emits docs/data/known-cves.yaml, keyed by pgjdbc version. The
+// `layouts/changelogs/single.html` Hugo template looks up the current
+// page's `version` in that data file and renders a "known CVEs" banner
+// at the top of the changelog body when any apply.
+//
+// Network-dependent (calls `gh`). The fetcher is best-effort and degrades
+// to an empty advisory list on offline / unauthenticated / rate-limited
+// runs, so the build does not break — the banner just won't appear for
+// affected versions until the file is regenerated.
+val knownCvesYaml =
+    isolated.rootProject.projectDirectory.dir("docs/data")
+        .file("known-cves.yaml")
+
+val fetchKnownCves by tasks.registering(JavaExec::class) {
+    group = "documentation"
+    description = "Generate docs/data/known-cves.yaml: per-version known " +
+        "CVE list cross-referenced against GitHub Security Advisories."
+
+    mainClass.set("org.postgresql.tools.docs.FetchKnownCves")
+    classpath = sourceSets.main.get().runtimeClasspath
+    dependsOn(tasks.named("classes"))
+    dependsOn(tasks.named("processJandexIndex"))
+    // See the matching note on generateReleaseHistory above: Karaf's
+    // :postgresql:generateKar re-declares pgjdbc/build/libs/postgresql-
+    // <v>.jar as an output, and Gradle 9 demands an explicit ordering
+    // for any task whose classpath touches that directory in the same
+    // graph. mustRunAfter is a no-op when generateKar is not scheduled.
+    mustRunAfter(":postgresql:generateKar")
+
+    argumentProviders.add(CommandLineArgumentProvider {
+        listOf(projectRoot.absolutePath, knownCvesYaml.asFile.absolutePath)
+    })
+
+    outputs.file(knownCvesYaml).withPropertyName("knownCvesYaml")
+    outputs.upToDateWhen { false }
+
+    standardOutput = System.out
+    errorOutput = System.err
+}
+
 // ----- Hugo wrappers -------------------------------------------------------
 //
-// buildDocs  — production build: regenerate release-history.yaml, then
-//              run a one-shot Hugo build.
+// buildDocs  — production build: regenerate release-history.yaml and
+//              known-cves.yaml, then run a one-shot Hugo build.
 //
-// serveDocs  — local dev server: regenerate release-history.yaml, then
-//              start the Hugo dev server with hot-reload.
+// serveDocs  — local dev server: regenerate release-history.yaml and
+//              known-cves.yaml, then start the Hugo dev server with
+//              hot-reload.
 //
 // Both require a recent extended Hugo on PATH. The doFirst hook fails
 // with a readable error if Hugo is missing, too old, or not the
@@ -198,9 +242,10 @@ fun Exec.requireHugo() {
 
 val buildDocs by tasks.registering(Exec::class) {
     group = "documentation"
-    description = "Regenerate release-history.yaml, then run a production " +
-        "Hugo build into docs/public."
+    description = "Regenerate release-history.yaml and known-cves.yaml, " +
+        "then run a production Hugo build into docs/public."
     dependsOn(generateReleaseHistory)
+    dependsOn(fetchKnownCves)
     workingDir = docsDir
 
     // -PhugoBaseURL=… (or env HUGO_BASEURL) → `hugo --baseURL <value>`.
@@ -228,8 +273,9 @@ val buildDocs by tasks.registering(Exec::class) {
 val serveDocs by tasks.registering(Exec::class) {
     group = "documentation"
     description = "Start the Hugo dev server with hot-reload " +
-        "(release-history.yaml regenerated from git refs)."
+        "(release-history.yaml and known-cves.yaml regenerated upfront)."
     dependsOn(generateReleaseHistory)
+    dependsOn(fetchKnownCves)
     workingDir = docsDir
 
     // -PdocsPort=NNNN overrides the default 1313.
