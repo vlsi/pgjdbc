@@ -1,0 +1,68 @@
+{{/*
+  release-history: compatibility matrix for pgJDBC release lines.
+
+  Reads hugo.Data.release-history (emitted by
+  :docs-tools:generateReleaseHistory). Each entry under `rows` is one
+  "compatibility segment" — a contiguous run of tagged versions in a
+  release branch with the same (min Java, min PostgreSQL) — or one
+  `.jreN` classifier variant. Rows are ordered branch-descending and,
+  within a branch, released-descending (so the newest segment of each
+  line floats to the top of its group).
+
+  The Status cell is split visually: long-form labels like
+    "Security until 2028-11"
+    "Superseded by 42.7.5+"
+  render the label on the first visual line and the date / version
+  pointer on the second, so the column does not blow up horizontally.
+  "Current" and "EOL since YYYY-MM" stay on one line.
+
+  No arguments.
+
+  Example:
+    {{< release-history >}}
+*/}}
+{{/* Data file's name contains a hyphen, so dot-access isn't usable;
+     `index` looks up the map entry by string key. */}}
+{{- $data := index hugo.Data "release-history" -}}
+{{- if not $data -}}
+<p><em>release-history: <code>data/release-history.yaml</code> not found.
+Run <code>./gradlew :docs-tools:generateReleaseHistory</code> to generate it.</em></p>
+{{- else -}}
+<div class="release-history-wrap">
+<table class="release-history">
+  <thead>
+    <tr>
+      <th scope="col">Release&nbsp;line</th>
+      <th scope="col">Version range</th>
+      <th scope="col">Released</th>
+      <th scope="col">Java</th>
+      <th scope="col">PostgreSQL</th>
+      <th scope="col">Status</th>
+      <th scope="col">Notes</th>
+    </tr>
+  </thead>
+  <tbody>
+    {{- range $data.rows }}
+      {{- $isCurrent := eq .status "Current" -}}
+      <tr{{ if $isCurrent }} class="release-history__current"{{ end }}>
+        <th scope="row" class="release-history__line"><code>{{ .release_line }}</code></th>
+        <td class="release-history__range"><code>{{ .version_range }}</code></td>
+        <td class="release-history__date">{{ with .released }}{{ . }}{{ else }}—{{ end }}</td>
+        <td>{{ with .min_java }}{{ . }}+{{ else }}—{{ end }}</td>
+        <td>{{ with .min_postgresql }}{{ . }}+{{ else }}—{{ end }}</td>
+        <td class="release-history__status">
+          {{- if hasPrefix .status "Security until " -}}
+            Security&nbsp;until<br>{{ trim (strings.TrimPrefix "Security until " .status) " " }}
+          {{- else if hasPrefix .status "Superseded by " -}}
+            Superseded&nbsp;by<br>{{ trim (strings.TrimPrefix "Superseded by " .status) " " }}
+          {{- else -}}
+            {{ .status }}
+          {{- end -}}
+        </td>
+        <td>{{ with .notes }}{{ . | markdownify }}{{ end }}</td>
+      </tr>
+    {{- end }}
+  </tbody>
+</table>
+</div>
+{{- end -}}
