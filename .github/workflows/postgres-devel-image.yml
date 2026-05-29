@@ -1,0 +1,235 @@
+name: PostgreSQL devel image
+
+# Builds PostgreSQL from source (development HEAD) and publishes a multi-arch
+# image to GHCR so CI can test the driver against unreleased PostgreSQL without
+# recompiling on every run. The image is drop-in compatible with the official
+# postgres image and is consumed via docker/postgres-server (PG_IMAGE).
+#
+# Pull requests that touch this workflow or docker/** build the image and smoke
+# test it, but do not publish: nothing is pushed to GHCR on a pull request.
+
+on:
+  pull_request:
+    paths:
+      - '.github/workflows/postgres-devel-image.yml'
+      - 'docker/**'
+  schedule:
+    # Weekly: HEAD moves daily, a weekly image is a fine early-warning signal.
+    - cron: "0 4 * * 1"
+  workflow_dispatch:
+    inputs:
+      dry_run_cleanup:
+        description: "Cleanup in dry-run mode (no deletions)"
+        required: false
+        default: "true"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: postgres-devel-image-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+env:
+  # ghcr.io/<owner>/postgres-devel — resolves to the canonical repo or a fork.
+  REGISTRY_IMAGE: ghcr.io/${{ github.repository_owner }}/postgres-devel
+
+jobs:
+  prepare:
+    name: Resolve PostgreSQL HEAD
+    runs-on: ubuntu-latest
+    # Scheduled runs only on the canonical repo; forks may still test on demand.
+    if: github.event_name != 'schedule' || github.repository == 'pgjdbc/pgjdbc'
+    outputs:
+      sha: ${{ steps.resolve.outputs.sha }}
+      short: ${{ steps.resolve.outputs.short }}
+      date: ${{ steps.resolve.outputs.date }}
+    steps:
+      - name: Resolve master commit
+        id: resolve
+        run: |
+          SHA="$(curl -s -f https://api.github.com/repos/postgres/postgres/branches/master | jq -r .commit.sha)"
+          [ -n "$SHA" ] && [ "$SHA" != "null" ] || { echo "Could not resolve postgres master SHA"; exit 1; }
+          echo "sha=$SHA" >> "$GITHUB_OUTPUT"
+          echo "short=${SHA:0:12}" >> "$GITHUB_OUTPUT"
+          echo "date=$(date -u +%Y-%m-%d)" >> "$GITHUB_OUTPUT"
+
+  build:
+    name: Build ${{ matrix.platform }}
+    needs: prepare
+    runs-on: ${{ matrix.runner }}
+    permissions:
+      contents: read
+      packages: write
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: linux/amd64
+            runner: ubuntu-latest
+          - platform: linux/arm64
+            runner: ubuntu-24.04-arm
+    steps:
+      - name: Platform pair
+        env:
+          PLATFORM: ${{ matrix.platform }}
+        run: echo "PLATFORM_PAIR=${PLATFORM//\//-}" >> "$GITHUB_ENV"
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: docker/setup-buildx-action@d7f5e7f509e45cec5c76c4d5afdd7de93d0b3df5 # v4.1.0
+
+      # Build for this platform and load it locally so it can be smoke tested
+      # before anything is published (and so pull requests test it without
+      # pushing).
+      - name: Build image (load for testing)
+        uses: docker/build-push-action@f9f3042f7e2789586610d6e8b85c8f03e5195baf # v7.2.0
+        with:
+          context: docker/postgres-head
+          platforms: ${{ matrix.platform }}
+          build-args: |
+            GIT_TAG=master
+            GIT_SHA=${{ needs.prepare.outputs.sha }}
+          provenance: false
+          sbom: false
+          load: true
+          tags: ${{ env.REGISTRY_IMAGE }}:ci
+          cache-from: type=gha,scope=${{ env.PLATFORM_PAIR }}
+          cache-to: type=gha,mode=max,scope=${{ env.PLATFORM_PAIR }}
+
+      - name: Smoke test (shared compose + psql)
+        working-directory: docker/postgres-server
+        env:
+          PG_IMAGE: ${{ env.REGISTRY_IMAGE }}:ci
+          SSL: "no"
+        # Start the image through the shared compose (checks it is still a drop-in
+        # for the official image), then connect over the host-mapped port using
+        # the image's own psql (checks the server is reachable and the entrypoint
+        # created the 'test' database).
+        run: |
+          set -euo pipefail
+          trap 'docker compose down -v || true' EXIT
+          # The compose healthcheck gates readiness on the TCP listener, so --wait
+          # blocks until the server actually accepts connections (no polling loop).
+          if ! docker compose up -d --wait --wait-timeout 300 --pull never; then
+            docker compose logs
+            exit 1
+          fi
+          docker run --rm --network host -e PGCONNECT_TIMEOUT=15 "$PG_IMAGE" \
+            psql -h 127.0.0.1 -p 5432 -U postgres -d test -tAc "SELECT 'hello world', version();"
+
+      # Everything below publishes to GHCR and is skipped on pull requests, which
+      # have neither registry credentials nor a reason to push unreviewed images.
+      - name: Log in to GHCR
+        if: ${{ github.event_name != 'pull_request' }}
+        uses: docker/login-action@650006c6eb7dba73a995cc03b0b2d7f5ca915bee # v4.2.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Build and push by digest
+        if: ${{ github.event_name != 'pull_request' }}
+        id: build
+        uses: docker/build-push-action@f9f3042f7e2789586610d6e8b85c8f03e5195baf # v7.2.0
+        with:
+          context: docker/postgres-head
+          platforms: ${{ matrix.platform }}
+          build-args: |
+            GIT_TAG=master
+            GIT_SHA=${{ needs.prepare.outputs.sha }}
+          labels: |
+            org.opencontainers.image.source=https://github.com/pgjdbc/pgjdbc
+            org.opencontainers.image.description=PostgreSQL built from source (development HEAD) for pgjdbc testing
+            org.opencontainers.image.revision=${{ needs.prepare.outputs.sha }}
+          # Reuses the cache from the build above, so this only pushes layers.
+          provenance: false
+          sbom: false
+          cache-from: type=gha,scope=${{ env.PLATFORM_PAIR }}
+          outputs: type=image,name=${{ env.REGISTRY_IMAGE }},push-by-digest=true,name-canonical=true,push=true
+      - name: Export digest
+        if: ${{ github.event_name != 'pull_request' }}
+        run: |
+          mkdir -p "${{ runner.temp }}/digests"
+          digest="${{ steps.build.outputs.digest }}"
+          touch "${{ runner.temp }}/digests/${digest#sha256:}"
+      - name: Upload digest
+        if: ${{ github.event_name != 'pull_request' }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: digests-${{ env.PLATFORM_PAIR }}
+          path: ${{ runner.temp }}/digests/*
+          if-no-files-found: error
+          retention-days: 1
+
+  merge:
+    name: Publish multi-arch manifest
+    needs: [prepare, build]
+    if: ${{ github.event_name != 'pull_request' }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - name: Download digests
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          path: ${{ runner.temp }}/digests
+          pattern: digests-*
+          merge-multiple: true
+      - uses: docker/setup-buildx-action@d7f5e7f509e45cec5c76c4d5afdd7de93d0b3df5 # v4.1.0
+      - name: Log in to GHCR
+        uses: docker/login-action@650006c6eb7dba73a995cc03b0b2d7f5ca915bee # v4.2.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Create and push manifest list
+        working-directory: ${{ runner.temp }}/digests
+        env:
+          PG_SHORT: ${{ needs.prepare.outputs.short }}
+          BUILD_DATE: ${{ needs.prepare.outputs.date }}
+        run: |
+          docker buildx imagetools create \
+            -t "${REGISTRY_IMAGE}:devel" \
+            -t "${REGISTRY_IMAGE}:devel-${BUILD_DATE}" \
+            -t "${REGISTRY_IMAGE}:devel-${PG_SHORT}" \
+            $(printf "${REGISTRY_IMAGE}@sha256:%s " *)
+      - name: Inspect
+        run: docker buildx imagetools inspect "${REGISTRY_IMAGE}:devel"
+
+  cleanup:
+    name: Prune old images
+    needs: [merge]
+    # Retention runs only on the canonical org package, not on fork tests.
+    if: github.repository == 'pgjdbc/pgjdbc'
+    runs-on: ubuntu-latest
+    permissions:
+      packages: write
+    steps:
+      - uses: docker/setup-buildx-action@d7f5e7f509e45cec5c76c4d5afdd7de93d0b3df5 # v4.1.0
+      - name: Log in to GHCR
+        uses: docker/login-action@650006c6eb7dba73a995cc03b0b2d7f5ca915bee # v4.2.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Collect live multi-arch child digests to protect
+        id: protect
+        run: |
+          raw="$(docker buildx imagetools inspect "${REGISTRY_IMAGE}:devel" --raw)"
+          shas="$(echo "$raw" | jq -r '.manifests[].digest' | paste -s -d ',' -)"
+          echo "skip=$shas" >> "$GITHUB_OUTPUT"
+      - name: Delete versions older than ~1 month
+        uses: snok/container-retention-policy@3b0972b2276b171b212f8c4efbca59ebba26eceb # v3.0.1
+        with:
+          account: pgjdbc
+          # GITHUB_TOKEN works because the package is linked to this repo via the
+          # image.source label; supply GHCR_CLEANUP_TOKEN (PAT) if that changes.
+          token: ${{ secrets.GHCR_CLEANUP_TOKEN || secrets.GITHUB_TOKEN }}
+          image-names: postgres-devel
+          # Never delete the moving 'devel' tag.
+          image-tags: "!devel"
+          tag-selection: both
+          cut-off: 5w
+          keep-n-most-recent: "6"
+          # Belt and braces: never delete the arch manifests of the live image.
+          skip-shas: ${{ steps.protect.outputs.skip }}
+          dry-run: ${{ github.event_name == 'schedule' && 'false' || inputs.dry_run_cleanup }}
