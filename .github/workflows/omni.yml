@@ -301,7 +301,7 @@ jobs:
 
     - name: Start PostgreSQL
       working-directory: docker/postgres-server
-      run: docker compose up -d && docker compose logs
+      run: docker compose up -d --wait || { docker compose logs; exit 1; }
       env:
         PGV: ${{ matrix.pg_version }}
 
@@ -339,12 +339,7 @@ jobs:
         PGDATABASE: postgres
         PGHOST: localhost
       run: |
-        if ! docker/bin/wait_for_pg_isready; then
-            # Server is not online so dump some logs for debugging
-            docker ps
-            cd docker/postgres-server
-            docker compose logs
-        fi
+        # Readiness is gated by `docker compose up --wait`, so just query.
         psql -c 'SELECT version()'
 
     - name: Prepare local properties
@@ -383,9 +378,20 @@ jobs:
     - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
       with:
         fetch-depth: 50
-    - name: Compile and start PostgreSQL
-      working-directory: docker/postgres-head
-      run: docker compose up -d && docker compose logs
+    - name: Compile PostgreSQL from source (HEAD)
+      run: |
+        SHA="$(curl -s -f https://api.github.com/repos/postgres/postgres/branches/master | jq -r .commit.sha)"
+        docker build \
+          --build-arg "GIT_SHA=${SHA}" \
+          --build-arg "GIT_TAG=master" \
+          --tag pgjdbc/postgres-devel:local \
+          docker/postgres-head
+    - name: Start PostgreSQL
+      working-directory: docker/postgres-server
+      run: docker compose up -d --wait || { docker compose logs; exit 1; }
+      env:
+        PG_IMAGE: pgjdbc/postgres-devel:local
+        SSL: "no"
     - name: Set up JDK
       uses: actions/setup-java@be666c2fcd27ec809703dec50e508c2fdc7f6654 # v5.2.0
       with:
@@ -401,12 +407,7 @@ jobs:
         PGDATABASE: postgres
         PGHOST: localhost
       run: |
-        if ! docker/bin/wait_for_pg_isready; then
-            # Server is not online so dump some logs for debugging
-            docker ps
-            cd docker/postgres-head
-            docker compose logs
-        fi
+        # Readiness is gated by `docker compose up --wait`, so just query.
         psql -c 'SELECT version()'
     - name: Prepare local properties
       run: |
