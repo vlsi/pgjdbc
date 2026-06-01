@@ -17,21 +17,7 @@ plugins {
 dependencies {
     implementation("org.jetbrains.kotlin:kotlin-stdlib")
 
-    // GenerateReleaseHistory walks git refs (release/*.x branches and
-    // REL42.* tags). JGit 7.x has first-class git-worktree support
-    // (commondir indirection) and a typed API — preferable to shelling
-    // out to `git`. JGit 7.x bytecode targets Java 17; pgjdbc builds on
-    // JDK 21, so the runtime is fine.
-    implementation("org.eclipse.jgit:org.eclipse.jgit:7.5.0.202512021534-r")
-
-    // SLF4J binding for JGit. Without one, SLF4J 2.x prints a per-JVM
-    // "No SLF4J providers were found" warning and silently routes JGit's
-    // diagnostics to NOP. slf4j-simple writes to stderr with no config
-    // file; tune via -Dorg.slf4j.simpleLogger.defaultLogLevel=warn.
-    runtimeOnly("org.slf4j:slf4j-simple:2.0.17")
-
-    // snakeyaml drives the release-history YAML emitter and parses the
-    // hand-maintained release-history-overlay.yaml.
+    // snakeyaml parses the hand-maintained release-history-overlay.yaml.
     implementation("org.yaml:snakeyaml:2.2")
 }
 
@@ -76,35 +62,13 @@ val releaseHistoryYaml =
     isolated.rootProject.projectDirectory.dir("docs/data")
         .file("release-history.yaml")
 
-val generateReleaseHistory by tasks.registering(JavaExec::class) {
+val generateReleaseHistory by tasks.registering(Exec::class) {
     group = "documentation"
     description = "Generate docs/data/release-history.yaml from git refs " +
         "(release/* branches, REL* tags) + release-history-overlay.yaml."
 
-    mainClass.set("org.postgresql.tools.docs.GenerateReleaseHistory")
-    classpath = sourceSets.main.get().runtimeClasspath
-    dependsOn(tasks.named("classes"))
-    dependsOn(tasks.named("processJandexIndex"))
-    // Karaf's :postgresql:generateKar declares the :postgresql jar as
-    // one of its outputs. In a full-graph CI build (`gradle jandex test
-    // jacocoReport`) generateKar runs and writes pgjdbc/build/libs/
-    // postgresql-<v>.jar, the same path :postgresql:jar produces.
-    // Gradle 9's strict overlap check then refuses to schedule any
-    // task that even touches that directory on its classpath without
-    // an explicit ordering. We do not actually consume the jar here,
-    // so mustRunAfter (not dependsOn) suffices: if generateKar is in
-    // the task graph it runs first, and if it is not (e.g. during
-    // local `serveDocs`) the constraint is a no-op.
-    mustRunAfter(":postgresql:generateKar")
-
-    argumentProviders.add(CommandLineArgumentProvider {
-        listOf(
-            projectRoot.absolutePath,
-            releaseHistoryOverlay.asFile.absolutePath,
-            releaseHistoryYaml.asFile.absolutePath
-        )
-    })
-
+    commandLine("bash", projectRoot.resolve("docs-tools/bin/generate-release-history.sh").absolutePath)
+    workingDir = projectRoot
     // The git directory's content drives the output, but Gradle cannot
     // track .git efficiently — declare the overlay as the only file input
     // and mark the task non-cacheable on the git side via outputs.upToDateWhen.
@@ -112,8 +76,6 @@ val generateReleaseHistory by tasks.registering(JavaExec::class) {
     outputs.file(releaseHistoryYaml).withPropertyName("releaseHistoryYaml")
     outputs.upToDateWhen { false }
 
-    standardOutput = System.out
-    errorOutput = System.err
 }
 
 // ----- Hugo wrappers -------------------------------------------------------
