@@ -68,7 +68,10 @@ matrix.addAxis({
     '14',
     '15',
     '16',
-    '17'
+    '17',
+    // HEAD jobs build the devel image inline from apt.postgresql.org/pgdg-snapshot
+    // via the shared compose (PG_PULL_POLICY=build).
+    'HEAD'
   ]
 });
 
@@ -273,6 +276,8 @@ matrix.exclude({java_distribution: {value: 'semeru'}, java_version: '21'})
 matrix.imply({gss: {value: 'yes'}}, {os: {value: 'ubuntu-latest'}})
 // ikalnytskyi/action-setup-postgres supports PostgreSQL 14+ only
 matrix.exclude({os: {value: ['windows-latest', 'macos-latest']}, pg_version: lessThan('14')});
+// HEAD is built from pgdg-snapshot inside Docker, which only runs on Linux.
+matrix.imply({pg_version: 'HEAD'}, {os: {value: 'ubuntu-latest'}});
 // cleanupSavepoints is not relevant when autosave=never
 matrix.imply({autosave: {value: 'never'}}, {cleanupSavepoints: {value: 'false'}});
 
@@ -285,6 +290,7 @@ matrix.generateRow({scram: {value: 'yes'}});
 // Ensure there's a row for Java EA. It is at the beginning to increase chances of covering cases like ssl=yes below
 matrix.generateRow({java_version: eaJava});
 // Ensure we have a job with the minimal and maximal PostgreSQL versions
+// (HEAD is the last axis value, so the second line covers it).
 matrix.generateRow({pg_version: matrix.axisByName.pg_version.values[0]});
 matrix.generateRow({pg_version: matrix.axisByName.pg_version.values.slice(-1)[0]});
 //Ensure at least one job with "simple" query_mode exists
