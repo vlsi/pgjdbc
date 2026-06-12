@@ -21,17 +21,17 @@ import org.junit.jupiter.api.Test;
 import java.sql.SQLException;
 
 /**
- * Unit tests for {@link Int4ArrayCodec}, the POC specialized codec for
+ * Unit tests for {@link ArrayLeafStreamingCodec#INT4}, the POC specialized codec for
  * {@code _int4} arrays.
  */
-class Int4ArrayCodecTest {
+class ArrayLeafStreamingCodecTest {
 
-  private Int4ArrayCodec codec;
+  private ArrayLeafStreamingCodec codec;
   private PgType int4ArrayType;
 
   @BeforeEach
   void setUp() {
-    codec = Int4ArrayCodec.INSTANCE;
+    codec = ArrayLeafStreamingCodec.INT4;
     int4ArrayType = new PgType(
         new ObjectName("pg_catalog", "_int4"),
         "integer[]",
@@ -122,6 +122,14 @@ class Int4ArrayCodecTest {
     byte[] bytes = codec.encodeBinary(input, int4ArrayType, null);
     int[] roundTrip = (int[]) codec.decodeBinaryAs(bytes, int4ArrayType, int[].class, null);
     assertArrayEquals(input, roundTrip);
+  }
+
+  @Test
+  void decodeBinaryAs_rejectsInvalidElementLength() throws SQLException {
+    byte[] bytes = codec.encodeBinary(new int[]{1}, int4ArrayType, null);
+    ByteConverter.int4(bytes, 20, 8);
+    assertThrows(SQLException.class,
+        () -> codec.decodeBinaryAs(bytes, int4ArrayType, int[].class, null));
   }
 
   @Test
@@ -235,12 +243,26 @@ class Int4ArrayCodecTest {
   }
 
   @Test
+  void multiDim_binaryRejectsJaggedArray() {
+    int[][] input = {{1, 2}, {3}};
+    assertThrows(SQLException.class,
+        () -> codec.encodeBinary(input, int4ArrayType, null));
+  }
+
+  @Test
+  void multiDim_textRejectsJaggedArray() {
+    int[][] input = {{1, 2}, {3}};
+    assertThrows(SQLException.class,
+        () -> codec.encodeText(input, int4ArrayType, null));
+  }
+
+  @Test
   void registry_resolves_int4_arrayName_toThisCodec() {
     org.postgresql.jdbc.CodecRegistry registry = new org.postgresql.jdbc.CodecRegistry();
     // _int4 is the PostgreSQL canonical type name for the int4 array type; the
     // codec must be picked up by name-based lookup, ahead of the generic
     // ArrayCodec fallback that resolveByTyptype returns for unrecognized array
     // names.
-    assertEquals(Int4ArrayCodec.INSTANCE, registry.getByName("_int4"));
+    assertEquals(ArrayLeafStreamingCodec.INT4, registry.getByName("_int4"));
   }
 }

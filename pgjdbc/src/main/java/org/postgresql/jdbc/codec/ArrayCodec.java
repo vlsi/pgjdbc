@@ -6,6 +6,9 @@
 package org.postgresql.jdbc.codec;
 
 import org.postgresql.api.codec.BinaryCodec;
+import org.postgresql.api.codec.Codec;
+import org.postgresql.api.codec.StreamingBinaryCodec;
+import org.postgresql.api.codec.StreamingTextCodec;
 import org.postgresql.api.codec.TextCodec;
 import org.postgresql.core.BaseConnection;
 import org.postgresql.jdbc.ArrayDecoding;
@@ -14,15 +17,14 @@ import org.postgresql.jdbc.CodecContext;
 import org.postgresql.jdbc.CodecDepth;
 import org.postgresql.jdbc.PgArray;
 import org.postgresql.jdbc.PgType;
-import org.postgresql.util.ByteConverter;
 import org.postgresql.util.GT;
 import org.postgresql.util.PSQLException;
 import org.postgresql.util.PSQLState;
 
 import org.checkerframework.checker.nullness.qual.Nullable;
 
-import java.io.ByteArrayOutputStream;
 import java.io.IOException;
+import java.io.OutputStream;
 import java.sql.Array;
 import java.sql.SQLException;
 
@@ -34,7 +36,7 @@ import java.sql.SQLException;
  * it returns a {@link PgArray} that lazily decodes elements on access. For encoding,
  * it accepts both {@link Array} (PgArray) and raw Java array objects.</p>
  */
-public final class ArrayCodec implements BinaryCodec, TextCodec {
+public final class ArrayCodec implements StreamingBinaryCodec, StreamingTextCodec {
 
   public static final ArrayCodec INSTANCE = new ArrayCodec();
 
@@ -50,6 +52,26 @@ public final class ArrayCodec implements BinaryCodec, TextCodec {
   @Override
   public Class<?> getDefaultJavaType() {
     return Array.class;
+  }
+
+  /**
+   * Validates a Java array for PostgreSQL array serialization without encoding it.
+   *
+   * <p>The array must be rectangular, and intermediate array levels must not
+   * contain {@code null}. Leaf values may be {@code null}.</p>
+   *
+   * @param javaArray Java array to validate
+   * @throws SQLException if the value is not an array, is jagged, or contains
+   *         {@code null} at an intermediate array level
+   */
+  public static void validateJavaArray(Object javaArray) throws SQLException {
+    int dimensions = MultiDimArraySupport.computeDimensions(javaArray);
+    if (dimensions == 0) {
+      throw new PSQLException(
+          GT.tr("Cannot convert {0} to array", javaArray.getClass().getName()),
+          PSQLState.INVALID_PARAMETER_TYPE);
+    }
+    MultiDimArraySupport.computeDimensionLengths(javaArray, dimensions);
   }
 
   @Override
@@ -108,7 +130,14 @@ public final class ArrayCodec implements BinaryCodec, TextCodec {
       ArrayEncoding.ArrayEncoder<Object> encoder = ArrayEncoding.getArrayEncoder(javaArray);
       return encoder.toBinaryRepresentation(ctx.getConnection(), javaArray, arrayOid);
     }
-    return encodeBinaryArrayViaCodec(javaArray, type, ctx);
+    BackpatchByteArrayOutputStream out = new BackpatchByteArrayOutputStream();
+    try {
+      streamBinaryArrayViaCodec(javaArray, type, ctx, out);
+    } catch (IOException e) {
+      // BackpatchByteArrayOutputStream never throws.
+      throw new AssertionError(e);
+    }
+    return out.toByteArray();
   }
 
   /**
@@ -116,11 +145,11 @@ public final class ArrayCodec implements BinaryCodec, TextCodec {
    * element through the registered binary codec for the array's element type.
    * Used for element types that {@link ArrayEncoding} cannot encode natively
    * (composite, SQLData, domain over composite, etc.). Multi-dim header /
-   * dimension walking is shared with {@link Int4ArrayCodec} via
+   * dimension walking is shared with {@link ArrayLeafStreamingCodec} via
    * {@link MultiDimArrayBinary}.
    */
-  private byte[] encodeBinaryArrayViaCodec(Object javaArray, PgType arrayType, CodecContext ctx)
-      throws SQLException {
+  private void streamBinaryArrayViaCodec(Object javaArray, PgType arrayType, CodecContext ctx,
+      BackpatchingBinarySink out) throws SQLException, IOException {
     int elementOid = arrayType.getTypelem();
     PgType elementType = ctx.getTypeInfo().getPgTypeByOid(elementOid);
     BinaryCodec elementCodec = ctx.getCodecs().getBinaryCodec(elementOid, elementType);
@@ -129,35 +158,8 @@ public final class ArrayCodec implements BinaryCodec, TextCodec {
           GT.tr("No binary codec registered for array element oid {0}", elementOid),
           PSQLState.INVALID_PARAMETER_TYPE);
     }
-    MultiDimArrayBinary.LeafBinaryWriter leafWriter = new MultiDimArrayBinary.LeafBinaryWriter() {
-      @Override
-      public void writeLeaf(Object leaf, ByteArrayOutputStream out, byte[] buf)
-          throws IOException, SQLException {
-        Object[] arr = (Object[]) leaf;
-        for (Object element : arr) {
-          if (element == null) {
-            ByteConverter.int4(buf, 0, -1);
-            out.write(buf);
-          } else {
-            byte[] encoded = elementCodec.encodeBinary(element, elementType, ctx);
-            ByteConverter.int4(buf, 0, encoded.length);
-            out.write(buf);
-            out.write(encoded);
-          }
-        }
-      }
-
-      @Override
-      public boolean containsNulls(Object leaf) {
-        for (Object element : (Object[]) leaf) {
-          if (element == null) {
-            return true;
-          }
-        }
-        return false;
-      }
-    };
-    return MultiDimArrayBinary.encode(javaArray, elementOid, leafWriter);
+    GenericArrayLeafCodec leafCodec = new GenericArrayLeafCodec(elementType, elementCodec, null);
+    MultiDimArrayBinary.encode(javaArray, out, ctx, leafCodec);
   }
 
   @Override
@@ -168,38 +170,59 @@ public final class ArrayCodec implements BinaryCodec, TextCodec {
   }
 
   @Override
-  @SuppressWarnings("unchecked")
   public String encodeText(Object value, PgType type, CodecContext ctx) throws SQLException {
+    StringBuilder sb = new StringBuilder();
+    try {
+      encodeText(value, type, ctx, sb);
+    } catch (IOException e) {
+      throw new AssertionError(e); // StringBuilder never throws
+    }
+    return sb.toString();
+  }
+
+  @Override
+  public void encodeBinary(Object value, PgType type, CodecContext ctx, OutputStream out)
+      throws SQLException, IOException {
+    // Defer to the non-streaming path for unwrap/native-encoder dispatch;
+    // the via-codec branch internally back-patches lengths via
+    // BackpatchByteArrayOutputStream when the element codec is streaming,
+    // so the per-element byte[] is avoided there. The outer byte[] is the
+    // payload we hand to out.
+    out.write(encodeBinary(value, type, ctx));
+  }
+
+  @Override
+  public void encodeText(Object value, PgType type, CodecContext ctx, Appendable out)
+      throws SQLException, IOException {
     if (value instanceof Array) {
       String str = value.toString();
-      return str != null ? str : "NULL";
+      out.append(str != null ? str : "NULL");
+      return;
     }
     if (value.getClass().isArray()) {
       if (ArrayEncoding.hasNativeEncoder(value)) {
+        @SuppressWarnings("unchecked")
         ArrayEncoding.ArrayEncoder<Object> encoder = ArrayEncoding.getArrayEncoder(value);
-        return encoder.toArrayString(type.getDelimiter(), value);
+        out.append(encoder.toArrayString(type.getDelimiter(), value));
+        return;
       }
       if (value instanceof Object[]) {
-        return encodeTextArrayViaCodec(value, type, ctx);
+        streamTextArrayViaCodec(value, type, ctx, out);
+        return;
       }
-      // No native encoder and not an Object[]; let ArrayEncoding produce its
-      // standard error.
+      @SuppressWarnings("unchecked")
       ArrayEncoding.ArrayEncoder<Object> encoder = ArrayEncoding.getArrayEncoder(value);
-      return encoder.toArrayString(type.getDelimiter(), value);
+      out.append(encoder.toArrayString(type.getDelimiter(), value));
+      return;
     }
     throw new PSQLException(
         GT.tr("Cannot convert {0} to array", value.getClass().getName()),
         PSQLState.INVALID_PARAMETER_TYPE);
   }
 
-  /**
-   * Encodes a generic {@code Object[]} (any rank) as a PostgreSQL text array
-   * literal, dispatching each leaf element through the registered text codec
-   * for the array's element type. Multi-dim brace walking is shared with
-   * {@link Int4ArrayCodec} via {@link MultiDimArrayText}.
-   */
-  private String encodeTextArrayViaCodec(Object javaArray, PgType arrayType, CodecContext ctx)
-      throws SQLException {
+  /** Streams a generic {@code Object[]} (any rank) as a PostgreSQL text array literal. */
+  private void streamTextArrayViaCodec(Object javaArray, PgType arrayType, CodecContext ctx,
+      Appendable out) throws SQLException, IOException {
     int elementOid = arrayType.getTypelem();
     PgType elementType = ctx.getTypeInfo().getPgTypeByOid(elementOid);
     TextCodec elementCodec = ctx.getCodecs().getTextCodec(elementOid, elementType);
@@ -208,22 +231,8 @@ public final class ArrayCodec implements BinaryCodec, TextCodec {
           GT.tr("No text codec registered for array element oid {0}", elementOid),
           PSQLState.INVALID_PARAMETER_TYPE);
     }
-    MultiDimArrayText.LeafTextWriter leafWriter = (sb, leaf, delim) -> {
-      Object[] arr = (Object[]) leaf;
-      for (int i = 0; i < arr.length; i++) {
-        if (i > 0) {
-          sb.append(delim);
-        }
-        Object element = arr[i];
-        if (element == null) {
-          sb.append("NULL");
-        } else {
-          String elementText = elementCodec.encodeText(element, elementType, ctx);
-          PgArray.escapeArrayElement(sb, elementText);
-        }
-      }
-    };
-    return MultiDimArrayText.encode(javaArray, arrayType.getDelimiter(), leafWriter);
+    GenericArrayLeafCodec leafCodec = new GenericArrayLeafCodec(elementType, null, elementCodec);
+    MultiDimArrayText.encode(javaArray, arrayType.getDelimiter(), out, ctx, leafCodec);
   }
 
   @Override
@@ -283,37 +292,31 @@ public final class ArrayCodec implements BinaryCodec, TextCodec {
 
   @Override
   public int decodeAsInt(byte[] data, PgType type, CodecContext ctx) throws SQLException {
-    throw cannotConvert("int");
+    throw Codec.cannotConvert("array", "int");
   }
 
   @Override
   public int decodeAsInt(String data, PgType type, CodecContext ctx) throws SQLException {
-    throw cannotConvert("int");
+    throw Codec.cannotConvert("array", "int");
   }
 
   @Override
   public long decodeAsLong(byte[] data, PgType type, CodecContext ctx) throws SQLException {
-    throw cannotConvert("long");
+    throw Codec.cannotConvert("array", "long");
   }
 
   @Override
   public long decodeAsLong(String data, PgType type, CodecContext ctx) throws SQLException {
-    throw cannotConvert("long");
+    throw Codec.cannotConvert("array", "long");
   }
 
   @Override
   public double decodeAsDouble(byte[] data, PgType type, CodecContext ctx) throws SQLException {
-    throw cannotConvert("double");
+    throw Codec.cannotConvert("array", "double");
   }
 
   @Override
   public double decodeAsDouble(String data, PgType type, CodecContext ctx) throws SQLException {
-    throw cannotConvert("double");
-  }
-
-  private static PSQLException cannotConvert(String targetType) {
-    return new PSQLException(
-        GT.tr("Cannot convert array to {0}", targetType),
-        PSQLState.INVALID_PARAMETER_TYPE);
+    throw Codec.cannotConvert("array", "double");
   }
 }
