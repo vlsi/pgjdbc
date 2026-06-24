@@ -1,0 +1,158 @@
+/*
+ * Copyright (c) 2024, PostgreSQL Global Development Group
+ * See the LICENSE file in the project root for more information.
+ */
+
+/*
+ * Opt-in PIT (https://pitest.org) mutation-testing harness for the codec
+ * converters added on the `typecache` branch.
+ *
+ * This is delivered as a Gradle *init script* on purpose: the normal pgjdbc
+ * build is left completely untouched, and mutation testing only happens when
+ * you explicitly ask for it with `--init-script`.
+ *
+ * Usage (no database required, fast, portable):
+ *
+ *   ./gradlew :postgresql:pitestCodec \
+ *       --init-script config/mutation/pitest.init.gradle
+ *
+ * Full run that also lets the database-backed codec tests contribute coverage
+ * (start docker/postgres-server first, then pass an empty exclude list):
+ *
+ *   ./gradlew :postgresql:pitestCodec \
+ *       --init-script config/mutation/pitest.init.gradle \
+ *       -Ppitest.excludedTestClasses=
+ *
+ * Report: pgjdbc/build/reports/pitest-codec/index.html (+ mutations.xml)
+ *
+ * Override knobs (all optional, pass with -P):
+ *   pitest.targetClasses        classes to mutate  (default org.postgresql.jdbc.codec.*)
+ *   pitest.targetTests          tests to run       (default org.postgresql.jdbc.codec.*)
+ *   pitest.excludedTestClasses  tests to skip       (default = the 5 DB-backed codec tests)
+ *   pitest.mutators             DEFAULTS|STRONGER|ALL or a comma list (default DEFAULTS)
+ *   pitest.threads              parallelism        (default 4)
+ *   pitest.features             extra PIT features, e.g. +EXPORT
+ *   pitest.version              PIT version        (default 1.17.4)
+ *   pitest.junit5Version        junit5 plugin ver  (default 1.2.2)
+ */
+
+gradle.projectsEvaluated {
+    // The main driver module is the `:postgresql` project (it lives in the
+    // pgjdbc/ directory; see settings.gradle.kts).
+    def proj = rootProject.findProject(":postgresql")
+    if (proj == null) {
+        return
+    }
+
+    def pitVersion = proj.findProperty("pitest.version") ?: "1.17.4"
+    def junit5Version = proj.findProperty("pitest.junit5Version") ?: "1.2.2"
+
+    // The 5 codec tests that open a real JDBC connection. Excluded by default so
+    // `pitestCodec` runs anywhere with zero infrastructure. Pass
+    // -Ppitest.excludedTestClasses= (empty) once a server is up to include them.
+    def defaultDbTests = [
+        "org.postgresql.jdbc.codec.CodecIntegrationTest",
+        "org.postgresql.jdbc.codec.CompositeFormatTest",
+        "org.postgresql.jdbc.codec.CompositeEscapingTest",
+        "org.postgresql.jdbc.codec.ArrayWalkerCatchAllTest",
+        "org.postgresql.jdbc.codec.NestingDepthTest",
+    ].join(",")
+
+    proj.with {
+        def pitestCp = configurations.maybeCreate("pitestClasspath")
+        pitestCp.canBeConsumed = false
+        pitestCp.canBeResolved = true
+        dependencies.add(pitestCp.name, "org.pitest:pitest-command-line:${pitVersion}")
+        dependencies.add(pitestCp.name, "org.pitest:pitest-junit5-plugin:${junit5Version}")
+
+        tasks.register("pitestCodec", JavaExec) {
+            group = "verification"
+            description = "Run PIT mutation testing on the codec package (writes build/reports/pitest-codec)"
+
+            // Make sure both the regular classes and the Java 11 multi-release
+            // classes (the test task adds these) are compiled first.
+            dependsOn("testClasses")
+            def java11Ss = sourceSets.findByName("java11")
+            if (java11Ss != null) {
+                dependsOn(java11Ss.classesTaskName)
+            }
+
+            mainClass.set("org.pitest.mutationtest.commandline.MutationCoverageReport")
+            classpath = pitestCp
+            // Run from the module dir so TestUtil resolves ../build.properties
+            // (repo root) for the database-backed codec tests, mirroring `test`.
+            workingDir = projectDir
+
+            def testSs = sourceSets.getByName("test")
+            def reportSub = (findProperty("pitest.reportDir") ?: "pitest-codec").toString()
+            def reportDir = layout.buildDirectory.dir("reports/${reportSub}").get().asFile
+            def srcDir = file("src/main/java")
+
+            def targetClasses = (findProperty("pitest.targetClasses") ?: "org.postgresql.jdbc.codec.*").toString()
+            def targetTests = (findProperty("pitest.targetTests") ?: "org.postgresql.jdbc.codec.*").toString()
+            // NB: use an explicit null check, NOT Elvis (?:) — passing
+            // -Ppitest.excludedTestClasses= (empty, "include the DB tests") must
+            // be honoured, but Groovy treats "" as falsy and ?: would wrongly
+            // fall back to the default exclude list.
+            def excludedProp = findProperty("pitest.excludedTestClasses")
+            def excluded = (excludedProp == null ? defaultDbTests : excludedProp).toString()
+            // The codec tests live in the SAME package as the codecs, so the
+            // targetClasses glob would otherwise mutate the test code itself.
+            // Exclude *Test / *Tests / *IT (and their nested classes).
+            def excludedClasses = (findProperty("pitest.excludedClasses")
+                ?: "*Test,*Test\$*,*Tests,*Tests\$*,*IT,*IT\$*").toString()
+            def mutators = (findProperty("pitest.mutators") ?: "DEFAULTS").toString()
+            def threads = (findProperty("pitest.threads") ?: "4").toString()
+            def features = (findProperty("pitest.features") ?: "").toString()
+            def verbose = (findProperty("pitest.verbose") ?: "false").toString()
+            // Give the PIT minion JVMs enough heap; the whole driver is on their classpath.
+            def childJvmArgs = (findProperty("pitest.jvmArgs") ?: "-Xmx2048m").toString()
+
+            doFirst {
+                reportDir.mkdirs()
+
+                // PIT needs the code-under-test + its dependencies. Mirror the
+                // `test` task, which prepends the Java 11 multi-release output.
+                def cpFiles = []
+                if (java11Ss != null) {
+                    cpFiles.addAll(java11Ss.output.files)
+                }
+                cpFiles.addAll(testSs.runtimeClasspath.files)
+
+                // Hand the (large) classpath to PIT via a file, one entry per
+                // line, to dodge any command-line length / separator limits.
+                def cpFile = new File(reportDir, "classpath.txt")
+                cpFile.text = cpFiles.collect { it.absolutePath }.unique().join("\n")
+
+                def pitArgs = [
+                    "--reportDir", reportDir.absolutePath,
+                    "--targetClasses", targetClasses,
+                    "--targetTests", targetTests,
+                    "--sourceDirs", srcDir.absolutePath,
+                    "--classPathFile", cpFile.absolutePath,
+                    "--testPlugin", "junit5",
+                    "--outputFormats", "HTML,XML",
+                    "--timestampedReports", "false",
+                    "--threads", threads,
+                    "--mutators", mutators,
+                    "--verbose", verbose,
+                ]
+                if (childJvmArgs?.trim()) {
+                    pitArgs += ["--jvmArgs", childJvmArgs]
+                }
+                if (excluded?.trim()) {
+                    pitArgs += ["--excludedTestClasses", excluded]
+                }
+                if (excludedClasses?.trim()) {
+                    pitArgs += ["--excludedClasses", excludedClasses]
+                }
+                if (features?.trim()) {
+                    pitArgs += ["--features", features]
+                }
+                logger.lifecycle("PIT targetClasses={}  mutators={}  excludedTests={}",
+                    targetClasses, mutators, excluded?.trim() ? excluded : "(none)")
+                args(pitArgs)
+            }
+        }
+    }
+}
