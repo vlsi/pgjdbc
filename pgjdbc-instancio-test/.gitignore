@@ -1,0 +1,4 @@
+# Jazzer fuzzing artifacts (reproducers / corpus) — not committed so the regression
+# gate stays green; reproduce findings with JAZZER_FUZZ=1 (see config/mutation/JAZZER_VS_PITEST_PBT.md).
+crash-*
+.cifuzz-corpus/

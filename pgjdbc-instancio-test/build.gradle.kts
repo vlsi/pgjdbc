@@ -31,4 +31,7 @@ dependencies {
     // in config/mutation). It is a real property-based framework with shrinking; 0.2.3 is
     // the latest published version (JetBrains, Apache-2.0, used internally by IntelliJ).
     testImplementation("org.jetbrains:jetCheck:0.2.3")
+    // Jazzer is evaluated as a third, different approach: coverage-guided fuzzing of the
+    // decode/parse paths (see JAZZER_VS_PITEST_PBT.md). 0.30.0, Apache-2.0, Code Intelligence.
+    testImplementation("com.code-intelligence:jazzer-junit:0.30.0")
 }
