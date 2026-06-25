@@ -138,7 +138,9 @@ data (e.g. `bytea`) is bounded and, on failure, shrunk by a small manual
 `Minimizer` (delta-debugging) — Instancio does not shrink, which matters for the
 large counterexamples variable-length codecs (arrays/structs) can produce.
 
-Measure the lift (scoped to the six numeric/bytea codecs the spike targets):
+`TestCodecContext` now lives in the shared `testkit` module, so any test module
+can build a connectionless `CodecContext` (this unlocks the temporal codecs,
+which read the context's timestamp helpers). Measure the lift:
 
 ```bash
 # before = existing unit tests only; after = unit tests + Instancio
@@ -151,26 +153,29 @@ python3 config/mutation/compare_runs.py \
 `decodeBinary(encodeBinary(x))` property barely moved the score (`NumericCodec`
 **16 % → 19 %**): it mostly re-covers the happy path the existing unit tests
 already hit. Re-pointing the same Instancio data at the *surviving branches* —
-`decodeText` and the `decodeAs*` conversions over NaN / ±Infinity / overflow —
-lifted one class sharply from a single extra test file:
+`decodeText` and the `decodeAs*` conversions over NaN / ±Infinity / overflow,
+and the temporal roundtrips via the shared context — moved four codecs:
 
 | codec | before | after | Δ | how |
 |-------|--------|-------|---|-----|
 | `NumericCodec` | 16 % | **36 %** | **+19** | `decodeText` + `decodeAs{BigDecimal,Double,Float,Int,Long}` over finite + NaN/±Inf + overflow |
-| `Int4`/`Int8`/`Float4`/`Float8`/`Bytea` | — | — | +0 | binary roundtrip only — re-covers existing tests; needs the same `decodeAs*`/text treatment to move |
+| `Float8Codec`  | 16 % | **29 %** | **+13** | `decodeAs*` overflow/non-finite guards + text parsing |
+| `DateCodec`    | 31 % | **38 %** |  **+8** | binary + text `LocalDate` roundtrips via `TestCodecContext` |
+| `Float4Codec`  | 17 % | **22 %** |  **+5** | `decodeAs*` overflow/non-finite guards |
+| `Int4`/`Int8`/`Bytea` | — | — | **+0** | already covered by existing tests; their remaining survivors are in the `decodeText`/`decodeAsInt(String)` path that calls `ctx.getEncoding()` and needs a connection-bound context (below) |
 
 So PBT works, but only when the generators drive the specific uncovered methods.
-The same recipe applied to the float/integer `decodeAs*` paths and the Tier-1
-zero-coverage codecs should move them similarly.
+The same recipe applied to `Int2Codec`, the remaining temporal codecs
+(`Time`/`Timestamp`/`Timetz`/`Timestamptz`), and the Tier-1 zero-coverage
+codecs should move them similarly.
 
-**Scope limit / follow-up.** The spike stays on *context-free* code paths so it
-can pass a `null` `CodecContext` (the scalar binary/text/`decodeAs*` paths). The
-context-dependent paths — text `int` parsing, the temporal codecs, and the
-array/composite walkers — need a real test `CodecContext`. The clean way to
-reach those from a separate module is to expose the existing `TestCodecContext`
-(today in `:postgresql` test sources) via Gradle **test fixtures**; that is the
-natural next step before extending the property tests to `RangeCodec`,
-`CompositeCodec`, and the temporal family.
+**Remaining scope limit.** `TestCodecContext` is *connectionless*: it supplies
+charset and timestamp helpers but `getEncoding()` and the codec **registry**
+throw. So two groups are still out of reach for pure unit tests: the integer
+**text** path (`ctx.getEncoding()`), and the array/composite/`RangeCodec`
+walkers (which resolve element codecs through `ctx.getCodecs()`). Those need a
+connection-backed context — either a Mockito-stubbed `BaseConnection` or the
+existing database-backed tests.
 
 ## Caveats
 
