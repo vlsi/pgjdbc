@@ -6,7 +6,7 @@
 package org.postgresql.test.codec;
 
 import static org.junit.jupiter.api.Assertions.fail;
-import static org.postgresql.test.codec.CodecTestSupport.NO_CTX;
+import static org.postgresql.test.codec.CodecTestSupport.CTX;
 import static org.postgresql.test.codec.CodecTestSupport.type;
 
 import org.postgresql.core.Oid;
@@ -70,8 +70,8 @@ class ByteaVariableLengthPropertyTest {
 
   private static byte[] roundtrip(byte[] input) {
     try {
-      byte[] wire = ByteaCodec.INSTANCE.encodeBinary(input, BYTEA, NO_CTX);
-      return (byte[]) ByteaCodec.INSTANCE.decodeBinary(wire, BYTEA, NO_CTX);
+      byte[] wire = ByteaCodec.INSTANCE.encodeBinary(input, BYTEA, CTX);
+      return (byte[]) ByteaCodec.INSTANCE.decodeBinary(wire, BYTEA, CTX);
     } catch (Exception e) {
       throw new RuntimeException(e);
     }

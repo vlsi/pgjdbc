@@ -7,7 +7,7 @@ package org.postgresql.test.codec;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
-import static org.postgresql.test.codec.CodecTestSupport.NO_CTX;
+import static org.postgresql.test.codec.CodecTestSupport.CTX;
 import static org.postgresql.test.codec.CodecTestSupport.type;
 
 import org.postgresql.core.Oid;
@@ -29,7 +29,7 @@ import java.util.List;
  * Deep property test for {@link NumericCodec}, aimed at the branches the plain binary roundtrip
  * never reaches: {@code decodeText} and the {@code decodeAs*} conversion methods, across finite,
  * NaN/Infinity, and overflow inputs. These are exactly the surviving/uncovered mutants from the
- * report, and they are all context-free so a {@code null} context is sufficient.
+ * report; they ignore the context, so the shared connectionless {@code CTX} is sufficient.
  *
  * <p>This is the lesson from the first measurement: a naive {@code decode(encode(x))} roundtrip
  * mostly re-covers what the existing unit tests already hit; to actually move the mutation score
@@ -58,23 +58,23 @@ class NumericConversionPropertyTest {
     values.addAll(Instancio.ofList(BigDecimal.class).size(RANDOM_CASES).create());
 
     for (BigDecimal v : values) {
-      byte[] wire = NumericCodec.INSTANCE.encodeBinary(v, NUMERIC, NO_CTX);
+      byte[] wire = NumericCodec.INSTANCE.encodeBinary(v, NUMERIC, CTX);
       String text = v.toPlainString();
 
       // binary
-      assertEquals(0, NumericCodec.INSTANCE.decodeAsBigDecimal(wire, NUMERIC, NO_CTX).compareTo(v),
+      assertEquals(0, NumericCodec.INSTANCE.decodeAsBigDecimal(wire, NUMERIC, CTX).compareTo(v),
           () -> "decodeAsBigDecimal(byte[]) for " + v);
-      assertEquals(v.doubleValue(), NumericCodec.INSTANCE.decodeAsDouble(wire, NUMERIC, NO_CTX),
+      assertEquals(v.doubleValue(), NumericCodec.INSTANCE.decodeAsDouble(wire, NUMERIC, CTX),
           () -> "decodeAsDouble(byte[]) for " + v);
-      assertEquals((float) v.doubleValue(), NumericCodec.INSTANCE.decodeAsFloat(wire, NUMERIC, NO_CTX),
+      assertEquals((float) v.doubleValue(), NumericCodec.INSTANCE.decodeAsFloat(wire, NUMERIC, CTX),
           () -> "decodeAsFloat(byte[]) for " + v);
 
       // text
-      assertEquals(0, ((BigDecimal) NumericCodec.INSTANCE.decodeText(text, NUMERIC, NO_CTX)).compareTo(v),
+      assertEquals(0, ((BigDecimal) NumericCodec.INSTANCE.decodeText(text, NUMERIC, CTX)).compareTo(v),
           () -> "decodeText for " + v);
-      assertEquals(0, NumericCodec.INSTANCE.decodeAsBigDecimal(text, NUMERIC, NO_CTX).compareTo(v),
+      assertEquals(0, NumericCodec.INSTANCE.decodeAsBigDecimal(text, NUMERIC, CTX).compareTo(v),
           () -> "decodeAsBigDecimal(String) for " + v);
-      assertEquals(v.doubleValue(), NumericCodec.INSTANCE.decodeAsDouble(text, NUMERIC, NO_CTX),
+      assertEquals(v.doubleValue(), NumericCodec.INSTANCE.decodeAsDouble(text, NUMERIC, CTX),
           () -> "decodeAsDouble(String) for " + v);
     }
   }
@@ -83,29 +83,29 @@ class NumericConversionPropertyTest {
   @Test
   void nanAndInfinity() throws Exception {
     // decodeText / decodeBinary surface specials as Double sentinels.
-    assertEquals(Double.NaN, NumericCodec.INSTANCE.decodeText("NaN", NUMERIC, NO_CTX));
-    assertEquals(Double.POSITIVE_INFINITY, NumericCodec.INSTANCE.decodeText("Infinity", NUMERIC, NO_CTX));
-    assertEquals(Double.POSITIVE_INFINITY, NumericCodec.INSTANCE.decodeText("+Infinity", NUMERIC, NO_CTX));
-    assertEquals(Double.NEGATIVE_INFINITY, NumericCodec.INSTANCE.decodeText("-Infinity", NUMERIC, NO_CTX));
-    assertEquals(Double.NaN, NumericCodec.INSTANCE.decodeBinary(NAN_BIN, NUMERIC, NO_CTX));
+    assertEquals(Double.NaN, NumericCodec.INSTANCE.decodeText("NaN", NUMERIC, CTX));
+    assertEquals(Double.POSITIVE_INFINITY, NumericCodec.INSTANCE.decodeText("Infinity", NUMERIC, CTX));
+    assertEquals(Double.POSITIVE_INFINITY, NumericCodec.INSTANCE.decodeText("+Infinity", NUMERIC, CTX));
+    assertEquals(Double.NEGATIVE_INFINITY, NumericCodec.INSTANCE.decodeText("-Infinity", NUMERIC, CTX));
+    assertEquals(Double.NaN, NumericCodec.INSTANCE.decodeBinary(NAN_BIN, NUMERIC, CTX));
 
     // decodeAsDouble keeps the sentinels, in both formats.
-    assertEquals(Double.NaN, NumericCodec.INSTANCE.decodeAsDouble("NaN", NUMERIC, NO_CTX));
-    assertEquals(Double.POSITIVE_INFINITY, NumericCodec.INSTANCE.decodeAsDouble("Infinity", NUMERIC, NO_CTX));
-    assertEquals(Double.NEGATIVE_INFINITY, NumericCodec.INSTANCE.decodeAsDouble("-Infinity", NUMERIC, NO_CTX));
-    assertEquals(Double.NaN, NumericCodec.INSTANCE.decodeAsDouble(NAN_BIN, NUMERIC, NO_CTX));
-    assertEquals(Double.POSITIVE_INFINITY, NumericCodec.INSTANCE.decodeAsDouble(POS_INF_BIN, NUMERIC, NO_CTX));
-    assertEquals(Double.NEGATIVE_INFINITY, NumericCodec.INSTANCE.decodeAsDouble(NEG_INF_BIN, NUMERIC, NO_CTX));
+    assertEquals(Double.NaN, NumericCodec.INSTANCE.decodeAsDouble("NaN", NUMERIC, CTX));
+    assertEquals(Double.POSITIVE_INFINITY, NumericCodec.INSTANCE.decodeAsDouble("Infinity", NUMERIC, CTX));
+    assertEquals(Double.NEGATIVE_INFINITY, NumericCodec.INSTANCE.decodeAsDouble("-Infinity", NUMERIC, CTX));
+    assertEquals(Double.NaN, NumericCodec.INSTANCE.decodeAsDouble(NAN_BIN, NUMERIC, CTX));
+    assertEquals(Double.POSITIVE_INFINITY, NumericCodec.INSTANCE.decodeAsDouble(POS_INF_BIN, NUMERIC, CTX));
+    assertEquals(Double.NEGATIVE_INFINITY, NumericCodec.INSTANCE.decodeAsDouble(NEG_INF_BIN, NUMERIC, CTX));
 
     // BigDecimal cannot represent the specials, so those conversions must throw, in both formats.
     for (String s : List.of("NaN", "Infinity", "+Infinity", "-Infinity")) {
       assertThrows(PSQLException.class,
-          () -> NumericCodec.INSTANCE.decodeAsBigDecimal(s, NUMERIC, NO_CTX),
+          () -> NumericCodec.INSTANCE.decodeAsBigDecimal(s, NUMERIC, CTX),
           () -> "decodeAsBigDecimal(String) should reject " + s);
     }
     for (byte[] b : List.of(NAN_BIN, POS_INF_BIN, NEG_INF_BIN)) {
       assertThrows(PSQLException.class,
-          () -> NumericCodec.INSTANCE.decodeAsBigDecimal(b, NUMERIC, NO_CTX),
+          () -> NumericCodec.INSTANCE.decodeAsBigDecimal(b, NUMERIC, CTX),
           "decodeAsBigDecimal(byte[]) should reject specials");
     }
   }
@@ -115,17 +115,17 @@ class NumericConversionPropertyTest {
   void integerConversionRanges() throws Exception {
     // in range
     assertEquals(42, NumericCodec.INSTANCE.decodeAsInt(
-        NumericCodec.INSTANCE.encodeBinary(new BigDecimal("42.9"), NUMERIC, NO_CTX), NUMERIC, NO_CTX));
-    assertEquals(42L, NumericCodec.INSTANCE.decodeAsLong("42.9", NUMERIC, NO_CTX));
+        NumericCodec.INSTANCE.encodeBinary(new BigDecimal("42.9"), NUMERIC, CTX), NUMERIC, CTX));
+    assertEquals(42L, NumericCodec.INSTANCE.decodeAsLong("42.9", NUMERIC, CTX));
 
     // out of int range -> decodeAsInt throws, decodeAsLong still fine
     byte[] big = NumericCodec.INSTANCE.encodeBinary(
-        new BigDecimal(Integer.MAX_VALUE + 10L), NUMERIC, NO_CTX);
-    assertThrows(PSQLException.class, () -> NumericCodec.INSTANCE.decodeAsInt(big, NUMERIC, NO_CTX));
-    assertEquals(Integer.MAX_VALUE + 10L, NumericCodec.INSTANCE.decodeAsLong(big, NUMERIC, NO_CTX));
+        new BigDecimal(Integer.MAX_VALUE + 10L), NUMERIC, CTX);
+    assertThrows(PSQLException.class, () -> NumericCodec.INSTANCE.decodeAsInt(big, NUMERIC, CTX));
+    assertEquals(Integer.MAX_VALUE + 10L, NumericCodec.INSTANCE.decodeAsLong(big, NUMERIC, CTX));
 
     // out of long range -> decodeAsLong throws
     assertThrows(PSQLException.class,
-        () -> NumericCodec.INSTANCE.decodeAsLong("99999999999999999999999", NUMERIC, NO_CTX));
+        () -> NumericCodec.INSTANCE.decodeAsLong("99999999999999999999999", NUMERIC, CTX));
   }
 }

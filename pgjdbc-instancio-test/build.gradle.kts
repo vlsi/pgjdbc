@@ -22,6 +22,8 @@ dependencies {
             attribute(Bundling.BUNDLING_ATTRIBUTE, objects.named(Bundling.SHADOWED))
         }
     }
+    // testkit provides TestCodecContext (a connectionless CodecContext for unit tests).
+    testImplementation(projects.testkit)
     // Instancio drives the random/edge data generation for the codec property tests.
     // 5.6.0 is the latest stable (6.x is still RC); bump to 6.x once it is GA.
     testImplementation("org.instancio:instancio-junit:5.6.0")
