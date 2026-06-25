@@ -101,3 +101,30 @@ config/mutation/run-codec-mutation.sh --target org.postgresql.jdbc.codec.Numeric
 `summarize_mutations.py` ranks classes by `SURVIVED + NO_COVERAGE` and then
 lists each gap as `Lnn [SURVIVE|NO-COV] method(): description (mutator)` so you
 can jump straight to the lines that need attention.
+
+## Including a sibling test module (e.g. the Instancio property tests)
+
+The property-based codec tests live in their own Java-17 module,
+`pgjdbc-instancio-test` (package `org.postgresql.test.codec`). To let those tests
+count toward the codec mutation score, point PIT at the extra project and widen
+`targetTests` to its package:
+
+```bash
+./gradlew :postgresql:pitestCodec --init-script config/mutation/pitest.init.gradle \
+    -Ppitest.extraTestProjects=:pgjdbc-instancio-test \
+    -Ppitest.extraClasspathDeps=org.instancio:instancio-junit:5.6.0 \
+    -Ppitest.targetTests='org.postgresql.jdbc.codec.*,org.postgresql.test.codec.*'
+```
+
+`compare_runs.py` then shows the before/after lift per codec:
+
+```bash
+python3 config/mutation/compare_runs.py \
+    pgjdbc/build/reports/pitest-cmp-before/mutations.xml \
+    pgjdbc/build/reports/pitest-cmp-after/mutations.xml
+```
+
+| extra knob                  | meaning                                              |
+|-----------------------------|------------------------------------------------------|
+| `pitest.extraTestProjects`  | comma list of sibling Gradle projects whose compiled test classes are added to PIT's classpath |
+| `pitest.extraClasspathDeps` | comma list of extra library coordinates those tests need (e.g. `org.instancio:instancio-junit:5.6.0`) |

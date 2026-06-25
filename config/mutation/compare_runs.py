@@ -26,10 +26,10 @@ def score(st):
     return mut, killed, (killed / mut * 100 if mut else 0.0)
 
 
-def main(a, b):
+def main(a, b, la="A%", lb="B%"):
     A, B = load(a), load(b)
     classes = sorted(set(A) | set(B))
-    print(f"{'CLASS':<40}{'unit%':>8}{'+DB%':>8}{'gain':>8}{'mut':>6}")
+    print(f"{'CLASS':<40}{la:>8}{lb:>8}{'gain':>8}{'mut':>6}")
     print("-" * 70)
     for cls in classes:
         ma, ka, sa = score(A.get(cls, {}))
@@ -45,4 +45,5 @@ def main(a, b):
 
 
 if __name__ == "__main__":
-    main(sys.argv[1], sys.argv[2])
+    # optional labels: compare_runs.py a.xml b.xml [labelA] [labelB]
+    main(*sys.argv[1:5])

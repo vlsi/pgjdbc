@@ -64,6 +64,13 @@ gradle.projectsEvaluated {
         pitestCp.canBeResolved = true
         dependencies.add(pitestCp.name, "org.pitest:pitest-command-line:${pitVersion}")
         dependencies.add(pitestCp.name, "org.pitest:pitest-junit5-plugin:${junit5Version}")
+        // Extra libraries that sibling test modules need on PIT's classpath
+        // (e.g. Instancio for :pgjdbc-instancio-test). Added to the PIT launcher
+        // configuration (a :postgresql config, so resolution is safe) and PIT
+        // propagates it to its minions.
+        (proj.findProperty("pitest.extraClasspathDeps") ?: "").toString()
+            .split(",").collect { it.trim() }.findAll { it }
+            .each { dependencies.add(pitestCp.name, it) }
 
         tasks.register("pitestCodec", JavaExec) {
             group = "verification"
@@ -87,6 +94,23 @@ gradle.projectsEvaluated {
             def reportSub = (findProperty("pitest.reportDir") ?: "pitest-codec").toString()
             def reportDir = layout.buildDirectory.dir("reports/${reportSub}").get().asFile
             def srcDir = file("src/main/java")
+
+            // Optional sibling test modules whose codec tests should also count
+            // (e.g. :pgjdbc-instancio-test). We add their compiled test-output dirs
+            // (resolved at configuration time — listing dirs needs no dependency
+            // resolution, unlike another project's runtimeClasspath which cannot be
+            // resolved during this task's execution). Their library deps come via
+            // pitest.extraClasspathDeps; their package must be added to targetTests.
+            def extraTestProjects = (findProperty("pitest.extraTestProjects") ?: "").toString()
+                .split(",").collect { it.trim() }.findAll { it }
+            def extraOutputDirs = []
+            extraTestProjects.each { p ->
+                dependsOn("${p}:testClasses")
+                def ep = rootProject.findProject(p)
+                if (ep != null) {
+                    extraOutputDirs.addAll(ep.sourceSets.getByName("test").output.files)
+                }
+            }
 
             def targetClasses = (findProperty("pitest.targetClasses") ?: "org.postgresql.jdbc.codec.*").toString()
             def targetTests = (findProperty("pitest.targetTests") ?: "org.postgresql.jdbc.codec.*").toString()
@@ -118,6 +142,9 @@ gradle.projectsEvaluated {
                     cpFiles.addAll(java11Ss.output.files)
                 }
                 cpFiles.addAll(testSs.runtimeClasspath.files)
+
+                // Append any sibling test modules' compiled test classes.
+                cpFiles.addAll(extraOutputDirs)
 
                 // Hand the (large) classpath to PIT via a file, one entry per
                 // line, to dodge any command-line length / separator limits.

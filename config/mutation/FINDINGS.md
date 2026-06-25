@@ -126,6 +126,52 @@ python3 config/mutation/summarize_mutations.py \
    codecs, `RangeCodec`, and the temporal codecs with NaN/Infinity, overflow,
    null, and boundary inputs.
 
+## Instancio property-test spike (`pgjdbc-instancio-test`)
+
+To bump these numbers we prototyped property-based tests with
+[Instancio](https://www.instancio.org/) in a new Java-17 module,
+`pgjdbc-instancio-test` (gated on `jdkTestVersion >= 17` in `settings.gradle.kts`,
+package `org.postgresql.test.codec`). The tests feed boundary cases plus
+Instancio-generated random values through each codec's own `decode(encode(x))`
+oracle, with a fixed `@Seed` so PIT reruns stay deterministic. Variable-length
+data (e.g. `bytea`) is bounded and, on failure, shrunk by a small manual
+`Minimizer` (delta-debugging) — Instancio does not shrink, which matters for the
+large counterexamples variable-length codecs (arrays/structs) can produce.
+
+Measure the lift (scoped to the six numeric/bytea codecs the spike targets):
+
+```bash
+# before = existing unit tests only; after = unit tests + Instancio
+python3 config/mutation/compare_runs.py \
+    pgjdbc/build/reports/pitest-cmp-before/mutations.xml \
+    pgjdbc/build/reports/pitest-cmp-after/mutations.xml before% after%
+```
+
+**The key lesson — aim at the survivors, don't just round-trip.** A naive
+`decodeBinary(encodeBinary(x))` property barely moved the score (`NumericCodec`
+**16 % → 19 %**): it mostly re-covers the happy path the existing unit tests
+already hit. Re-pointing the same Instancio data at the *surviving branches* —
+`decodeText` and the `decodeAs*` conversions over NaN / ±Infinity / overflow —
+lifted one class sharply from a single extra test file:
+
+| codec | before | after | Δ | how |
+|-------|--------|-------|---|-----|
+| `NumericCodec` | 16 % | **36 %** | **+19** | `decodeText` + `decodeAs{BigDecimal,Double,Float,Int,Long}` over finite + NaN/±Inf + overflow |
+| `Int4`/`Int8`/`Float4`/`Float8`/`Bytea` | — | — | +0 | binary roundtrip only — re-covers existing tests; needs the same `decodeAs*`/text treatment to move |
+
+So PBT works, but only when the generators drive the specific uncovered methods.
+The same recipe applied to the float/integer `decodeAs*` paths and the Tier-1
+zero-coverage codecs should move them similarly.
+
+**Scope limit / follow-up.** The spike stays on *context-free* code paths so it
+can pass a `null` `CodecContext` (the scalar binary/text/`decodeAs*` paths). The
+context-dependent paths — text `int` parsing, the temporal codecs, and the
+array/composite walkers — need a real test `CodecContext`. The clean way to
+reach those from a separate module is to expose the existing `TestCodecContext`
+(today in `:postgresql` test sources) via Gradle **test fixtures**; that is the
+natural next step before extending the property tests to `RangeCodec`,
+`CompositeCodec`, and the temporal family.
+
 ## Caveats
 
 - `DEFAULTS` mutator set. Run with `-Ppitest.mutators=STRONGER` for more (return

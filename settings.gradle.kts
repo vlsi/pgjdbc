@@ -50,6 +50,10 @@ if (jdkTestVersion == null || jdkTestVersion >= 17) {
     // Spring 6.x requires Java 17+
     include("pgjdbc-spring-jdbc-test")
 }
+if (jdkTestVersion == null || jdkTestVersion >= 17) {
+    // Instancio (property-based codec tests) requires Java 17+
+    include("pgjdbc-instancio-test")
+}
 include("postgresql")
 include("testkit")
 
