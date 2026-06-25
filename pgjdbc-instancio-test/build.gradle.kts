@@ -27,4 +27,8 @@ dependencies {
     // Instancio drives the random/edge data generation for the codec property tests.
     // 5.6.0 is the latest stable (6.x is still RC); bump to 6.x once it is GA.
     testImplementation("org.instancio:instancio-junit:5.6.0")
+    // jetCheck is evaluated head-to-head against Instancio (see INSTANCIO_VS_JETCHECK.md
+    // in config/mutation). It is a real property-based framework with shrinking; 0.2.3 is
+    // the latest published version (JetBrains, Apache-2.0, used internally by IntelliJ).
+    testImplementation("org.jetbrains:jetCheck:0.2.3")
 }
