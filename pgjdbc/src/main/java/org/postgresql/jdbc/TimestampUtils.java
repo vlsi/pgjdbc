@@ -410,6 +410,19 @@ public class TimestampUtils {
   }
 
   /**
+   * Rejects empty input before the callers dereference {@code bytes[0]} for the infinity sentinel.
+   * An empty array (an empty string decodes to one) would otherwise raise
+   * {@link ArrayIndexOutOfBoundsException} instead of a normal {@link SQLException}.
+   */
+  private static void checkNotEmpty(byte[] bytes) throws PSQLException {
+    if (bytes.length == 0) {
+      throw new PSQLException(
+          GT.tr("Bad value for type timestamp/date/time: {0}", ""),
+          PSQLState.BAD_DATETIME_FORMAT);
+    }
+  }
+
+  /**
    * Parse a string and return a timestamp representing its value.
    *
    * @param cal calendar to be used to parse the input string
@@ -441,6 +454,7 @@ public class TimestampUtils {
       if (bytes == null) {
         return null;
       }
+      checkNotEmpty(bytes);
 
       // convert postgres's infinity values to internal infinity magic value
       if (bytes[0] == 'i' && Arrays.equals(bytes,INFINITY)) {
@@ -547,6 +561,7 @@ public class TimestampUtils {
     if (bytes == null) {
       return null;
     }
+    checkNotEmpty(bytes);
     // Not sure how to do this. There is no 24:00:00 in java, the largest time is 23:59:59.999999999-18:00
     for ( int i = 0; i < 8; i++ ) {
       if (bytes[i] != MAX_OFFSET[i]) {
@@ -583,6 +598,7 @@ public class TimestampUtils {
     if (bytes == null) {
       return null;
     }
+    checkNotEmpty(bytes);
 
     if (bytes[0] == 'i' && Arrays.equals(INFINITY, bytes)) {
       return LocalDateTime.MAX;
@@ -647,6 +663,7 @@ public class TimestampUtils {
     if (bytes == null) {
       return null;
     }
+    checkNotEmpty(bytes);
 
     // convert postgres's infinity values to internal infinity magic value
     if (bytes[0] == 'i' && Arrays.equals(INFINITY, bytes)) {
@@ -759,6 +776,7 @@ public class TimestampUtils {
       if (dateBytes == null) {
         return null;
       }
+      checkNotEmpty(dateBytes);
       if (dateBytes[0] == 'i' && Arrays.equals(INFINITY, dateBytes)) {
         return new Date(PGStatement.DATE_POSITIVE_INFINITY);
       }
@@ -806,6 +824,7 @@ public class TimestampUtils {
       if (dateBytes == null) {
         return null;
       }
+      checkNotEmpty(dateBytes);
       if (dateBytes[0] == 'i' && Arrays.equals(INFINITY, dateBytes)) {
         return LocalDateTime.MAX.toLocalDate();
       }

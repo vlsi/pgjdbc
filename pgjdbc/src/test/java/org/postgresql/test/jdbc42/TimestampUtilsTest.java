@@ -6,12 +6,16 @@
 package org.postgresql.test.jdbc42;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 
 import org.postgresql.jdbc.TimestampUtils;
 import org.postgresql.util.ByteConverter;
+import org.postgresql.util.PSQLException;
+import org.postgresql.util.PSQLState;
 
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.function.Executable;
 
 import java.sql.SQLException;
 import java.time.LocalTime;
@@ -170,5 +174,33 @@ class TimestampUtilsTest {
     assertEquals(OffsetTime.parse(expectedOutput),
         timestampUtils.toOffsetTime(inputTime),
         "timestampUtils.toOffsetTime(" + inputTime + ")");
+  }
+
+  @Test
+  void rejectsEmptyInput() {
+    // Every text-parsing entry point must reject empty input (an empty string decodes to an
+    // empty byte[]) with a normal SQLException, never an ArrayIndexOutOfBoundsException from
+    // dereferencing bytes[0] before the length is checked.
+    assertRejectsEmpty("toTimestamp(String)", () -> timestampUtils.toTimestamp(null, ""));
+    assertRejectsEmpty("toTimestamp(byte[])", () -> timestampUtils.toTimestamp(null, new byte[0]));
+    assertRejectsEmpty("toDate(String)", () -> timestampUtils.toDate(null, ""));
+    assertRejectsEmpty("toDate(byte[])", () -> timestampUtils.toDate(null, new byte[0]));
+    assertRejectsEmpty("toTime(String)", () -> timestampUtils.toTime(null, ""));
+    assertRejectsEmpty("toTime(byte[])", () -> timestampUtils.toTime(null, new byte[0]));
+    assertRejectsEmpty("toLocalDate(byte[])", () -> timestampUtils.toLocalDate(new byte[0]));
+    assertRejectsEmpty("toLocalDateTime(String)", () -> timestampUtils.toLocalDateTime(""));
+    assertRejectsEmpty("toLocalDateTime(byte[])", () -> timestampUtils.toLocalDateTime(new byte[0]));
+    assertRejectsEmpty("toLocalTime(String)", () -> timestampUtils.toLocalTime(""));
+    assertRejectsEmpty("toOffsetTime(String)", () -> timestampUtils.toOffsetTime(""));
+    assertRejectsEmpty("toOffsetTime(byte[])", () -> timestampUtils.toOffsetTime(new byte[0]));
+    assertRejectsEmpty("toOffsetDateTime(String)", () -> timestampUtils.toOffsetDateTime(""));
+    assertRejectsEmpty("toOffsetDateTime(byte[])", () -> timestampUtils.toOffsetDateTime(new byte[0]));
+  }
+
+  private static void assertRejectsEmpty(String label, Executable call) {
+    PSQLException e = assertThrows(PSQLException.class, call,
+        label + " must reject empty input with a SQLException, not ArrayIndexOutOfBoundsException");
+    assertEquals(PSQLState.BAD_DATETIME_FORMAT.getState(), e.getSQLState(),
+        label + " SQLState");
   }
 }
