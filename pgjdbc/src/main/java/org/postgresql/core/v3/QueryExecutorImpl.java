@@ -429,6 +429,16 @@ public class QueryExecutorImpl extends QueryExecutorBase {
         ((V3ParameterList) parameters).checkAllParametersSet();
       }
 
+      // A caller that wants the parameter types and nothing else (ParameterMetaData) can be served
+      // from the types a previous describe of this query resolved, sparing a network roundtrip per
+      // call. Callers that want the resultset metadata as well have to go to the server, as the
+      // fields are not cached for one-shot queries.
+      if (describeOnly && (flags & QueryExecutor.QUERY_NO_METADATA) != 0
+          && resolveParameterTypesFromCache(query, (V3ParameterList) parameters)) {
+        handler.handleCompletion();
+        return;
+      }
+
       boolean autosave = false;
       try {
         try {
@@ -484,6 +494,30 @@ public class QueryExecutorImpl extends QueryExecutorBase {
         rollbackIfRequired(autosave, e);
       }
     }
+  }
+
+  /**
+   * Fills the unresolved parameter types from the types a previous describe of the same query
+   * resolved for the very same set of known types.
+   *
+   * @param query the query to resolve the parameter types for
+   * @param parameters the parameter list to fill
+   * @return true if all the types were resolved from the cache, false if a describe is required
+   */
+  private boolean resolveParameterTypesFromCache(Query query, V3ParameterList parameters) {
+    if (!(query instanceof SimpleQuery) || !(parameters instanceof SimpleParameterList)) {
+      return false;
+    }
+    SimpleParameterList params = (SimpleParameterList) parameters;
+    int[] resolvedTypes =
+        ((SimpleQuery) query).getResolvedParameterTypes(params.getTypeOIDs(), deallocateEpoch);
+    if (resolvedTypes == null) {
+      return false;
+    }
+    for (int i = 0; i < resolvedTypes.length; i++) {
+      params.setResolvedType(i + 1, resolvedTypes[i]);
+    }
+    return true;
   }
 
   private boolean sendAutomaticSavepoint(Query query, int flags) throws IOException {
@@ -2027,7 +2061,8 @@ public class QueryExecutorImpl extends QueryExecutorBase {
     // Note: statement name can change over time for the same query object
     // Thus we take a snapshot of the query name
     pendingDescribeStatementQueue.add(
-        new DescribeRequest(query, params, describeOnly, query.getStatementName()));
+        new DescribeRequest(query, params, describeOnly, query.getStatementName(),
+            params.getTypeOIDs().clone()));
     pendingDescribePortalQueue.add(query);
     query.setStatementDescribed(true);
     query.setPortalDescribed(true);
@@ -2424,6 +2459,13 @@ public class QueryExecutorImpl extends QueryExecutorBase {
               || (origStatementName != null
                   && origStatementName.equals(query.getStatementName()))) {
             query.setPrepareTypes(params.getTypeOIDs());
+            int[] resolvedTypes = params.getTypeOIDs();
+            query.setResolvedParameterTypes(describeData.knownParameterTypes, resolvedTypes,
+                deallocateEpoch);
+            // The server never overrides a type the driver spells out in Parse, so the resolved
+            // types resolve to themselves. That is the case a second describe of the same statement
+            // asks for: the response above replaced the unknown types with the resolved ones.
+            query.setResolvedParameterTypes(resolvedTypes, resolvedTypes, deallocateEpoch);
           }
 
           if (describeOnly) {

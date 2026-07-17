@@ -17,12 +17,18 @@ class DescribeRequest {
   public final SimpleParameterList parameterList;
   public final boolean describeOnly;
   public final @Nullable String statementName;
+  /**
+   * The parameter types sent in Parse. The response overwrites the parameter list with the resolved
+   * types, so the types that produced the response are kept here to key the cache with.
+   */
+  public final int[] knownParameterTypes;
 
   DescribeRequest(SimpleQuery query, SimpleParameterList parameterList,
-      boolean describeOnly, @Nullable String statementName) {
+      boolean describeOnly, @Nullable String statementName, int[] knownParameterTypes) {
     this.query = query;
     this.parameterList = parameterList;
     this.describeOnly = describeOnly;
     this.statementName = statementName;
+    this.knownParameterTypes = knownParameterTypes;
   }
 }

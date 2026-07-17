@@ -19,7 +19,10 @@ import org.checkerframework.checker.nullness.qual.Nullable;
 
 import java.lang.ref.PhantomReference;
 import java.nio.charset.StandardCharsets;
+import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.BitSet;
+import java.util.List;
 import java.util.Map;
 import java.util.logging.Level;
 import java.util.logging.Logger;
@@ -156,6 +159,62 @@ class SimpleQuery implements Query {
 
   int @Nullable [] getPrepareTypes() {
     return preparedTypes;
+  }
+
+  /**
+   * Returns the parameter types the server inferred for {@code knownTypes}, or {@code null} if they
+   * were not resolved yet.
+   *
+   * @param knownTypes the parameter types the driver would send in Parse
+   * @param deallocateEpoch the current deallocate epoch
+   * @return the parameter types reported by the server, or null if unknown
+   */
+  int @Nullable [] getResolvedParameterTypes(int[] knownTypes, short deallocateEpoch) {
+    List<ResolvedParameterTypes> cache = this.resolvedParameterTypes;
+    if (cache == null) {
+      return null;
+    }
+    if (this.resolvedParameterTypesEpoch != deallocateEpoch) {
+      cache.clear();
+      return null;
+    }
+    for (int i = 0; i < cache.size(); i++) {
+      ResolvedParameterTypes entry = cache.get(i);
+      if (Arrays.equals(entry.knownTypes, knownTypes)) {
+        return entry.resolvedTypes;
+      }
+    }
+    return null;
+  }
+
+  /**
+   * Remembers the parameter types the server reported for {@code knownTypes}.
+   *
+   * @param knownTypes the parameter types the driver sent in Parse
+   * @param resolvedTypes the parameter types the server reported in ParameterDescription
+   * @param deallocateEpoch the deallocate epoch the types were resolved in
+   */
+  void setResolvedParameterTypes(int[] knownTypes, int[] resolvedTypes, short deallocateEpoch) {
+    List<ResolvedParameterTypes> cache = this.resolvedParameterTypes;
+    if (cache == null) {
+      this.resolvedParameterTypes = cache = new ArrayList<>(1);
+      this.resolvedParameterTypesEpoch = deallocateEpoch;
+    } else if (this.resolvedParameterTypesEpoch != deallocateEpoch) {
+      cache.clear();
+      this.resolvedParameterTypesEpoch = deallocateEpoch;
+    }
+    ResolvedParameterTypes entry =
+        new ResolvedParameterTypes(knownTypes.clone(), resolvedTypes.clone());
+    for (int i = 0; i < cache.size(); i++) {
+      if (Arrays.equals(cache.get(i).knownTypes, knownTypes)) {
+        cache.set(i, entry);
+        return;
+      }
+    }
+    if (cache.size() == MAX_RESOLVED_PARAMETER_TYPES) {
+      cache.remove(0);
+    }
+    cache.add(entry);
   }
 
   @Nullable String getStatementName() {
@@ -383,7 +442,37 @@ class SimpleQuery implements Query {
   private @Nullable BitSet unspecifiedParams;
   private short deallocateEpoch;
 
+  /**
+   * The parameter types the server inferred, keyed by the types the driver knew at Parse time.
+   * The server infers the unknown types from the known ones, so {@code my_procedure(?, ?)} resolves
+   * to different types depending on whether the driver already told the server that the first
+   * parameter is int4. That makes the known types part of the key, not just the query.
+   *
+   * <p>Entries are only valid for the {@link #resolvedParameterTypesEpoch} they were resolved in:
+   * the epoch changes when the server-side plans become stale (DEALLOCATE ALL, DDL, a search_path
+   * change), which is exactly when the inferred types may change as well.</p>
+   */
+  private @Nullable List<ResolvedParameterTypes> resolvedParameterTypes;
+  private short resolvedParameterTypesEpoch;
+
   private @Nullable Integer cachedMaxResultRowSize;
+
+  /**
+   * Applications bind a given position with a stable type, so a couple of entries cover the
+   * realistic cases. The cap keeps an unusual binding pattern from growing the cache without
+   * a bound.
+   */
+  private static final int MAX_RESOLVED_PARAMETER_TYPES = 4;
+
+  private static final class ResolvedParameterTypes {
+    final int[] knownTypes;
+    final int[] resolvedTypes;
+
+    ResolvedParameterTypes(int[] knownTypes, int[] resolvedTypes) {
+      this.knownTypes = knownTypes;
+      this.resolvedTypes = resolvedTypes;
+    }
+  }
 
   static final SimpleParameterList NO_PARAMETERS = new SimpleParameterList(0, null);
 }

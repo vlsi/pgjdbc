@@ -1798,8 +1798,10 @@ class PgPreparedStatement extends PgStatement implements PreparedStatement {
 
   @Override
   public ParameterMetaData getParameterMetaData() throws SQLException {
+    // QUERY_NO_METADATA tells the executor only the parameter types are wanted, so it can answer
+    // from the types a previous describe resolved instead of going to the server.
     int flags = QueryExecutor.QUERY_ONESHOT | QueryExecutor.QUERY_DESCRIBE_ONLY
-        | QueryExecutor.QUERY_SUPPRESS_BEGIN;
+        | QueryExecutor.QUERY_NO_METADATA | QueryExecutor.QUERY_SUPPRESS_BEGIN;
     ResultHandler handler = new DiscardResultHandler();
     connection.getQueryExecutor().execute(preparedQuery.query, preparedParameters, handler, 0, 0,
         flags);
