@@ -132,7 +132,7 @@ class SimpleQuery implements Query {
     this.deallocateEpoch = deallocateEpoch;
   }
 
-  void setPrepareTypes(int[] paramTypes) {
+  void setPrepareTypes(int[] paramTypes, short deallocateEpoch) {
     // Remember which parameters were unspecified since the parameters will be overridden later by
     // ParameterDescription message
     for (int i = 0; i < paramTypes.length; i++) {
@@ -149,9 +149,10 @@ class SimpleQuery implements Query {
     // However, we can reuse array if there is one
     if (this.preparedTypes == null) {
       this.preparedTypes = paramTypes.clone();
-      return;
+    } else {
+      System.arraycopy(paramTypes, 0, this.preparedTypes, 0, paramTypes.length);
     }
-    System.arraycopy(paramTypes, 0, this.preparedTypes, 0, paramTypes.length);
+    this.deallocateEpoch = deallocateEpoch;
   }
 
   int @Nullable [] getPrepareTypes() {
@@ -163,8 +164,26 @@ class SimpleQuery implements Query {
   }
 
   boolean isPreparedFor(int[] paramTypes, short deallocateEpoch) {
-    if (statementName == null || preparedTypes == null) {
-      return false; // Not prepared.
+    return statementName != null && isDescribedFor(paramTypes, deallocateEpoch);
+  }
+
+  /**
+   * Returns true if this query was already described (via a named "prepare" or a plain
+   * "describe") for parameter types compatible with {@code paramTypes}, and the server has not
+   * invalidated its prepared statements since (see {@code deallocateEpoch}).
+   *
+   * <p>Unlike {@link #isPreparedFor}, this does not require a named server-side statement --
+   * it is used to answer {@code getParameterMetaData()} from a previous "describe" result
+   * without needing to reuse (or even have) a named statement on the wire.</p>
+   *
+   * @param paramTypes requested parameter types (may contain {@link Oid#UNSPECIFIED})
+   * @param deallocateEpoch the query executor's current "deallocate all"/"discard all" epoch
+   * @return true if {@link #getPrepareTypes()} already holds the resolved types for {@code paramTypes}
+   */
+  boolean isDescribedFor(int[] paramTypes, short deallocateEpoch) {
+    int[] preparedTypes = this.preparedTypes;
+    if (preparedTypes == null) {
+      return false; // Not described yet.
     }
     if (this.deallocateEpoch != deallocateEpoch) {
       return false;
@@ -196,10 +215,10 @@ class SimpleQuery implements Query {
           || !unspecified.get(i))) {
         if (LOGGER.isLoggable(Level.FINER)) {
           LOGGER.log(Level.FINER,
-              "Statement {0} does not match new parameter types. Will have to un-prepare it and parse once again."
+              "Query {0} does not match new parameter types. Will have to un-prepare it and parse once again."
                   + " To avoid performance issues, use the same data type for the same bind position. Bind index (1-based) is {1},"
                   + " preparedType was {2} (after describe {3}), current bind type is {4}",
-              new Object[]{statementName, i + 1,
+              new Object[]{statementName != null ? statementName : nativeQuery.nativeSql, i + 1,
                   Oid.toString(unspecified != null && unspecified.get(i) ? 0 : preparedType),
                   Oid.toString(preparedType), Oid.toString(paramType)});
         }

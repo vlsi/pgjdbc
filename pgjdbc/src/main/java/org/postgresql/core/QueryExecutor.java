@@ -572,6 +572,23 @@ public interface QueryExecutor extends TypeTransferModeRegistry {
   boolean willHealOnRetry(SQLException e);
 
   /**
+   * Attempts to resolve {@code parameterList}'s parameter types from a previous "describe" of
+   * {@code query}, without a network round trip. Used by
+   * {@code PreparedStatement#getParameterMetaData()} to avoid re-describing a query whose
+   * parameter types are already known.
+   *
+   * <p>On a cache hit, {@code parameterList} is updated in place with the previously resolved
+   * types, exactly as a real "describe" response would. On a cache miss, {@code parameterList} is
+   * left untouched and the caller must perform a real describe.</p>
+   *
+   * @param query the query to check
+   * @param parameterList current parameter types as bound by the caller so far
+   * @return true if {@code parameterList} was updated from the cache and no network round trip
+   *         is required; false if the caller must issue a real "describe"
+   */
+  boolean describeParametersFromCache(Query query, ParameterList parameterList);
+
+  /**
    * By default, the connection resets statement cache in case deallocate all/discard all
    * message is observed.
    * This API allows to disable that feature for testing purposes.

@@ -1770,17 +1770,22 @@ public class QueryExecutorImpl extends QueryExecutorBase {
     // for unspecified types.
     query.setFields(null);
 
+    // Record the requested types (and which of them are unspecified) even for a one-shot,
+    // unnamed statement. This lets a later describe-only call (e.g. getParameterMetaData())
+    // recognize that this exact (sql, known types) combination was already described and skip
+    // a network round trip, without requiring a named server-side statement to reuse.
+    // NB: Must clone the OID array, as it's a direct reference to
+    // the SimpleParameterList's internal array that might be modified
+    // under us.
+    query.setPrepareTypes(typeOIDs, deallocateEpoch);
+
     String statementName = null;
     if (!oneShot) {
       // Generate a statement name to use.
       statementName = "S_" + (nextUniqueID++);
 
       // And prepare the new statement.
-      // NB: Must clone the OID array, as it's a direct reference to
-      // the SimpleParameterList's internal array that might be modified
-      // under us.
       query.setStatementName(statementName, deallocateEpoch);
-      query.setPrepareTypes(typeOIDs);
       registerParsedQuery(query, statementName);
     }
 
@@ -2003,6 +2008,28 @@ public class QueryExecutorImpl extends QueryExecutorBase {
 
     pendingDescribePortalQueue.add(query);
     query.setPortalDescribed(true);
+  }
+
+  @Override
+  public boolean describeParametersFromCache(Query query, ParameterList parameterList) {
+    if (parameterList.getParameterCount() == 0) {
+      return true;
+    }
+    if (query.getSubqueries() != null) {
+      // Composite (multi-statement) queries never go through the extended query protocol,
+      // so getParameterMetaData() should not reach here with one; be conservative just in case.
+      return false;
+    }
+    SimpleQuery simpleQuery = (SimpleQuery) query;
+    SimpleParameterList simpleParams = (SimpleParameterList) parameterList;
+    int[] cachedTypes = simpleQuery.getPrepareTypes();
+    if (cachedTypes == null || !simpleQuery.isDescribedFor(simpleParams.getTypeOIDs(), deallocateEpoch)) {
+      return false;
+    }
+    for (int i = 1; i <= simpleParams.getParameterCount(); i++) {
+      simpleParams.setResolvedType(i, cachedTypes[i - 1]);
+    }
+    return true;
   }
 
   private void sendDescribeStatement(SimpleQuery query, SimpleParameterList params,
@@ -2423,7 +2450,7 @@ public class QueryExecutorImpl extends QueryExecutorBase {
           if ((origStatementName == null && query.getStatementName() == null)
               || (origStatementName != null
                   && origStatementName.equals(query.getStatementName()))) {
-            query.setPrepareTypes(params.getTypeOIDs());
+            query.setPrepareTypes(params.getTypeOIDs(), deallocateEpoch);
           }
 
           if (describeOnly) {

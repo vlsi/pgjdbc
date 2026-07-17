@@ -1798,14 +1798,39 @@ class PgPreparedStatement extends PgStatement implements PreparedStatement {
 
   @Override
   public ParameterMetaData getParameterMetaData() throws SQLException {
+    int[] oids = describeParameters();
+    return createParameterMetaData(connection, oids);
+  }
+
+  private int[] describeParameters() throws SQLException {
+    QueryExecutor queryExecutor = connection.getQueryExecutor();
+    if (queryExecutor.describeParametersFromCache(preparedQuery.query, preparedParameters)) {
+      // The query was already described (named or not) for these parameter types, so the
+      // executor already refreshed preparedParameters in place. No round trip needed.
+      return preparedParameters.getTypeOIDs();
+    }
+    try {
+      sendDescribeParameters(queryExecutor);
+    } catch (SQLException e) {
+      // The server-side statement might have been invalidated by a concurrent
+      // DEALLOCATE ALL/DISCARD ALL (e.g. issued by a connection pooler). Retry once with a
+      // fresh Parse+Describe rather than surfacing the error to the caller. Unlike a real
+      // execute(), a describe-only call has no side effects, so retrying is always safe --
+      // even for composite (multi-statement) queries.
+      if (!queryExecutor.willHealOnRetry(e)) {
+        throw e;
+      }
+      preparedQuery.query.close();
+      sendDescribeParameters(queryExecutor);
+    }
+    return preparedParameters.getTypeOIDs();
+  }
+
+  private void sendDescribeParameters(QueryExecutor queryExecutor) throws SQLException {
     int flags = QueryExecutor.QUERY_ONESHOT | QueryExecutor.QUERY_DESCRIBE_ONLY
         | QueryExecutor.QUERY_SUPPRESS_BEGIN;
     ResultHandler handler = new DiscardResultHandler();
-    connection.getQueryExecutor().execute(preparedQuery.query, preparedParameters, handler, 0, 0,
-        flags);
-
-    int[] oids = preparedParameters.getTypeOIDs();
-    return createParameterMetaData(connection, oids);
+    queryExecutor.execute(preparedQuery.query, preparedParameters, handler, 0, 0, flags);
   }
 
   @Override
