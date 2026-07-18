@@ -6,6 +6,7 @@
 package org.postgresql.fuzzkit;
 
 import org.postgresql.core.Oid;
+import org.postgresql.test.data.Bit1EdgeCases;
 import org.postgresql.test.data.EdgeCase;
 import org.postgresql.test.data.Int2EdgeCases;
 import org.postgresql.test.data.Int4EdgeCases;
@@ -13,6 +14,7 @@ import org.postgresql.test.data.Int8EdgeCases;
 import org.postgresql.test.data.IntervalEdgeCases;
 import org.postgresql.test.data.NumericEdgeCases;
 import org.postgresql.test.data.OidEdgeCases;
+import org.postgresql.test.data.VarbitEdgeCases;
 
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.Arguments;
@@ -53,6 +55,8 @@ class MalformedLiteralRefusalTest {
     add(out, "oid", Oid.OID, OidEdgeCases.MALFORMED);
     add(out, "numeric", Oid.NUMERIC, NumericEdgeCases.MALFORMED);
     add(out, "interval", Oid.INTERVAL, IntervalEdgeCases.MALFORMED);
+    add(out, "bit", Oid.BIT, Bit1EdgeCases.MALFORMED);
+    add(out, "varbit", Oid.VARBIT, VarbitEdgeCases.MALFORMED);
     return out;
   }
 

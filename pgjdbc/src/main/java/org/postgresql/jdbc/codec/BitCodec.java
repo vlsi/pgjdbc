@@ -57,8 +57,31 @@ public final class BitCodec implements PrimitiveBinaryDecoder, PrimitiveTextDeco
 
   // ----------------------------- decode -----------------------------
 
+  /**
+   * Refuses a bit string carrying anything but {@code '0'} and {@code '1'}, the only characters
+   * {@code bit_in} accepts.
+   *
+   * <p>The length is left to the server: it checks the literal against the column's typmod on both
+   * text and binary receive, and a decoded value came from a column that already satisfied it. The
+   * characters cannot be left to the server the same way, because the packed binary form the driver
+   * writes has no way to express a bad one &mdash; see {@link Exceptions#invalidBinaryDigit}.</p>
+   *
+   * @param bits the bit string to check
+   * @param typeName the bit type it is being read as or written to
+   * @throws SQLException if a character is not a binary digit
+   */
+  private static void requireBitString(CharSequence bits, String typeName) throws SQLException {
+    for (int i = 0, len = bits.length(); i < len; i++) {
+      char c = bits.charAt(i);
+      if (c != '0' && c != '1') {
+        throw Exceptions.invalidBinaryDigit(typeName, c);
+      }
+    }
+  }
+
   @Override
   public @Nullable Object decodeText(String data, TypeDescriptor type, CodecContext ctx) throws SQLException {
+    requireBitString(data, type.getTypeName().getName());
     return toPGobject(type, data);
   }
 
@@ -77,6 +100,7 @@ public final class BitCodec implements PrimitiveBinaryDecoder, PrimitiveTextDeco
 
   @Override
   public String decodeAsString(String data, TypeDescriptor type, CodecContext ctx) throws SQLException {
+    requireBitString(data, type.getTypeName().getName());
     return data;
   }
 
@@ -88,6 +112,7 @@ public final class BitCodec implements PrimitiveBinaryDecoder, PrimitiveTextDeco
 
   @Override
   public boolean decodeAsBoolean(CharSequence data, TypeDescriptor type, CodecContext ctx) throws SQLException {
+    requireBitString(data, type.getTypeName().getName());
     return BooleanTypeUtil.fromString(data);
   }
 
@@ -101,6 +126,7 @@ public final class BitCodec implements PrimitiveBinaryDecoder, PrimitiveTextDeco
   @SuppressWarnings("unchecked")
   public <T> @Nullable T decodeTextAs(String data, TypeDescriptor type, Class<T> targetClass, CodecContext ctx)
       throws SQLException {
+    requireBitString(data, type.getTypeName().getName());
     if (targetClass == String.class) {
       return (T) data;
     }
@@ -134,26 +160,29 @@ public final class BitCodec implements PrimitiveBinaryDecoder, PrimitiveTextDeco
 
   @Override
   public String encodeText(Object value, TypeDescriptor type, CodecContext ctx) throws SQLException {
-    return toBitString(value);
+    return toBitString(value, type);
   }
 
   @Override
   public byte[] encodeBinary(Object value, TypeDescriptor type, CodecContext ctx) throws SQLException {
-    return bitStringToBinary(toBitString(value));
+    return bitStringToBinary(toBitString(value, type));
   }
 
-  private static String toBitString(Object value) throws SQLException {
+  private static String toBitString(Object value, TypeDescriptor type) throws SQLException {
     if (value instanceof Boolean) {
       return (Boolean) value ? "1" : "0";
     }
+    String bits;
     if (value instanceof PGobject) {
       String v = ((PGobject) value).getValue();
-      return v != null ? v : "";
+      bits = v != null ? v : "";
+    } else if (value instanceof String) {
+      bits = (String) value;
+    } else {
+      throw Exceptions.cannotEncode(value, "bit");
     }
-    if (value instanceof String) {
-      return (String) value;
-    }
-    throw Exceptions.cannotEncode(value, "bit");
+    requireBitString(bits, type.getTypeName().getName());
+    return bits;
   }
 
   // ------------------------ binary <-> bit string ------------------------

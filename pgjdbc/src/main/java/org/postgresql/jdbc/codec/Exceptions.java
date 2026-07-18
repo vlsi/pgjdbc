@@ -281,6 +281,24 @@ class Exceptions {
   // One-off codec errors, still centralized here so no other class in this package builds
   // a PSQLException/SQLException/GT.tr message directly.
 
+  /**
+   * A bit-string literal carries a character that is not {@code '0'} or {@code '1'}.
+   *
+   * <p>Mirrors the server's own {@code bit_in} message and its {@code 22P02} state. Refusing matters
+   * most on the encode side: the packed binary form has a bit per character, so anything other than
+   * {@code '1'} would otherwise be written as a zero bit and reach the server as a well-formed value
+   * it accepts &mdash; a silent rewrite rather than an error.</p>
+   *
+   * @param typeName the bit type the literal was meant for, {@code bit} or {@code varbit}
+   * @param digit the offending character
+   * @return conversion error, carrying {@link PSQLState#INVALID_TEXT_REPRESENTATION}
+   */
+  static SQLException invalidBinaryDigit(String typeName, char digit) {
+    return new PSQLException(
+        GT.tr("Invalid value for type {0}: \"{1}\" is not a valid binary digit", typeName, digit),
+        PSQLState.INVALID_TEXT_REPRESENTATION);
+  }
+
   static SQLException invalidBitCount(int nbits, int length) {
     return new PSQLException(
         GT.tr("Invalid bit binary data: bit count {0} does not match data length {1}", nbits, length),

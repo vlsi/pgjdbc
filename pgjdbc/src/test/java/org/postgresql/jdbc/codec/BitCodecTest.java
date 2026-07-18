@@ -55,6 +55,74 @@ class BitCodecTest {
     assertEquals("", decoded.getValue());
   }
 
+  // ==================== non-binary digits ====================
+
+  // The packed binary form carries one bit per character, so a character that is not '0' or '1' has
+  // no representation there: encodeBinary used to write anything but '1' as a zero bit, producing a
+  // well-formed value the server accepts. Binding {"abc"} through bit[] therefore stored {000}
+  // instead of failing, while the same value sent as text was refused by the server -- the stored
+  // result depended on the transfer format. Both directions now refuse with the server's 22P02.
+
+  @Test
+  void encodeBinary_nonBinaryDigit_refusesInsteadOfWritingZeroBits() {
+    assertNotABitString(() -> codec.encodeBinary("abc", bitType, null));
+  }
+
+  @Test
+  void encodeText_nonBinaryDigit_refuses() {
+    assertNotABitString(() -> codec.encodeText("2", bitType, null));
+  }
+
+  @Test
+  void encodeBinary_nonBinaryDigitInPGobject_refuses() throws SQLException {
+    PGobject value = new PGobject();
+    value.setType("bit");
+    value.setValue("1x1");
+    assertNotABitString(() -> codec.encodeBinary(value, bitType, null));
+  }
+
+  @Test
+  void encodeBinary_boolean_stillEncodes() throws SQLException {
+    // The Boolean branch produces "1"/"0" itself, so the screen must not stand in its way.
+    assertEquals("1", ((PGobject) codec.decodeBinary(
+        codec.encodeBinary(Boolean.TRUE, bitType, null), 0, 5, bitType, null)).getValue());
+  }
+
+  @Test
+  void decodeText_nonBinaryDigit_refuses() {
+    assertNotABitString(() -> codec.decodeText("abc", bitType, null));
+  }
+
+  @Test
+  void decodeAsString_nonBinaryDigit_refuses() {
+    assertNotABitString(() -> codec.decodeAsString("abc", bitType, null));
+  }
+
+  @Test
+  void decodeTextAs_nonBinaryDigit_refuses() {
+    assertNotABitString(() -> codec.decodeTextAs("abc", bitType, String.class, null));
+  }
+
+  @Test
+  void decodeText_nonAsciiOneIsNotABinaryDigit() {
+    // U+FF11, the fullwidth digit one: a lookalike the character screen must not let through.
+    assertNotABitString(() -> codec.decodeText("１", bitType, null));
+  }
+
+  @Test
+  void emptyBitStringIsNotADigitError() throws SQLException {
+    // ''::varbit is a valid zero-length bit string. Length against the column typmod is the server's
+    // to check, so the character screen must stay out of it.
+    assertEquals("", codec.encodeText("", bitType, null));
+  }
+
+  private static void assertNotABitString(org.junit.jupiter.api.function.Executable call) {
+    PSQLException e = assertThrows(PSQLException.class, call,
+        "a bit string with a non-binary digit should be refused");
+    assertEquals(PSQLState.INVALID_TEXT_REPRESENTATION.getState(), e.getSQLState(),
+        "SQLState for a non-binary digit");
+  }
+
   // ==================== malformed binary wire (F3b) ====================
 
   // The binary form is a 4-byte bit count followed by ceil(nbits/8) packed bytes. A count read from

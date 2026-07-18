@@ -226,6 +226,8 @@ public final class JazzerSeedCorpusGenerator {
     map.put(Oid.OID, OidEdgeCases.MALFORMED);
     map.put(Oid.NUMERIC, NumericEdgeCases.MALFORMED);
     map.put(Oid.INTERVAL, IntervalEdgeCases.MALFORMED);
+    map.put(Oid.BIT, Bit1EdgeCases.MALFORMED);
+    map.put(Oid.VARBIT, VarbitEdgeCases.MALFORMED);
     return map;
   }
 

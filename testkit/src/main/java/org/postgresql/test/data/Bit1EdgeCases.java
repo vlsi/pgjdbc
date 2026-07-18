@@ -17,6 +17,13 @@ import java.util.List;
  * <p>Read-only ({@link EdgeCase#value()} is {@code null}).
  */
 public final class Bit1EdgeCases {
+  /**
+   * Literals carrying a character that is not a binary digit, which {@code bit_in} rejects with
+   * {@code 22P02}. Shared with {@link VarbitEdgeCases#MALFORMED}: the character rule is the same for both
+   * bit types, only the length rule differs, and length is the server's to check.
+   */
+  public static final List<EdgeCase> MALFORMED = VarbitEdgeCases.MALFORMED;
+
   /** Every case, in a stable order. */
   public static final List<EdgeCase> ALL = Collections.unmodifiableList(all());
 

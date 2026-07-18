@@ -17,10 +17,33 @@ import java.util.List;
  * <p>Read-only ({@link EdgeCase#value()} is {@code null}); the literal is the raw bit text.
  */
 public final class VarbitEdgeCases {
+  /**
+   * Literals carrying a character that is not a binary digit, which {@code varbit_in} rejects with
+   * {@code 22P02}. The packed binary form has one bit per character and no way to express a bad one, so
+   * the codec used to write anything but {@code '1'} as a zero bit.
+   *
+   * <p>Deliberately absent from {@link #ALL}, whose literals all cast cleanly. Length is not represented
+   * here: it is checked against the column's typmod by the server, not by the codec, so a bit string that
+   * is merely too long is not malformed on its own.
+   */
+  public static final List<EdgeCase> MALFORMED = Collections.unmodifiableList(malformed());
+
   /** Every case, in a stable order. */
   public static final List<EdgeCase> ALL = Collections.unmodifiableList(all());
 
   private VarbitEdgeCases() {
+  }
+
+  private static List<EdgeCase> malformed() {
+    List<EdgeCase> out = new ArrayList<>();
+    out.add(at("malformed_letters", "abc"));
+    out.add(at("malformed_digit_two", "2"));
+    out.add(at("malformed_mixed", "10x1"));
+    out.add(at("malformed_embedded_space", "1 0"));
+    out.add(at("malformed_sign", "-1"));
+    // U+FF11, the fullwidth digit one.
+    out.add(at("malformed_non_ascii_one", "１"));
+    return out;
   }
 
   private static List<EdgeCase> all() {
