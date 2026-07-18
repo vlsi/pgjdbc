@@ -21,6 +21,16 @@ public class PGInterval extends PGobject implements Serializable, Cloneable {
 
   private static final int MICROS_IN_SECOND = 1000000;
 
+  /** The fields a verbose literal can name, one bit each, so a repeat is a set bit. */
+  private static final int YEARS = 1;
+  private static final int MONTHS = 1 << 1;
+  private static final int DAYS = 1 << 2;
+  private static final int HOURS = 1 << 3;
+  private static final int MINUTES = 1 << 4;
+  private static final int SECONDS = 1 << 5;
+  /** The fields one packed {@code hh:mm:ss} token fills. */
+  private static final int TIME_FIELDS = HOURS | MINUTES | SECONDS;
+
   private int years;
   private int months;
   private int days;
@@ -50,63 +60,100 @@ public class PGInterval extends PGobject implements Serializable, Cloneable {
     setValue(value);
   }
 
-  private static int lookAhead(String value, int position, String find) {
-    char [] tokens = find.toCharArray();
-    int found = -1;
+  /**
+   * Parses the {@code IntervalStyle=iso_8601} form, {@code P[nY][nM][nD][T[nH][nM][nS]]}. A field's
+   * number may carry a sign and the seconds a fraction; {@code M} means months before the {@code T}
+   * and minutes after it.
+   *
+   * <p>Every character has to belong to a field, so a stray designator is refused rather than dropped:
+   * reading {@code P1X} as a zero interval would produce a value the server, which rejects the literal,
+   * can never have sent. The {@code T} only switches {@code M} from months to minutes, so it may appear
+   * anywhere and repeat ({@code P1DT} is one day, {@code PT} the zero interval); only a bare {@code P},
+   * with neither a field nor a {@code T}, is refused.</p>
+   *
+   * <p>A field may repeat, and the repeats add up the way {@code interval_in} adds them: {@code P1Y2Y}
+   * is three years and {@code P1Y-2Y} is minus one year. Fields absent from the literal are zero, so
+   * parsing overwrites whatever this instance held before.</p>
+   *
+   * @param value the literal, known to start with {@code P}
+   * @throws SQLException if the literal is not a well-formed ISO-8601 duration
+   * @throws NumberFormatException if a field's number is not a number, caught by the caller
+   * @throws ArithmeticException if repeated fields sum out of {@code int} range, caught by the caller
+   */
+  private void parseISO8601Format(String value) throws SQLException {
+    boolean inTime = false;
+    boolean anyField = false;
+    boolean sawTimeSeparator = false;
 
-    for (int i = 0; i < tokens.length; i++) {
-      found = value.indexOf(tokens[i], position);
-      if (found > 0) {
-        return found;
+    int years = 0;
+    int months = 0;
+    int days = 0;
+    int hours = 0;
+    int minutes = 0;
+    double seconds = 0;
+
+    int pos = 1; // Skip over the P
+    while (pos < value.length()) {
+      if (value.charAt(pos) == 'T') {
+        // A T only switches M from months to minutes, so the server takes it anywhere and any number
+        // of times: "PT1HT2M" is 01:02:00 and a trailing "P1DT" is simply one day.
+        inTime = true;
+        sawTimeSeparator = true;
+        pos++;
+        continue;
       }
-    }
-    return found;
-  }
 
-  private void parseISO8601Format(String value) {
-    int number = 0;
-    String dateValue;
-    String timeValue = null;
+      // The number: an optional sign, then everything up to the designator that names the field. The
+      // JDK parser owns the grammar of what lies between, so a fraction on a whole-number field or a
+      // doubled sign surfaces as a NumberFormatException the caller turns into a clean refusal.
+      int start = pos;
+      if (value.charAt(pos) == '-' || value.charAt(pos) == '+') {
+        pos++;
+      }
+      while (pos < value.length() && value.charAt(pos) != 'Y' && value.charAt(pos) != 'M'
+          && value.charAt(pos) != 'D' && value.charAt(pos) != 'H' && value.charAt(pos) != 'S'
+          && value.charAt(pos) != 'T') {
+        pos++;
+      }
+      if (pos == value.length() || pos == start) {
+        // A number with no designator to name its field, or a designator with no number.
+        throw badLiteral(value);
+      }
 
-    int hasTime = value.indexOf('T');
-    if ( hasTime > 0 ) {
-      /* skip over the P */
-      dateValue = value.substring(1, hasTime);
-      timeValue = value.substring(hasTime + 1);
-    } else {
-      /* skip over the P */
-      dateValue = value.substring(1);
-    }
-
-    for (int i = 0; i < dateValue.length(); i++) {
-      int lookAhead = lookAhead(dateValue, i, "YMD");
-      if (lookAhead > 0) {
-        number = Integer.parseInt(dateValue.substring(i, lookAhead));
-        if (dateValue.charAt(lookAhead) == 'Y') {
-          setYears(number);
-        } else if (dateValue.charAt(lookAhead) == 'M') {
-          setMonths(number);
-        } else if (dateValue.charAt(lookAhead) == 'D') {
-          setDays(number);
+      String number = value.substring(start, pos);
+      char designator = value.charAt(pos);
+      pos++;
+      anyField = true;
+      if (inTime) {
+        if (designator == 'H') {
+          hours = Math.addExact(hours, nullSafeIntGet(number));
+        } else if (designator == 'M') {
+          minutes = Math.addExact(minutes, nullSafeIntGet(number));
+        } else if (designator == 'S') {
+          seconds += nullSafeDoubleGet(number);
+        } else {
+          throw badLiteral(value);
         }
-        i = lookAhead;
-      }
-    }
-    if ( timeValue != null ) {
-      for (int i = 0; i < timeValue.length(); i++) {
-        int lookAhead = lookAhead(timeValue, i, "HMS");
-        if (lookAhead > 0) {
-          if (timeValue.charAt(lookAhead) == 'H') {
-            setHours(Integer.parseInt(timeValue.substring(i, lookAhead)));
-          } else if (timeValue.charAt(lookAhead) == 'M') {
-            setMinutes(Integer.parseInt(timeValue.substring(i, lookAhead)));
-          } else if (timeValue.charAt(lookAhead) == 'S') {
-            setSeconds(Double.parseDouble(timeValue.substring(i, lookAhead)));
-          }
-          i = lookAhead;
+      } else {
+        if (designator == 'Y') {
+          years = Math.addExact(years, nullSafeIntGet(number));
+        } else if (designator == 'M') {
+          months = Math.addExact(months, nullSafeIntGet(number));
+        } else if (designator == 'D') {
+          days = Math.addExact(days, nullSafeIntGet(number));
+        } else {
+          throw badLiteral(value);
         }
       }
     }
+
+    if (!anyField && !sawTimeSeparator) {
+      // A bare "P". The server takes "PT" as the zero interval but refuses "P", so the T is what
+      // makes a field-less literal a duration.
+      throw badLiteral(value);
+    }
+
+    setValue(years, months, days, hours, minutes, seconds);
   }
 
   /**
@@ -166,23 +213,40 @@ public class PGInterval extends PGobject implements Serializable, Cloneable {
       int minutes = 0;
       double seconds = 0;
 
+      // The pending number waiting for the unit word that names its field, and the "ago" terminator
+      // the verbose style ends with. A field is a (number, unit) pair, except for the packed
+      // hh:mm:ss token, which names its own fields. Fields already filled are tracked because the
+      // server names each of them at most once: "1 day 2 days" is a literal it rejects, and
+      // overwriting the first value would decode it to a value it can never have sent.
       String valueToken = null;
+      int filledFields = 0;
+      boolean ago = false;
 
-      value = value.replace('+', ' ').replace('@', ' ');
-      value = value.toLowerCase(Locale.ROOT);
-      final StringTokenizer st = new StringTokenizer(value);
-      for (int i = 1; st.hasMoreTokens(); i++) {
+      String normalized = value.replace('+', ' ').replace('@', ' ').toLowerCase(Locale.ROOT);
+      final StringTokenizer st = new StringTokenizer(normalized);
+      if (!st.hasMoreTokens()) {
+        // No field at all. The server never emits this: an all-zero interval prints as "00:00:00".
+        throw badLiteral(value);
+      }
+      while (st.hasMoreTokens()) {
         String token = st.nextToken();
 
-        if ((i & 1) == 1) {
-          int endHours = token.indexOf(':');
-          if (endHours == -1) {
-            valueToken = token;
-            continue;
-          }
+        if (ago) {
+          // "ago" negates the whole interval, so it is the last word of the literal.
+          throw badLiteral(value);
+        }
 
-          // This handles hours, minutes, seconds and microseconds for
-          // ISO intervals
+        int endHours = token.indexOf(':');
+        if (endHours != -1) {
+          // The packed hh:mm:ss token, which carries hours, minutes, seconds and microseconds. It
+          // stands on its own, so a number still waiting for its unit is a malformed literal, and it
+          // fills all three time fields at once, which rules out a second time token and a spelled-out
+          // "1 hour" on either side of it.
+          if (valueToken != null || (filledFields & TIME_FIELDS) != 0) {
+            throw badLiteral(value);
+          }
+          filledFields |= TIME_FIELDS;
+
           int offset = token.charAt(0) == '-' ? 1 : 0;
 
           hours = nullSafeIntGet(token.substring(offset + 0, endHours));
@@ -200,39 +264,128 @@ public class PGInterval extends PGobject implements Serializable, Cloneable {
             minutes = -minutes;
             seconds = -seconds;
           }
-
-          valueToken = null;
-        } else {
-          // This handles years, months, days for both, ISO and
-          // Non-ISO intervals. Hours, minutes, seconds and microseconds
-          // are handled for Non-ISO intervals here.
-
-          if (token.startsWith("year")) {
-            years = nullSafeIntGet(valueToken);
-          } else if (token.startsWith("mon")) {
-            months = nullSafeIntGet(valueToken);
-          } else if (token.startsWith("day")) {
-            days = nullSafeIntGet(valueToken);
-          } else if (token.startsWith("hour")) {
-            hours = nullSafeIntGet(valueToken);
-          } else if (token.startsWith("min")) {
-            minutes = nullSafeIntGet(valueToken);
-          } else if (token.startsWith("sec")) {
-            seconds = nullSafeDoubleGet(valueToken);
-          }
+          continue;
         }
+
+        if (valueToken == null) {
+          if (!postgresFormat && "ago".equals(token)) {
+            ago = true;
+            continue;
+          }
+          // A number, kept until the unit word that follows names the field it belongs to. It is
+          // parsed there, so that the error names the field rather than the bare number.
+          valueToken = token;
+          continue;
+        }
+
+        // The unit word naming the pending number's field. An unknown word, or one naming a field
+        // already filled, is a literal the server rejects. Dropping it, as this parser used to,
+        // turned any unrecognised text into a zero interval -- "abc" read back as "0 secs".
+        int field = unitField(token);
+        if (field == 0 || (filledFields & field) != 0) {
+          throw badLiteral(value);
+        }
+        filledFields |= field;
+
+        if (field == YEARS) {
+          years = nullSafeIntGet(valueToken);
+        } else if (field == MONTHS) {
+          months = nullSafeIntGet(valueToken);
+        } else if (field == DAYS) {
+          days = nullSafeIntGet(valueToken);
+        } else if (field == HOURS) {
+          hours = nullSafeIntGet(valueToken);
+        } else if (field == MINUTES) {
+          minutes = nullSafeIntGet(valueToken);
+        } else {
+          seconds = nullSafeDoubleGet(valueToken);
+        }
+        valueToken = null;
       }
 
-      if (!postgresFormat && value.endsWith("ago")) {
+      if (valueToken != null) {
+        // A trailing number with no unit word names the seconds, the way the server reads it:
+        // '5'::interval is 00:00:05, and '0'::interval the zero interval. The old parser dropped the
+        // number instead, so '5' silently read back as zero. A non-numeric token lands here too and
+        // refuses through nullSafeDoubleGet.
+        if ((filledFields & SECONDS) != 0) {
+          throw badLiteral(value);
+        }
+        seconds = nullSafeDoubleGet(valueToken);
+      }
+
+      if (ago) {
         // Inverse the leading sign
         setValue(-years, -months, -days, -hours, -minutes, -seconds);
       } else {
         setValue(years, months, days, hours, minutes, seconds);
       }
-    } catch (NumberFormatException | IndexOutOfBoundsException e) {
-      throw new PSQLException(GT.tr("Conversion of interval failed: {0}", value),
-          PSQLState.BAD_DATETIME_FORMAT, e);
+    } catch (NumberFormatException | IndexOutOfBoundsException | ArithmeticException e) {
+      throw badLiteral(value, e);
     }
+  }
+
+  /**
+   * Maps a unit word of a verbose literal to the field it names, or {@code 0} when no field answers
+   * to it.
+   *
+   * <p>The words are matched whole, the way {@code interval_in} matches them. Matching a prefix
+   * instead, as this parser used to, accepted units the server has never had: {@code "1 yearsx"} and
+   * {@code "1 monsoon"} decoded to a year and a month, though the server rejects both literals.</p>
+   *
+   * <p>PostgreSQL's own abbreviations are all accepted, including the one that reads against
+   * intuition: a bare {@code m} is minutes, not months.</p>
+   *
+   * @param unit the unit word, already lowercased
+   * @return the field's bit, or {@code 0} if the word names no field
+   */
+  private static int unitField(String unit) {
+    switch (unit) {
+      case "y":
+      case "yr":
+      case "yrs":
+      case "year":
+      case "years":
+        return YEARS;
+      case "mon":
+      case "mons":
+      case "month":
+      case "months":
+        return MONTHS;
+      case "d":
+      case "day":
+      case "days":
+        return DAYS;
+      case "h":
+      case "hr":
+      case "hrs":
+      case "hour":
+      case "hours":
+        return HOURS;
+      case "m":
+      case "min":
+      case "mins":
+      case "minute":
+      case "minutes":
+        return MINUTES;
+      case "s":
+      case "sec":
+      case "secs":
+      case "second":
+      case "seconds":
+        return SECONDS;
+      default:
+        return 0;
+    }
+  }
+
+  private static PSQLException badLiteral(String value) {
+    return badLiteral(value, null);
+  }
+
+  private static PSQLException badLiteral(String value, @Nullable Throwable cause) {
+    return new PSQLException(GT.tr("Conversion of interval failed: {0}", value),
+        PSQLState.BAD_DATETIME_FORMAT, cause);
   }
 
   /**
@@ -530,7 +683,11 @@ public class PGInterval extends PGobject implements Serializable, Cloneable {
    * @throws NumberFormatException if the string contains invalid chars
    */
   private static int nullSafeIntGet(@Nullable String value) throws NumberFormatException {
-    return value == null ? 0 : Integer.parseInt(value);
+    if (value == null) {
+      return 0;
+    }
+    NumberParser.requireAsciiLiteral(value);
+    return Integer.parseInt(value);
   }
 
   /**
@@ -541,7 +698,11 @@ public class PGInterval extends PGobject implements Serializable, Cloneable {
    * @throws NumberFormatException if the string contains invalid chars
    */
   private static double nullSafeDoubleGet(@Nullable String value) throws NumberFormatException {
-    return value == null ? 0 : Double.parseDouble(value);
+    if (value == null) {
+      return 0;
+    }
+    NumberParser.requireAsciiLiteral(value);
+    return Double.parseDouble(value);
   }
 
   /**

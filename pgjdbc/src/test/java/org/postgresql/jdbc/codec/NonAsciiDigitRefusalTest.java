@@ -13,6 +13,7 @@ import org.postgresql.core.Oid;
 import org.postgresql.jdbc.ObjectName;
 import org.postgresql.jdbc.PgType;
 import org.postgresql.jdbc.TestCodecContext;
+import org.postgresql.util.PGInterval;
 
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.Arguments;
@@ -106,6 +107,17 @@ class NonAsciiDigitRefusalTest {
     add(out, "varchar/int", d -> VarcharCodec.INSTANCE.decodeAsInt(d, VARCHAR, CTX));
     add(out, "unknown/int", d -> FallbackCodec.INSTANCE.decodeAsInt(d, UNKNOWN, CTX));
     add(out, "unknown/long", d -> FallbackCodec.INSTANCE.decodeAsLong(d, UNKNOWN, CTX));
+
+    // PGInterval parses its own literal, so it needs its own screen: every field that reaches
+    // Integer.parseInt is a separate entry point. The packed hh:mm:ss token reads its minutes from a
+    // fixed two-character slice, so those paths take two digits to stay a value the server accepts.
+    add(out, "interval/unit", d -> new PGInterval(d + " years"));
+    add(out, "interval/iso-date", d -> new PGInterval("P" + d + "Y"));
+    add(out, "interval/iso-time", d -> new PGInterval("PT" + d + "H"));
+    add(out, "interval/time-hours", d -> new PGInterval(d + ":00:00"));
+    add(out, "interval/time-minutes", d -> new PGInterval("00:" + d.substring(0, 2) + ":00"));
+    add(out, "interval/time-seconds", d -> new PGInterval("00:00:" + d.substring(0, 2)));
+    add(out, "interval/bare-seconds", d -> new PGInterval(d));
 
     // Encode side: a String bound to a numeric parameter.
     add(out, "int2/encode", d -> Int2Codec.INSTANCE.encodeText(d, INT2, CTX));

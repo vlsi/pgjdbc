@@ -20,6 +20,30 @@ public class NumberParser {
   private static final long MIN_LONG_DIV_TEN = Long.MIN_VALUE / 10;
 
   /**
+   * Refuses a number literal that carries a character outside ASCII.
+   *
+   * <p>{@link Integer#parseInt}, {@link Long#parseUnsignedLong} and the {@link java.math.BigDecimal}
+   * string constructor all read through {@link Character#digit}, so a fullwidth {@code "１２３"} or an
+   * Arabic-Indic {@code "١٢٣"} parses to 123. PostgreSQL's input functions read ASCII only and reject
+   * both, so a literal that reaches a JDK parser unscreened decodes to a value the server can never
+   * have sent.</p>
+   *
+   * <p>The screen signals with the parsers' own {@link NumberFormatException} rather than a
+   * {@link java.sql.SQLException}, so a caller slots it into the {@code try} it already wraps the
+   * parse in and keeps its own error message.</p>
+   *
+   * @param text the literal about to be handed to a JDK number parser
+   * @throws NumberFormatException if {@code text} holds a character above {@code U+007F}
+   */
+  public static void requireAsciiLiteral(String text) throws NumberFormatException {
+    for (int i = 0, len = text.length(); i < len; i++) {
+      if (text.charAt(i) > 0x7f) {
+        throw new NumberFormatException("non-ASCII character at index " + i);
+      }
+    }
+  }
+
+  /**
    * Optimised byte[] to number parser. This code does not handle null values, so the caller must do
    * checkResultSet and handle null values prior to calling this function. Fraction part is
    * discarded.

@@ -21,10 +21,49 @@ import java.util.List;
  * same error, so it stays a compatible cell rather than a false finding.
  */
 public final class IntervalEdgeCases {
+  /**
+   * Literals no {@code interval_in} accepts. The parser used to pair each number with the unit word
+   * after it and drop whatever did not fit, so all of these read back as a zero interval.
+   *
+   * <p>Deliberately absent from {@link #ALL}, whose literals all cast cleanly. Two shapes are absent from
+   * here as well: the empty string, which {@code IntervalCodec.decodeText} maps to {@code null} before the
+   * parser sees it (the shared convention for an empty text value, not an interval decision), and the
+   * {@code sql_standard} forms such as {@code 1-2} or {@code 1 04:05:06}, which are refused today but
+   * become valid once <a href="https://github.com/pgjdbc/pgjdbc/pull/4296">PR #4296</a> lands.
+   */
+  public static final List<EdgeCase> MALFORMED = Collections.unmodifiableList(malformed());
+
   /** Every case, in a stable order. */
   public static final List<EdgeCase> ALL = Collections.unmodifiableList(all());
 
   private IntervalEdgeCases() {
+  }
+
+  private static List<EdgeCase> malformed() {
+    List<EdgeCase> out = new ArrayList<>();
+    out.add(at("malformed_unknown_word", "abc"));
+    out.add(at("malformed_unknown_unit", "1 fortnight"));
+    out.add(at("malformed_trailing_garbage", "1 year abc"));
+    out.add(at("malformed_bare_number_pair", "1 2"));
+    out.add(at("malformed_second_time_token", "01:00:00 02:00:00"));
+    out.add(at("malformed_iso_stray_designator", "P1X"));
+    out.add(at("malformed_unit_with_suffix", "1 yearsx"));
+    out.add(at("malformed_repeated_unit", "1 day 2 days"));
+    // A bare number reaches Double.parseDouble, which is ASCII-strict, but every field that reaches
+    // Integer.parseInt -- a unit word's number, an ISO designator's, and both halves of the packed
+    // hh:mm token -- needs its own case: Integer.parseInt reads every Unicode decimal digit, so each
+    // of these decoded to a value interval_in rejects.
+    // U+FF11 U+FF12 U+FF13, fullwidth one, two, three.
+    out.add(at("malformed_non_ascii_digits", "１２３"));
+    out.add(at("malformed_non_ascii_digit_unit", "１ year"));
+    out.add(at("malformed_non_ascii_digit_iso_date", "P１Y"));
+    out.add(at("malformed_non_ascii_digit_iso_time", "PT１H"));
+    out.add(at("malformed_non_ascii_digit_time_hours", "１:00:00"));
+    out.add(at("malformed_non_ascii_digit_time_minutes", "00:１２:00"));
+    // U+2212, the typographic minus that is not the ASCII hyphen-minus.
+    out.add(at("malformed_non_ascii_minus", "−1"));
+    out.add(at("malformed_non_ascii_minus_unit", "−1 years"));
+    return out;
   }
 
   private static List<EdgeCase> all() {
