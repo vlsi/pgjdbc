@@ -59,6 +59,17 @@ http://apt.postgresql.org/pub/repos/apt $VERSION_CODENAME-pgdg-snapshot $COMPONE
       -t "$VERSION_CODENAME-pgdg-snapshot" \
       "postgresql-$PG_MAJOR" "postgresql-contrib-$PG_MAJOR" >/dev/null; \
     localedef -i en_US -c -f UTF-8 en_US.UTF-8; \
+    # Locales the driver's own behaviour depends on, so a test can SET lc_monetary or
+    # lc_collate and see a real rendering instead of asserting against a hand-written string.
+    # money is the demanding one: its text form is the only form the driver reads, and the
+    # locale decides the fraction digits (ja_JP prints none, ar_KW three), the grouping
+    # character (de_DE a dot, fr_FR and ru_RU a space) and where the currency symbol goes.
+    # uk_UA and ar_SA earn their place by putting a symbol that itself contains a '.' after
+    # the amount ("1 234,56грн."), which a parser can mistake for the decimal point.
+    # tr_TR carries the dotless i, which catches a case-folding bug no other locale shows.
+    for locale in de_DE fr_FR ja_JP ru_RU sv_SE nb_NO ar_KW ar_SA uk_UA tr_TR; do \
+      localedef -i "$locale" -c -f UTF-8 "$locale.UTF-8"; \
+    done; \
     ln -sfn "/usr/lib/postgresql/$PG_MAJOR" /usr/lib/postgresql/current; \
     ln -sfn "/usr/share/postgresql/$PG_MAJOR" /usr/share/postgresql/current; \
     dpkg-query -W "postgresql-$PG_MAJOR" | tee /usr/local/share/postgresql-version

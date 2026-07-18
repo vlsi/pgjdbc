@@ -279,6 +279,67 @@ public final class MoneyCodec implements PrimitiveBinaryDecoder, PrimitiveTextDe
   }
 
   /**
+   * Locates the decimal separator in a money literal already stripped to digits, {@code '.'} and
+   * {@code ','}, or returns {@code -1} when every separator groups digits.
+   *
+   * <p>Which character separates the fraction and which groups the digits is an {@code lc_monetary}
+   * property that does not travel with the value, so it is read off the literal's own shape:</p>
+   *
+   * <ul>
+   *   <li>both characters present &mdash; the locale spends one on each job and the fraction comes
+   *       last, so the later character is the decimal separator ({@code 1.234,56});</li>
+   *   <li>one character, more than once &mdash; a fraction has one separator, so these group
+   *       ({@code 1,234,567});</li>
+   *   <li>one character, once, with anything other than three digits after it &mdash; a group is
+   *       exactly three digits, so this separates the fraction ({@code 1234.56});</li>
+   *   <li>one character, once, three digits after it and four or more before &mdash; the leading
+   *       group would be too wide, so this separates the fraction ({@code 1234,567}).</li>
+   * </ul>
+   *
+   * <p>What is left is {@code 1,234}: 1234 where the locale prints no fraction ({@code frac_digits}
+   * 0, as for yen or won) and 1.234 where it prints three ({@code frac_digits} 3, as for the Gulf
+   * dinars). The shape cannot say which, so the currency symbol does, through
+   * {@link MoneyFractionDigits}. That lookup is sound precisely because it sits behind this shape
+   * test: a {@code frac_digits} 2 locale can never produce the rendering, so the symbols it shares
+   * with a three-digit currency &mdash; {@code L} and {@code £} do &mdash; are never consulted here,
+   * and no symbol belongs to both a {@code frac_digits} 0 and a {@code frac_digits} 3 locale. A
+   * symbol the table does not know falls back to grouping, the reading every remaining locale
+   * intends.</p>
+   *
+   * @param tokens the literal reduced to digits and separators
+   * @param data the literal as the server rendered it, carrying the currency symbol
+   * @return the index of the decimal separator, or {@code -1} if there is none
+   */
+  private static int decimalSeparatorIndex(CharSequence tokens, CharSequence data) {
+    int length = tokens.length();
+    int separators = 0;
+    int lastSeparator = -1;
+    boolean dot = false;
+    boolean comma = false;
+    for (int i = 0; i < length; i++) {
+      char c = tokens.charAt(i);
+      if (c == '.' || c == ',') {
+        separators++;
+        lastSeparator = i;
+        dot |= c == '.';
+        comma |= c == ',';
+      }
+    }
+    if (dot && comma) {
+      return lastSeparator;
+    }
+    if (separators != 1) {
+      return -1;
+    }
+    int digitsAfter = length - lastSeparator - 1;
+    int digitsBefore = lastSeparator;
+    if (digitsAfter == 3 && digitsBefore >= 1 && digitsBefore <= 3) {
+      return MoneyFractionDigits.printsThreeFractionDigits(data) ? lastSeparator : -1;
+    }
+    return lastSeparator;
+  }
+
+  /**
    * Parses a server-rendered {@code money} literal into its exact decimal value, independent of the
    * locale that produced it.
    *
@@ -286,34 +347,49 @@ public final class MoneyCodec implements PrimitiveBinaryDecoder, PrimitiveTextDe
    * sign ({@code "-$1.00"}, {@code "$-1.00"}, {@code "1,00-"}): the currency symbol and digits never
    * contain {@code '('} or {@code '-'}, so either marks a negative amount. The currency symbol,
    * whitespace and sign are then dropped, leaving the digits and the {@code ','}/{@code '.'}
-   * separators.</p>
+   * separators, which {@link #decimalSeparatorIndex} splits into the integer and fraction parts.</p>
    *
-   * <p>PostgreSQL renders {@code money} with the locale's fraction digits, so the <em>rightmost</em>
-   * separator is the decimal point and every earlier separator groups the integer part. Choosing the
-   * decimal separator by position rather than by character means the driver does not need to know
-   * whether the locale uses {@code ','} or {@code '.'} for the decimal point ({@code "1,234.56"} and
-   * {@code "1.234,56"} both parse to {@code 1234.56}), and never has to consult {@code lc_monetary}.
-   * The one rendering this cannot disambiguate is a zero-fraction-digit currency written with grouping
-   * (for example {@code "1,234,567"}), which is ambiguous from the text alone.</p>
+   * @param data the literal as the server rendered it
+   * @return the amount the literal denotes
+   * @throws SQLException if the literal holds no digits
    */
   private static BigDecimal parseMoney(CharSequence data) throws SQLException {
     int length = data.length();
     boolean negative = false;
 
-    // Keep only the digits and separators, dropping the currency symbol, whitespace, sign and parens;
-    // a '(' or '-' anywhere marks a negative amount (folded into this scan instead of two indexOf
-    // passes, so a borrowed CharArraySequence slice is parsed without a String copy).
-    StringBuilder tokens = new StringBuilder(length);
+    // Find the amount's span and the sign in one pass. A '(' or '-' anywhere marks a negative amount.
+    // The span runs from the first digit to the last, because a separator only separates digits: the
+    // currency symbol can carry a '.' of its own -- the Kuwaiti dinar's "د.ك." ends with one -- and
+    // reading that as the decimal point turns "1,234.567 د.ك." into 1234567.
+    int firstDigit = -1;
+    int lastDigit = -1;
     for (int i = 0; i < length; i++) {
       char c = data.charAt(i);
-      if (c >= '0' && c <= '9' || c == '.' || c == ',') {
-        tokens.append(c);
+      if (c >= '0' && c <= '9') {
+        if (firstDigit < 0) {
+          firstDigit = i;
+        }
+        lastDigit = i;
       } else if (c == '(' || c == '-') {
         negative = true;
       }
     }
 
-    int decimalPos = Math.max(tokens.lastIndexOf("."), tokens.lastIndexOf(","));
+    // Keep the digits and the separators between them, dropping the grouping characters a locale
+    // spends on neither (' ' and the narrow no-break space, which fr_FR and ru_RU group with).
+    if (firstDigit < 0) {
+      // No digit anywhere, so there is no amount to read.
+      throw Exceptions.badValueForType("money", data);
+    }
+    StringBuilder tokens = new StringBuilder(lastDigit - firstDigit + 1);
+    for (int i = firstDigit; i <= lastDigit; i++) {
+      char c = data.charAt(i);
+      if (c >= '0' && c <= '9' || c == '.' || c == ',') {
+        tokens.append(c);
+      }
+    }
+
+    int decimalPos = decimalSeparatorIndex(tokens, data);
     StringBuilder number = new StringBuilder(tokens.length() + 1);
     if (negative) {
       number.append('-');

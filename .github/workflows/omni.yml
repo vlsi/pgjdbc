@@ -370,3 +370,5 @@ jobs:
         arguments: --no-parallel --no-daemon --scan jandex test
         properties: |
           includeTestTags=${{ matrix.junit_include_tags }}
+          # See main.yml: only the HEAD image carries the extra locales.
+          pgjdbc.test.serverLocales=${{ matrix.pg_version == 'HEAD' && 'true' || '' }}

@@ -326,6 +326,10 @@ jobs:
         properties: |
           includeTestTags=${{ matrix.includeTestTags }}
           testExtraJvmArgs=${{ matrix.testExtraJvmArgs }}
+          # Only the HEAD image carries the extra locales (docker/postgres-head/Dockerfile), and it
+          # is Linux-only, so the locale-dependent tests run there and skip everywhere else. Setting
+          # this promises the locales are present: a missing one fails rather than skips.
+          pgjdbc.test.serverLocales=${{ matrix.pg_version == 'HEAD' && 'true' || '' }}
           jdkBuildVersion=21
           jdkTestVersion=${{ matrix.java_version == 'EA' && steps.setup_ea_java.outputs.version || matrix.java_version }}
           jdkTestVendor=${{ matrix.java_vendor }}
