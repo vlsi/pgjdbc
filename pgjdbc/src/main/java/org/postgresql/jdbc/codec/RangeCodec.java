@@ -64,6 +64,25 @@ public final class RangeCodec implements StreamingBinaryCodec, TextCodec {
     return PGRange.class;
   }
 
+  @Override
+  public boolean canEncodeBinaryType(TypeDescriptor type, CodecContext ctx) throws SQLException {
+    // range_send serializes each bound with the subtype's binary output, so a range binds binary
+    // only when its subtype does. Recurse into the subtype (which recurses further if it is itself
+    // a container).
+    CodecDepth.enter();
+    try {
+      int subtypeOid = type.getRangeSubtype();
+      if (subtypeOid == 0) {
+        return false;
+      }
+      BinaryCodec subtypeCodec = ctx.resolveBinaryCodec(subtypeOid);
+      return subtypeCodec != null
+          && subtypeCodec.canEncodeBinaryType(ctx.resolveType(subtypeOid), ctx);
+    } finally {
+      CodecDepth.exit();
+    }
+  }
+
   // ==================== Binary Codec Methods ====================
 
   @Override

@@ -104,6 +104,34 @@ public final class DomainCodec implements StreamingBinaryCodec, StreamingTextCod
   }
 
   @Override
+  public boolean canEncodeBinaryType(TypeDescriptor type, CodecContext ctx) throws SQLException {
+    // A domain is transparent: it binds binary exactly when its base type does, so recurse into the
+    // base (which itself recurses if it is a container).
+    CodecDepth.enter();
+    try {
+      Codec baseCodec = getBaseCodec(type, ctx);
+      return baseCodec instanceof BinaryCodec
+          && ((BinaryCodec) baseCodec).canEncodeBinaryType(getBaseType(type, ctx), ctx);
+    } finally {
+      CodecDepth.exit();
+    }
+  }
+
+  @Override
+  public boolean canEncodeBinary(Object value, TypeDescriptor type, CodecContext ctx) throws SQLException {
+    // Forward the value-level check to the base too, so a value the base cannot binary-encode
+    // (a String on a fallback base, say) binds as text rather than failing at encode.
+    CodecDepth.enter();
+    try {
+      Codec baseCodec = getBaseCodec(type, ctx);
+      return baseCodec instanceof BinaryCodec
+          && ((BinaryCodec) baseCodec).canEncodeBinary(value, getBaseType(type, ctx), ctx);
+    } finally {
+      CodecDepth.exit();
+    }
+  }
+
+  @Override
   public @Nullable Object decodeBinary(byte[] data, int offset, int length, TypeDescriptor type,
       CodecContext ctx) throws SQLException {
     CodecDepth.enter();

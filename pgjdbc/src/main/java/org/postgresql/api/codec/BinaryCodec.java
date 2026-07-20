@@ -97,16 +97,39 @@ public interface BinaryCodec extends Codec {
   }
 
   /**
+   * Whether a real PostgreSQL binary payload can be produced for {@code type} and every type nested
+   * inside it. This is the structural, value-independent companion to {@link #encodesBinary()}:
+   * {@code encodesBinary()} answers only for this codec's own wire form, so a delegating codec —
+   * a domain, range, multirange, composite or array — whose own {@code encodeBinary} is binary still
+   * cannot bind binary when a child it embeds is text-only (a {@code time}/{@code timetz} subtype,
+   * say). Such a codec overrides this to recurse into its children through the same method, so the
+   * answer folds in the whole type tree. A leaf codec keeps the default, which is exactly
+   * {@link #encodesBinary()}.
+   *
+   * <p>This decides the negotiated bind format — {@link CodecFormatSupport#canWriteBinary} pairs it
+   * with the value-level {@link #canEncodeBinary} so a value whose type tree is not binary-capable
+   * binds as text rather than failing at encode. The enforcement gate
+   * ({@link CodecFormatSupport#requireBinaryEncoder}) does not call this: it checks each level
+   * locally while the encode recursion walks the tree, so this stays a once-per-bind query.
+   *
+   * @param type the target type metadata
+   * @param ctx the codec context, used to resolve nested type metadata and codecs
+   * @return true if {@code type} and all its nested types can be binary-encoded
+   * @throws SQLException if type metadata cannot be resolved
+   */
+  default boolean canEncodeBinaryType(TypeDescriptor type, CodecContext ctx) throws SQLException {
+    return encodesBinary();
+  }
+
+  /**
    * Whether {@code value} can be encoded for {@code type} as a real PostgreSQL binary payload. This
-   * is the value-level companion to {@link #encodesBinary()}: that method decides at the
-   * type level (a codec whose {@code encodeBinary} only emits text bytes returns {@code false}),
-   * while this one lets a codec reject a particular value whose binary form it cannot produce. A
-   * composite codec, for instance, binary-encodes only {@link java.sql.Struct} / {@link
-   * java.sql.SQLData} / {@link org.postgresql.util.PGBinaryObject} values and binds a plain {@link
-   * org.postgresql.util.PGobject} as text, while an array codec needs every leaf to be
-   * binary-encodable. Containers and parameter-binding callers gate the binary path on this rather
-   * than on {@link #encodesBinary()} alone. The default defers to {@link
-   * #encodesBinary()}, so value-independent codecs need not override it.
+   * is the value-level companion to {@link #canEncodeBinaryType} and {@link #encodesBinary()}: those
+   * decide at the type level, while this one lets a codec reject a particular value whose binary form
+   * it cannot produce. A composite codec, for instance, binary-encodes only {@link java.sql.Struct} /
+   * {@link java.sql.SQLData} / {@link org.postgresql.util.PGBinaryObject} values and binds a plain
+   * {@link org.postgresql.util.PGobject} as text; an array codec needs every leaf to be
+   * binary-encodable; the fallback codec accepts only a {@code PGUnknownBinary} it can round-trip.
+   * The default defers to {@link #encodesBinary()}, so value-independent codecs need not override it.
    *
    * @param value the value to be encoded
    * @param type the target type metadata

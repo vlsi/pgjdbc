@@ -57,6 +57,24 @@ public final class MultirangeCodec implements StreamingBinaryCodec, TextCodec {
     return PGmultirange.class;
   }
 
+  @Override
+  public boolean canEncodeBinaryType(TypeDescriptor type, CodecContext ctx) throws SQLException {
+    // A multirange binds binary only when its range type does; the range in turn recurses into its
+    // subtype.
+    CodecDepth.enter();
+    try {
+      int rangeOid = type.getMultirangeRange();
+      if (rangeOid == 0) {
+        return false;
+      }
+      BinaryCodec rangeCodec = ctx.resolveBinaryCodec(rangeOid);
+      return rangeCodec != null
+          && rangeCodec.canEncodeBinaryType(ctx.resolveType(rangeOid), ctx);
+    } finally {
+      CodecDepth.exit();
+    }
+  }
+
   // ==================== Binary Codec Methods ====================
 
   @Override

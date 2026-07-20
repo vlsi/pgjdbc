@@ -37,18 +37,22 @@ import java.util.Arrays;
  * binary yet the driver only writes as text) must refuse a binary encode outright, never serialize
  * the child's text-shaped bytes into the binary wire format.
  *
- * <p>The container's own capability currently over-reports binary for these values: a range and
- * multirange inherit {@link BinaryCodec#encodesBinary()}{@code =true}, and a composite reports binary
- * for any {@link java.sql.Struct}. Teaching that capability to recurse into the child is a later step;
- * this test pins the <em>enforcement</em> backstop underneath it — {@code CodecFormatSupport.writeBinary}
- * runs {@code requireBinaryEncoder} before any child byte is produced — so a binary encode fails with
- * a {@link SQLException} regardless of what the container capability claims. The poison child's
- * {@link PoisonChildCodec#encodeBinary} throws an {@link AssertionError} if it is ever reached, which
- * would surface as a non-{@code SQLException} failure: proof that the refusal happens at the gate,
- * before the child encodes anything.
+ * <p>Two layers are pinned for each container:
+ * <ul>
+ *   <li><b>Negotiation</b> — {@code CodecFormatPolicy.chooseBindFormat} consults the recursive
+ *       {@link BinaryCodec#canEncodeBinaryType}, so it picks {@link Format#TEXT} even with the backend
+ *       accepting binary: the container reports its child's inability, so the value never enters the
+ *       binary encode path.</li>
+ *   <li><b>Enforcement</b> — a forced binary encode ({@code Codecs.encode(.., BINARY)}) still fails
+ *       with a {@link SQLException}: {@code CodecFormatSupport.writeBinary} runs
+ *       {@code requireBinaryEncoder} before any child byte is produced. The poison child's
+ *       {@link PoisonChildCodec#encodeBinary} throws an {@link AssertionError} if it is ever reached,
+ *       so a breach surfaces as a non-{@code SQLException} failure: proof the refusal happens at the
+ *       gate, before the child encodes anything.</li>
+ * </ul>
  *
  * <p>Each container still encodes the same value as <em>text</em>, since the child is a real
- * {@link TextCodec}: the enforcement is specific to binary, not a blanket refusal of the value.
+ * {@link TextCodec}: both layers are specific to binary, not a blanket refusal of the value.
  */
 class ContainerBinaryEnforcementOfflineTest {
 
@@ -114,12 +118,19 @@ class ContainerBinaryEnforcementOfflineTest {
   }
 
   /**
-   * A binary encode of {@code value} as {@code type} must throw {@link SQLException} (the enforcement
-   * gate refuses; the poison child never encodes, so no {@link AssertionError} escapes), while a text
-   * encode of the same value succeeds and keeps the text format.
+   * For {@code value} as {@code type}: the format negotiation must pick {@link Format#TEXT} even with
+   * the backend accepting binary (the recursive type check sees the binary-incapable child), a forced
+   * binary encode must throw {@link SQLException} (the enforcement gate refuses; the poison child
+   * never encodes, so no {@link AssertionError} escapes), and a text encode of the same value must
+   * succeed and keep the text format.
    */
   private void assertBinaryRefusedTextAccepted(TypeDescriptor type, Object value) {
     CodecContext ctx = newContext();
+
+    Format negotiated = assertDoesNotThrowSql(
+        () -> CodecFormatPolicy.chooseBindFormat(ctx.resolveCodec(type.getOid()), value, type, ctx, true));
+    assertEquals(Format.TEXT, negotiated,
+        "negotiation must pick text for a container over a binary-incapable child, backend binary on");
 
     assertThrows(SQLException.class, () -> Codecs.encode(value, type, ctx, Format.BINARY),
         "binary encode must refuse a container over a child that cannot binary-encode");
@@ -128,11 +139,11 @@ class ContainerBinaryEnforcementOfflineTest {
     assertEquals(Format.TEXT, text.getFormat(), "the same value still encodes as text");
   }
 
-  private static WireValueSlice assertDoesNotThrowSql(SqlSupplier<WireValueSlice> supplier) {
+  private static <T> T assertDoesNotThrowSql(SqlSupplier<T> supplier) {
     try {
       return supplier.get();
     } catch (SQLException e) {
-      throw new AssertionError("text encode must succeed: " + e.getMessage(), e);
+      throw new AssertionError("must not throw: " + e.getMessage(), e);
     }
   }
 

@@ -139,6 +139,34 @@ public final class ArrayCodec implements StreamingBinaryCodec, StreamingTextCode
   }
 
   /**
+   * Returns whether an array of {@code type} can be bound as binary based on its type tree alone: the
+   * element type must be binary-capable, recursively (a composite or range element recurses further).
+   * A {@code time}/{@code timetz} element type, whose codec only emits text bytes, makes the whole
+   * array bind as text. This is the structural half of the decision; {@link #canEncodeBinary} adds the
+   * per-value leaf walk.
+   *
+   * @param type the array type metadata
+   * @param ctx the codec context
+   * @return true if the array's element type tree is binary-encodable
+   * @throws SQLException if type metadata cannot be resolved
+   */
+  @Override
+  public boolean canEncodeBinaryType(TypeDescriptor type, CodecContext ctx) throws SQLException {
+    // The array wire format carries each element as the element type's binary output, so an array
+    // binds binary only when its element type does. Recurse into the element (which recurses further
+    // for a composite/range/domain element). No local CodecDepth guard: an array never nests into
+    // itself directly, so any unbounded recursion runs through a guarded composite/domain/range
+    // element, matching this codec's orchestrator role.
+    int elementOid = type.getTypelem();
+    if (elementOid == 0) {
+      return false;
+    }
+    BinaryCodec elementCodec = ctx.resolveBinaryCodec(elementOid);
+    return elementCodec != null
+        && elementCodec.canEncodeBinaryType(ctx.resolveType(elementOid), ctx);
+  }
+
+  /**
    * Returns whether {@code value}'s array can be bound as a true PostgreSQL binary payload. The
    * array's element type must itself support binary encoding (the {@code time}/{@code timetz}/
    * {@code timestamp}/{@code timestamptz} codecs only emit text bytes, so feeding them into the

@@ -20,10 +20,11 @@ import java.sql.SQLException;
  * it the same way instead of testing {@code instanceof} and the capability flags separately.</p>
  *
  * <p>The narrowing casts stay confined here: a predicate answers the capability question, and the
- * matching {@code require…} helper returns the narrowed codec or fails with a consistent error. A
- * write-side binary check is value-level ({@link #canWriteBinary} takes the value, since a codec may
- * binary-encode some values and not others); the read-side and text checks depend only on the
- * codec.</p>
+ * matching {@code require…} helper returns the narrowed codec or fails with a consistent error. The
+ * write-side binary decision has two depths: {@link #canWriteBinary} is the recursive negotiation
+ * check (the whole type tree plus the value, run once per bind to pick binary vs text), while
+ * {@link #requireBinaryEncoder} is the local enforcement gate (this level's flag plus the value, run
+ * as the encode recurses). The read-side and text checks depend only on the codec.</p>
  *
  * <p>{@link #requireBinaryEncoder} is the single enforcement gate for a binary payload: every
  * sink-based write funnels through {@link #writeBinary}, and the {@code byte[]}-materializing paths
@@ -48,18 +49,20 @@ public final class CodecFormatSupport {
   }
 
   /**
-   * Whether {@code codec} can write {@code value} as a real binary payload for {@code type}: it is a
-   * {@link BinaryCodec}, its type-level {@link BinaryCodec#encodesBinary()} flag is set, and its
-   * value-level {@link BinaryCodec#canEncodeBinary} accepts this value. Both flags are checked here
-   * rather than trusting {@code canEncodeBinary} to fold in {@code encodesBinary()}, so a codec that
-   * declares {@code encodesBinary()=false} cannot be coerced into a binary encode by a lax
-   * {@code canEncodeBinary} override.
+   * Whether {@code value} can be bound as a real binary payload for {@code type}, end to end: it is a
+   * {@link BinaryCodec}, {@code type} and every type nested inside it are binary-capable
+   * ({@link BinaryCodec#canEncodeBinaryType}), and the value-level {@link BinaryCodec#canEncodeBinary}
+   * accepts this value. This is the negotiation check — {@code chooseBindFormat} and
+   * {@link org.postgresql.jdbc.PgArray#toBytes()} gate the binary path on it, so a container over a
+   * text-only child (a {@code time} subtype in a range, say) binds as text rather than failing at
+   * encode. The recursive type walk runs once per bind here, not per element: the enforcement gate
+   * {@link #requireBinaryEncoder} checks each level locally as the encode recurses.
    *
    * @param codec the codec to inspect
    * @param value the value to be encoded
    * @param type the target type metadata
    * @param ctx the codec context
-   * @return true if {@code codec} is a {@link BinaryCodec} that can binary-encode {@code value}
+   * @return true if {@code codec} is a {@link BinaryCodec} that can binary-bind {@code value}
    * @throws SQLException if type metadata cannot be resolved
    */
   public static boolean canWriteBinary(Codec codec, Object value, TypeDescriptor type,
@@ -68,7 +71,7 @@ public final class CodecFormatSupport {
       return false;
     }
     BinaryCodec binary = (BinaryCodec) codec;
-    return binary.encodesBinary() && binary.canEncodeBinary(value, type, ctx);
+    return binary.canEncodeBinaryType(type, ctx) && binary.canEncodeBinary(value, type, ctx);
   }
 
   /**
@@ -98,11 +101,17 @@ public final class CodecFormatSupport {
 
   /**
    * Narrows {@code codec} to a {@link BinaryCodec} that can binary-encode {@code value} for
-   * {@code type}, or fails. This is the enforcement gate for a real binary payload: it is the last
-   * check before {@link BinaryCodec#encodeBinary} bytes reach a binary wire, so a codec that cannot
-   * produce binary for this value is rejected here rather than writing text-shaped bytes into the
-   * binary format. {@link #writeBinary} funnels every sink-based binary write through it, and the
-   * {@code byte[]}-materializing paths ({@link Codecs#encode}, {@code DomainCodec}) call it directly.
+   * {@code type} at this level, or fails. This is the enforcement gate for a real binary payload: it
+   * is the last check before {@link BinaryCodec#encodeBinary} bytes reach a binary wire, so a codec
+   * that cannot produce binary for this value is rejected here rather than writing text-shaped bytes
+   * into the binary format. {@link #writeBinary} funnels every sink-based binary write through it, and
+   * the {@code byte[]}-materializing paths ({@link Codecs#encode}, {@code DomainCodec}) call it
+   * directly.
+   *
+   * <p>The check is local — {@link BinaryCodec#encodesBinary()} plus the value-level
+   * {@link BinaryCodec#canEncodeBinary} — not the recursive {@link #canWriteBinary}. Each container
+   * level runs its own gate as the encode recurses, so the whole tree is covered one frame at a time;
+   * the recursive type walk belongs to the once-per-bind negotiation, not to every element write.
    *
    * @param codec the codec resolved for {@code type}
    * @param value the value to be encoded
@@ -113,10 +122,14 @@ public final class CodecFormatSupport {
    */
   public static BinaryCodec requireBinaryEncoder(Codec codec, Object value, TypeDescriptor type,
       CodecContext ctx) throws SQLException {
-    if (!canWriteBinary(codec, value, type, ctx)) {
+    if (!(codec instanceof BinaryCodec)) {
       throw Exceptions.noCodecForFormat(type, "binary");
     }
-    return (BinaryCodec) codec;
+    BinaryCodec binary = (BinaryCodec) codec;
+    if (!binary.encodesBinary() || !binary.canEncodeBinary(value, type, ctx)) {
+      throw Exceptions.noCodecForFormat(type, "binary");
+    }
+    return binary;
   }
 
   static TextCodec requireTextEncoder(Codec codec, TypeDescriptor type) throws SQLException {

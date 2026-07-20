@@ -469,6 +469,26 @@ public final class CompositeCodec implements StreamingBinaryCodec, StreamingText
   }
 
   @Override
+  public boolean canEncodeBinaryType(TypeDescriptor type, CodecContext ctx) throws SQLException {
+    // record_send serializes each attribute with that attribute type's binary output, so a composite
+    // binds binary only when every attribute type does. Recurse into each attribute (which recurses
+    // further for a nested composite/range/array attribute). A record with no attributes is trivially
+    // binary-encodable.
+    CodecDepth.enter();
+    try {
+      for (CompositeAttribute attr : resolveFields(type, ctx)) {
+        BinaryCodec fieldCodec = ctx.resolveBinaryCodec(attr.getTypeOid());
+        if (fieldCodec == null || !fieldCodec.canEncodeBinaryType(attributeType(attr, ctx), ctx)) {
+          return false;
+        }
+      }
+      return true;
+    } finally {
+      CodecDepth.exit();
+    }
+  }
+
+  @Override
   public boolean canEncodeBinary(Object value, TypeDescriptor type, CodecContext ctx) {
     // encodeBinary serializes a Struct/SQLData attribute-by-attribute; a plain PGobject carries
     // only the composite text literal and must bind as text.
