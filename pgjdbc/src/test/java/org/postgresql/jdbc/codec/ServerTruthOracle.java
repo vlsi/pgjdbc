@@ -7,16 +7,22 @@ package org.postgresql.jdbc.codec;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotEquals;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import org.postgresql.api.codec.Codecs;
 import org.postgresql.api.codec.Format;
 import org.postgresql.api.codec.TypeDescriptor;
+import org.postgresql.api.codec.WireValueSlice;
 import org.postgresql.core.BaseConnection;
 import org.postgresql.jdbc.PgCodecContext;
 import org.postgresql.util.PGBinaryObject;
 import org.postgresql.util.PGobject;
 
+import org.checkerframework.checker.nullness.qual.Nullable;
+
+import java.sql.Array;
 import java.sql.Connection;
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
@@ -163,6 +169,133 @@ final class ServerTruthOracle {
                 + ", but they now agree -- promote this to assertDecodeTruth");
       }
     }
+  }
+
+  /**
+   * Asserts that the driver reads a container <em>text</em> literal to the value the type's own
+   * input function reads it to.
+   *
+   * <p>Aimed at the container grammars, where the driver reimplements {@code array_in},
+   * {@code record_in} and {@code range_parse_bound} rather than delegating: whitespace inside a
+   * field, a value split across quoted and unquoted segments, an escape outside quotes, an empty
+   * field versus a whitespace-only one. Server output never exercises any of it, since the output
+   * functions quote whatever would be ambiguous, so only a hand-written literal reaches these paths
+   * ({@link PGobject#setValue}, {@code PGRange(String)}, an offline decode, a text {@code COPY}).</p>
+   *
+   * <p>The comparison runs through the server twice: the driver's parse is re-encoded and shipped
+   * back as a binary parameter, and its {@code ::text} is compared against the {@code ::text} of the
+   * server's own parse of the literal. That reuses {@link #assertEncodeTruth}'s comparator instead of
+   * inventing a second canonical form. A failure therefore means the parse or the re-encode is
+   * wrong; the encoders are covered independently by the encode-truth cases, so suspect the parse
+   * first.</p>
+   *
+   * @param con a connection; binary send for {@code oid} is enabled here if it is not already
+   * @param oid the type OID
+   * @param typeName the type's {@code pg_type.typname}
+   * @param literal the text literal to parse, as a caller would hand it to the driver
+   */
+  static void assertTextParseTruth(Connection con, int oid, String typeName, String literal)
+      throws SQLException {
+    Object parsed = parseText(con, oid, literal);
+    assertNotNull(parsed,
+        () -> "text-parse truth for " + typeName + " literal=" + literal
+            + ": the driver read the literal as SQL NULL");
+    assertEncodeTruth(con, oid, typeName, parsed, literal);
+  }
+
+  /** What the driver does with a literal the server's own input function refuses. */
+  enum DriverVerdict {
+    /** The driver refuses it too. */
+    REFUSES,
+    /**
+     * The driver accepts it by design. {@link LiteralCursor} is deliberately lenient on decode —
+     * it takes {@code ""} inside quotes as an escape and concatenates segments that
+     * {@code array_in} would reject — which only ever widens what decodes. It never changes the
+     * value of a literal the server itself accepts.
+     */
+    ACCEPTS_BY_DESIGN
+  }
+
+  /**
+   * Pins that the server still refuses {@code literal}, and what the driver does with it.
+   *
+   * <p>A grammar the driver reimplements is pinned against the server on the accepting side by
+   * {@link #assertTextParseTruth}, but that says nothing about inputs PostgreSQL rejects. Recording
+   * only "we match today's server on what it accepts" would let a future server quietly start
+   * accepting one of these — {@code array_in} growing the segment concatenation {@code record_in}
+   * already has, say — and leave the driver's reading of it unexamined. Each case here fails the
+   * moment the server's verdict changes, so the pair is re-judged against a real value rather than
+   * against what was true when it was written.</p>
+   *
+   * @param con a connection
+   * @param oid the type OID, for the driver's own parse
+   * @param typeName the type's {@code pg_type.typname}
+   * @param literal the literal the server is expected to refuse
+   * @param expectedSqlState the SQLState of the server's refusal
+   * @param driver what the driver is expected to do with the same literal
+   */
+  static void assertServerRefuses(Connection con, int oid, String typeName, String literal,
+      String expectedSqlState, DriverVerdict driver) throws SQLException {
+    SQLException refusal = null;
+    try (PreparedStatement ps = con.prepareStatement("SELECT ?::" + typeName)) {
+      ps.setObject(1, literal, Types.OTHER);
+      try (ResultSet rs = ps.executeQuery()) {
+        rs.next();
+      }
+    } catch (SQLException e) {
+      refusal = e;
+    }
+    SQLException serverRefusal = refusal;
+    assertNotNull(serverRefusal,
+        () -> "the server now accepts " + typeName + " literal=" + literal
+            + " -- re-judge this case against the value it produces and, if the driver agrees,"
+            + " move it to assertTextParseTruth");
+    assertEquals(expectedSqlState, serverRefusal.getSQLState(),
+        () -> "the server still refuses " + typeName + " literal=" + literal
+            + ", but under a different SQLState");
+
+    SQLException driverRefusal = null;
+    try {
+      parseText(con, oid, literal);
+    } catch (SQLException e) {
+      driverRefusal = e;
+    }
+    SQLException fromDriver = driverRefusal;
+    if (driver == DriverVerdict.REFUSES) {
+      assertNotNull(fromDriver,
+          () -> "the driver accepts " + typeName + " literal=" + literal
+              + ", which the server refuses; either fix the parse or record the leniency"
+              + " as ACCEPTS_BY_DESIGN");
+    } else {
+      assertNull(fromDriver,
+          () -> "the driver now refuses " + typeName + " literal=" + literal
+              + ", which it used to accept by design; if that is intended, switch this case"
+              + " to REFUSES: " + (fromDriver == null ? "" : fromDriver.getMessage()));
+    }
+  }
+
+  /**
+   * Decodes {@code literal} through the type's text codec, as the driver would.
+   *
+   * <p>Both container decodes hand back something that has not read the literal yet: an array
+   * becomes a lazy {@link java.sql.Array} on a connection-bound context, and a composite becomes a
+   * {@link PGobject} still holding the raw text. Each is forced here — the array by materializing
+   * it, the composite by the binary encode that has to parse it. Without that, a literal the
+   * grammar should refuse looks accepted simply because nothing has read it yet.</p>
+   */
+  private static @Nullable Object parseText(Connection con, int oid, String literal)
+      throws SQLException {
+    BaseConnection base = con.unwrap(BaseConnection.class);
+    PgCodecContext ctx = base.getCodecContext();
+    TypeDescriptor type = ctx.resolveType(oid);
+    Object decoded = Codecs.decode(WireValueSlice.text(literal.getBytes(ctx.getCharset())), type,
+        ctx, Object.class);
+    if (decoded == null) {
+      return null;
+    }
+    Object materialized = decoded instanceof Array ? ((Array) decoded).getArray() : decoded;
+    Codecs.encode(materialized, type, ctx, Format.BINARY);
+    return materialized;
   }
 
   /** Encodes {@code value} as {@code oid} in binary via the connection's own codec context. */

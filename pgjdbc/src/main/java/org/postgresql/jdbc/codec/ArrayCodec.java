@@ -598,7 +598,7 @@ public final class ArrayCodec implements StreamingBinaryCodec, StreamingTextCode
         if (multiDim) {
           elements.add(cur.captureSubarray());
         } else {
-          cur.readValue(delimiter, '}');
+          cur.readArrayElement(delimiter);
           if (!cur.tokenWasQuoted() && cur.tokenEquals("NULL")) {
             elements.add(null);
           } else {

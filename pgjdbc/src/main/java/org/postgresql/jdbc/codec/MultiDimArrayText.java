@@ -153,7 +153,7 @@ public final class MultiDimArrayText {
       throw Exceptions.requiresArrayLiteral("MultiDimArrayText.decode", data.toString());
     }
     int[] dimLengths = new int[dimensions];
-    measureDim(measure, dimLengths, 0, dimensions, delim);
+    measureDim(measure, dimLengths, dimensions, delim);
 
     Object result = java.lang.reflect.Array.newInstance(leafComponentType, dimLengths);
 
@@ -163,28 +163,43 @@ public final class MultiDimArrayText {
     return result;
   }
 
-  private static void measureDim(LiteralCursor cur, int[] dimLengths, int depth, int dimensions,
+  private static void measureDim(LiteralCursor cur, int[] dimLengths, int dimensions,
       char delim) throws SQLException {
-    cur.expect('{');
-    if (cur.tryConsume('}')) {
-      dimLengths[depth] = 0;
-      return;
-    }
-    int count = 0;
-    do {
-      count++;
-      if (depth + 1 < dimensions) {
-        if (count == 1) {
-          measureDim(cur, dimLengths, depth + 1, dimensions, delim);
-        } else {
-          cur.skipSubarray();
-        }
-      } else {
-        cur.skipScalar(delim, '}');
+    // The measuring pass descends only into the first child of each dimension and skips the
+    // siblings whole, so it walks a straight line down the leftmost spine and back up. Descend
+    // opening one brace per dimension, then count each level's children while unwinding. A level's
+    // only state is its child count, so no explicit stack is needed.
+    int depth = 0;
+    while (true) {
+      cur.expect('{');
+      if (cur.tryConsume('}')) {
+        // Deeper dimensions keep their zero default, matching an empty slice such as {{},{}}.
+        dimLengths[depth] = 0;
+        break;
       }
-    } while (cur.tryConsume(delim));
-    cur.expect('}');
-    dimLengths[depth] = count;
+      if (depth + 1 < dimensions) {
+        depth++;
+        continue;
+      }
+      int count = 0;
+      do {
+        count++;
+        cur.skipScalar(delim, '}');
+      } while (cur.tryConsume(delim));
+      cur.expect('}');
+      dimLengths[depth] = count;
+      break;
+    }
+    while (depth > 0) {
+      depth--;
+      int count = 1; // the first child was consumed by the descent
+      while (cur.tryConsume(delim)) {
+        count++;
+        cur.skipSubarray();
+      }
+      cur.expect('}');
+      dimLengths[depth] = count;
+    }
   }
 
   private static void walkAndDecode(LiteralCursor cur, Object container, int depth, char delim,

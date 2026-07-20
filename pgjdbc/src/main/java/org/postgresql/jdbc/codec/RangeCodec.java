@@ -287,12 +287,12 @@ public final class RangeCodec implements StreamingBinaryCodec, TextCodec {
       cur.expect(open);
 
       // Lower bound, terminated by the ',' separator.
-      cur.readValue(',', ']', ')');
+      cur.readVerbatim(',', ']', ')');
       Object lower = decodeBound(cur, boundCodec, subtypeType, ctx);
       cur.expect(',');
 
       // Upper bound, terminated by the ']' or ')' closing bracket.
-      cur.readValue(',', ']', ')');
+      cur.readVerbatim(',', ']', ')');
       Object upper = decodeBound(cur, boundCodec, subtypeType, ctx);
 
       char close = cur.peek();

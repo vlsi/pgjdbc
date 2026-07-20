@@ -89,10 +89,14 @@ class ServerTruthOracleTest {
   /** SQLState the container input functions report for a literal they cannot read. */
   private static final String INVALID_TEXT_REPRESENTATION = "22P02";
 
+  /** A range over {@code text}, so a bound can carry the whitespace an int bound could not. */
+  private static final String TEXTRANGE = "server_truth_textrange";
+
   private static Connection con;
   private static Connection binaryCon;
   private static int addrOid;
   private static int addrArrayOid;
+  private static int textrangeOid;
   private static boolean haveRanges;
   private static boolean haveNumericInfinity;
   private static boolean haveXml;
@@ -118,6 +122,11 @@ class ServerTruthOracleTest {
       numrangeOid = (int) ParityHarness.oidAndArray(con, "numrange")[0];
       daterangeOid = (int) ParityHarness.oidAndArray(con, "daterange")[0];
       tsrangeOid = (int) ParityHarness.oidAndArray(con, "tsrange")[0];
+      // No TestUtil creator for a range type; drop first so a run that died mid-test does not
+      // leave the type behind, the way every TestUtil creator does.
+      TestUtil.dropType(con, TEXTRANGE);
+      TestUtil.execute(con, "CREATE TYPE " + TEXTRANGE + " AS RANGE (subtype = text)");
+      textrangeOid = (int) ParityHarness.oidAndArray(con, TEXTRANGE)[0];
     }
     // A connection that requests binary receive for every value: prepareThreshold=-1 forces a
     // standalone Describe before the first Bind, so the server returns binary. Used by the
@@ -170,6 +179,9 @@ class ServerTruthOracleTest {
   static void tearDownClass() throws Exception {
     if (con != null) {
       TestUtil.dropType(con, "server_truth_addr");
+      if (haveRanges) {
+        TestUtil.dropType(con, TEXTRANGE);
+      }
     }
     TestUtil.closeDB(con);
     TestUtil.closeDB(binaryCon);
@@ -506,6 +518,135 @@ class ServerTruthOracleTest {
    * which is not a law of nature — fails here and gets re-judged, instead of leaving the driver's
    * reading of it frozen against whatever was true when the case was written.</p>
    */
+  @TestFactory
+  List<DynamicTest> containerTextLiterals() {
+    List<DynamicTest> t = new ArrayList<>();
+
+    // record_in keeps whitespace wherever it appears and appends segment by segment.
+    String[][] composites = {
+        {"leading-space", "( x,62701)"},
+        {"trailing-space", "(x ,62701)"},
+        {"space-then-quoted", "( \"x\",62701)"},
+        {"unquoted-then-quoted", "(ab\"cd\",62701)"},
+        {"quoted-then-unquoted", "(\"ab\"cd,62701)"},
+        {"quoted-space-unquoted", "(\"a\" x,62701)"},
+        {"whitespace-only-field", "( ,62701)"},
+        {"empty-field-is-null", "(,62701)"},
+        {"escaped-delimiter", "(a\\,b,62701)"},
+        {"escaped-quote", "(a\\\"b,62701)"},
+        // record_in strips whitespace around the literal as a whole, unlike inside a field.
+        {"trailing-whitespace", "(a,62701) "},
+    };
+    for (String[] c : composites) {
+      String literal = c[1];
+      t.add(DynamicTest.dynamicTest("composite/" + c[0], () ->
+          ServerTruthOracle.assertTextParseTruth(con, addrOid, "server_truth_addr", literal)));
+    }
+
+    // array_in treats whitespace outside quotes as structure, and takes a backslash as an escape
+    // there too -- the case the driver used to read as a separator.
+    String[][] arrays = {
+        {"inner-space", "{a b}"},
+        {"space-around-quoted", "{ \"a\" , b}"},
+        {"space-inside-quotes", "{\"a \" }"},
+        {"escaped-delimiter", "{a\\,b}"},
+        {"escaped-space", "{a\\ b}"},
+        {"unquoted-null-marker", "{NULL,\"NULL\",x}"},
+    };
+    for (String[] c : arrays) {
+      String literal = c[1];
+      t.add(DynamicTest.dynamicTest("array/" + c[0], () ->
+          ServerTruthOracle.assertTextParseTruth(con, Oid.TEXT_ARRAY, "text[]", literal)));
+    }
+
+    if (haveRanges) {
+      String[][] ranges = {
+          {"leading-space", "[ a, b)"},
+          {"whitespace-only-bound", "[ ,b)"},
+          {"empty-bound-is-infinite", "[,b)"},
+          {"unquoted-then-quoted", "[a\"b\",c)"},
+          {"empty-keyword", "empty"},
+          {"empty-keyword-uppercase", "EMPTY"},
+      };
+      for (String[] c : ranges) {
+        String literal = c[1];
+        t.add(DynamicTest.dynamicTest("range/" + c[0], () ->
+            ServerTruthOracle.assertTextParseTruth(con, textrangeOid, TEXTRANGE, literal)));
+      }
+    }
+
+    // Refused by array_in, which allows one segment per element. The driver concatenates instead,
+    // as record_in does; the leniency is documented on LiteralCursor.
+    String[][] lenient = {
+        {"unquoted-then-quoted", "{ab\"cd\"}"},
+        {"quoted-then-unquoted", "{\"ab\"cd}"},
+        {"quoted-space-unquoted", "{\"a\" x}"},
+        {"doubled-quote", "{\"a\"\"b\"}"},
+        {"partly-quoted-null-marker", "{NU\"LL\"}"},
+    };
+    for (String[] c : lenient) {
+      String literal = c[1];
+      t.add(DynamicTest.dynamicTest("array-refused/" + c[0], () ->
+          ServerTruthOracle.assertServerRefuses(con, Oid.TEXT_ARRAY, "text[]", literal,
+              INVALID_TEXT_REPRESENTATION, ServerTruthOracle.DriverVerdict.ACCEPTS_BY_DESIGN)));
+    }
+
+    // Malformed on both sides. The pairing is the point: the driver must not quietly return a
+    // partial container, or drop text it did not read, for input the server will not take.
+    String[][] refusedArrays = {
+        {"unterminated", "{1,2"},
+        {"unterminated-quote", "{\"a}"},
+    };
+    for (String[] c : refusedArrays) {
+      String literal = c[1];
+      t.add(DynamicTest.dynamicTest("array-refused/" + c[0], () ->
+          ServerTruthOracle.assertServerRefuses(con, Oid.TEXT_ARRAY, "text[]", literal,
+              INVALID_TEXT_REPRESENTATION, ServerTruthOracle.DriverVerdict.REFUSES)));
+    }
+    String[][] refusedComposites = {
+        {"unterminated", "( x"},
+        {"unterminated-quote", "(\"a,62701)"},
+        {"trailing-backslash", "(a\\"},
+        {"too-few-fields", "(a)"},
+        {"too-many-fields", "(a,62701,extra)"},
+        {"no-fields", "()"},
+        {"field-value-of-the-wrong-type", "(a,notanint)"},
+    };
+    for (String[] c : refusedComposites) {
+      String literal = c[1];
+      t.add(DynamicTest.dynamicTest("composite-refused/" + c[0], () ->
+          ServerTruthOracle.assertServerRefuses(con, addrOid, "server_truth_addr", literal,
+              INVALID_TEXT_REPRESENTATION, ServerTruthOracle.DriverVerdict.REFUSES)));
+    }
+    // A composite literal without its parentheses is a driver extension (see the "surrounding
+    // parentheses are optional" contract on parseCompositeText); record_in requires them.
+    t.add(DynamicTest.dynamicTest("composite-refused/no-parentheses", () ->
+        ServerTruthOracle.assertServerRefuses(con, addrOid, "server_truth_addr", "a,62701",
+            INVALID_TEXT_REPRESENTATION, ServerTruthOracle.DriverVerdict.ACCEPTS_BY_DESIGN)));
+
+    if (haveRanges) {
+      String[][] refusedRanges = {
+          {"unterminated", "[a,b"},
+          {"unterminated-quote", "[\"a,b)"},
+          {"no-open-bracket", "a,b)"},
+          {"three-bounds", "[a,b,c)"},
+      };
+      for (String[] c : refusedRanges) {
+        String literal = c[1];
+        t.add(DynamicTest.dynamicTest("range-refused/" + c[0], () ->
+            ServerTruthOracle.assertServerRefuses(con, textrangeOid, TEXTRANGE, literal,
+                INVALID_TEXT_REPRESENTATION, ServerTruthOracle.DriverVerdict.REFUSES)));
+      }
+      // range_in orders the bounds and refuses lower > upper; the driver cannot, since ordering a
+      // bound needs the subtype's collation and an offline decode has no server to ask. Note the
+      // SQLState: this one is a range violation, not a malformed literal.
+      t.add(DynamicTest.dynamicTest("range-refused/reversed-bounds", () ->
+          ServerTruthOracle.assertServerRefuses(con, textrangeOid, TEXTRANGE, "[b,a)",
+              "22000", ServerTruthOracle.DriverVerdict.ACCEPTS_BY_DESIGN)));
+    }
+    return t;
+  }
+
   private static DynamicTest decodeTruth(String name, int oid, String typeName, String literal) {
     return DynamicTest.dynamicTest(name, () ->
         ServerTruthOracle.assertDecodeTruth(binaryCon, oid, typeName, literal));

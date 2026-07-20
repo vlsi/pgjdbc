@@ -45,7 +45,7 @@ class LiteralCursorTest {
       return out;
     }
     do {
-      c.readValue(delim, '}');
+      c.readArrayElement(delim);
       // The array NULL marker, as in the leaf codecs: an unquoted NULL only.
       out.add(!c.tokenWasQuoted() && c.tokenEquals("NULL") ? null : c.getToken().toString());
     } while (c.tryConsume(delim));
@@ -59,7 +59,7 @@ class LiteralCursorTest {
     c.expect('(');
     List<String> out = new ArrayList<>();
     do {
-      c.readValue(',', ')');
+      c.readVerbatim(',', ')');
       // The composite NULL rule, as in CompositeCodec: unquoted and empty.
       out.add(!c.tokenWasQuoted() && c.tokenLength() == 0 ? null : c.getToken().toString());
     } while (c.tryConsume(','));
@@ -72,10 +72,10 @@ class LiteralCursorTest {
     LiteralCursor c = LiteralCursor.over(literal);
     c.expect(literal.charAt(0));
     List<String> out = new ArrayList<>();
-    c.readValue(',', ']', ')');
+    c.readVerbatim(',', ']', ')');
     out.add(!c.tokenWasQuoted() && c.tokenLength() == 0 ? null : c.getToken().toString());
     c.expect(',');
-    c.readValue(',', ']', ')');
+    c.readVerbatim(',', ']', ')');
     out.add(!c.tokenWasQuoted() && c.tokenLength() == 0 ? null : c.getToken().toString());
     return out;
   }
@@ -145,6 +145,115 @@ class LiteralCursorTest {
     assertEquals(Arrays.asList(null, "NULL", "x"), array("{NULL,\"NULL\",x}"));
   }
 
+  // -------------------------- whitespace, per container --------------------------
+  //
+  // Every expectation below was read off PostgreSQL 16.3 with psql: array_in treats
+  // whitespace outside quotes as structure, record_in and range_parse_bound treat it as
+  // data. Server output never exercises the difference, since record_out and range_out
+  // quote any value holding whitespace; hand-written literals (PGobject.setValue,
+  // PGRange(String)) do.
+
+  @Test
+  void arrayKeepsWhitespaceInsideAnElement() throws SQLException {
+    // '{a b}'::text[] -> {"a b"}
+    assertEquals(Arrays.asList("a b"), array("{a b}"));
+  }
+
+  @Test
+  void arrayDropsWhitespaceAroundAQuotedElement() throws SQLException {
+    // ('{ "a" , b}'::text[])[1] -> a
+    assertEquals(Arrays.asList("a", "b"), array("{ \"a\" , b}"));
+  }
+
+  @Test
+  void arrayKeepsWhitespaceInsideQuotes() throws SQLException {
+    // ('{"a " }'::text[])[1] -> 'a ' — the closing quote shields the space from the trim
+    assertEquals(Arrays.asList("a "), array("{\"a \" }"));
+  }
+
+  @Test
+  void compositeKeepsWhitespaceAroundAField() throws SQLException {
+    // ('( x,y)'::t2).a -> ' x' and ('(x ,y)'::t2).a -> 'x '
+    assertEquals(Arrays.asList(" x", "y"), composite("( x,y)"));
+    assertEquals(Arrays.asList("x ", "y"), composite("(x ,y)"));
+  }
+
+  @Test
+  void compositeWhitespaceOnlyFieldIsNotNull() throws SQLException {
+    // ('( ,y)'::t2).a -> ' ', while ('(,y)'::t2).a -> NULL. Only a truly empty field is NULL.
+    assertEquals(Arrays.asList(" ", "y"), composite("( ,y)"));
+    assertEquals(Arrays.asList(null, "y"), composite("(,y)"));
+  }
+
+  @Test
+  void rangeKeepsWhitespaceAroundABound() throws SQLException {
+    // lower('[ a, b)'::textrange) -> ' a'
+    assertEquals(Arrays.asList(" a", " b"), range("[ a, b)"));
+  }
+
+  @Test
+  void rangeWhitespaceOnlyBoundIsNotInfinite() throws SQLException {
+    // lower('[ ,b)'::textrange) -> ' ', while '[,b)' is genuinely unbounded
+    assertEquals(Arrays.asList(" ", "b"), range("[ ,b)"));
+    assertEquals(Arrays.asList(null, "b"), range("[,b)"));
+  }
+
+  // -------------------------- values built from several segments --------------------------
+
+  @Test
+  void compositeConcatenatesQuotedAndUnquotedSegments() throws SQLException {
+    // record_in appends segment by segment, so a field may mix them freely:
+    //   ('( "x",y)'::t2).a   -> ' x'
+    //   ('(ab"cd",y)'::t2).a -> 'abcd'
+    //   ('("ab"cd,y)'::t2).a -> 'abcd'
+    //   ('("a" x,y)'::t2).a  -> 'a x'
+    assertEquals(Arrays.asList(" x", "y"), composite("( \"x\",y)"));
+    assertEquals(Arrays.asList("abcd", "y"), composite("(ab\"cd\",y)"));
+    assertEquals(Arrays.asList("abcd", "y"), composite("(\"ab\"cd,y)"));
+    assertEquals(Arrays.asList("a x", "y"), composite("(\"a\" x,y)"));
+  }
+
+  @Test
+  void rangeConcatenatesQuotedAndUnquotedSegments() throws SQLException {
+    // lower('[a"b",c)'::textrange) -> 'ab'
+    assertEquals(Arrays.asList("ab", "c"), range("[a\"b\",c)"));
+  }
+
+  // -------------------------- backslash escapes outside quotes --------------------------
+
+  @Test
+  void backslashEscapesADelimiterOutsideQuotes() throws SQLException {
+    // ('{a\,b}'::text[])[1] -> 'a,b' and ('(a\,b,y)'::t2).a -> 'a,b': the escaped comma
+    // is data, so it must not split the element.
+    assertEquals(Arrays.asList("a,b"), array("{a\\,b}"));
+    assertEquals(Arrays.asList("a,b", "y"), composite("(a\\,b,y)"));
+  }
+
+  @Test
+  void backslashEscapedSpaceIsData() throws SQLException {
+    // '{a\ b}'::text[] -> {"a b"}: an escaped space survives the unquoted trim.
+    assertEquals(Arrays.asList("a b"), array("{a\\ b}"));
+  }
+
+  // -------------------------- the two passes agree --------------------------
+  //
+  // The multi-dimensional array decoder sizes the result with skipScalar and fills it with
+  // readArrayElement. If the two disagreed on where an element ends, the array would be
+  // built at the wrong length rather than merely holding a wrong value.
+
+  @Test
+  void skipScalarStopsWhereReadStops() throws SQLException {
+    for (String literal : Arrays.asList("{\"a,b\",c}", "{a\\,b,c}")) {
+      LiteralCursor c = LiteralCursor.over(literal);
+      c.expect('{');
+      c.skipScalar(',', '}');
+      assertTrue(c.tryConsume(','), () -> "the escaped delimiter must not end the element: " + literal);
+      c.readArrayElement(',');
+      assertEquals("c", c.getToken().toString(), literal);
+      c.expect('}');
+    }
+  }
+
   // -------------------------- container-specific bracket stops --------------------------
 
   @Test
@@ -186,7 +295,7 @@ class LiteralCursorTest {
     c.expect('{');
     List<String> out = new ArrayList<>();
     do {
-      c.readValue(',', '}');
+      c.readArrayElement(',');
       CharSequence token = c.getToken();
       // Read the view through CharSequence, not toString(), so a wrong length or offset shows up
       // as wrong characters rather than being hidden by the copy.
@@ -250,7 +359,7 @@ class LiteralCursorTest {
     char[] backing = "{alpha,beta}".toCharArray();
     LiteralCursor c = LiteralCursor.over(CharBuffer.wrap(backing));
     c.expect('{');
-    c.readValue(',', '}');
+    c.readArrayElement(',');
 
     CharBuffer token = (CharBuffer) c.getToken();
     assertTrue(token.hasArray(), "the token must expose its backing array");

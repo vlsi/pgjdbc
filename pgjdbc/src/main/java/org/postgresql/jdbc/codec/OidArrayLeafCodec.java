@@ -153,7 +153,7 @@ final class OidArrayLeafCodec implements ArrayLeafCodec {
         if (i > 0) {
           cur.expect(delimiter);
         }
-        cur.readValue(delimiter, '}');
+        cur.readArrayElement(delimiter);
         if (!cur.tokenWasQuoted() && cur.tokenEquals("NULL")) {
           throw Exceptions.cannotDecodeNullIntoPrimitiveLeaf("long[]");
         }
@@ -167,7 +167,7 @@ final class OidArrayLeafCodec implements ArrayLeafCodec {
         if (i > 0) {
           cur.expect(delimiter);
         }
-        cur.readValue(delimiter, '}');
+        cur.readArrayElement(delimiter);
         if (!cur.tokenWasQuoted() && cur.tokenEquals("NULL")) {
           arr[i] = null;
         } else {

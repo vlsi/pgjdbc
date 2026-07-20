@@ -291,7 +291,7 @@ public final class CompositeCodec implements StreamingBinaryCodec, StreamingText
     }
     int index = 0;
     while (true) {
-      cur.readValue(',', ')');
+      cur.readVerbatim(',', ')');
       boolean isNull = !cur.tokenWasQuoted() && cur.tokenLength() == 0;
       consumer.accept(index, isNull, cur.getToken());
       index++;

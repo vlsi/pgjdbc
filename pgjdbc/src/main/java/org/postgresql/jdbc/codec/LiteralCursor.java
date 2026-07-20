@@ -20,7 +20,16 @@ import java.sql.SQLException;
  *
  * <h2>Reading values</h2>
  *
- * <p>{@link #readValue(char, char)} consumes one element and exposes it as a borrowed
+ * <p>A value is a run of quoted and unquoted segments concatenated, so {@code ab"cd"} is the
+ * one value {@code abcd} and a delimiter ends the element only outside quotes. Where the
+ * containers differ is whitespace, so the two entry points name the rule they follow:
+ * {@link #readArrayElement} strips whitespace that sits outside quotes ({@code array_in}),
+ * {@link #readVerbatim} keeps it ({@code record_in} and {@code range_parse_bound}, where
+ * {@code ( x,y)} has a first field of {@code " x"}). Those two parsers strip whitespace only
+ * around the literal as a whole, which is the container driver's job through
+ * {@link #skipWhitespace()} and {@link #expect(char)}.</p>
+ *
+ * <p>{@code readArrayElement}/{@code readVerbatim} consume one element and expose it as a borrowed
  * {@link CharBuffer} via {@link #getToken()}. The view points directly into the backing
  * {@code char[]} when the element has no escapes, and into a reusable scratch buffer when it does.
  * There is one view per backing array, repointed rather than replaced, so a container decoding a
@@ -30,9 +39,12 @@ import java.sql.SQLException;
  *
  * <p>On the wire side this cursor is lenient on decode: inside double quotes it
  * accepts both {@code \x} backslash escapes and {@code ""} doubled quotes, which
- * covers {@code array_out}, {@code record_out} and {@code range_out}. The
- * per-container escaping differences only matter on encode, which the leaf
- * writers already own.</p>
+ * covers {@code array_out}, {@code record_out} and {@code range_out}. It is lenient
+ * about segments too — {@code array_in} accepts only one segment per element and
+ * rejects {@code {ab"cd"}}, where this cursor concatenates as {@code record_in} does.
+ * Leniency only widens what decodes; it never changes the value of a literal the
+ * server itself accepts. The per-container escaping differences only matter on
+ * encode, which the leaf writers already own.</p>
  */
 final class LiteralCursor {
 
@@ -49,6 +61,12 @@ final class LiteralCursor {
   private int tokenOff;
   private int tokenLen;
   private boolean tokenQuoted;
+
+  // Findings of the structural pass over the current element, consumed by the value pass.
+  private boolean probeHasQuote;
+  private boolean probeEscapes;
+  private int probeSegments;
+  private int probeSegmentEnd;
 
   // One view per backing array, repointed at each token by moving position/limit. The source array
   // never changes, so its view is built once; the scratch view is rebuilt only when the buffer it
@@ -205,67 +223,198 @@ final class LiteralCursor {
   // -------------------------- value reading --------------------------
 
   /**
-   * Reads one element up to (but not consuming) the next {@code delim} or the
-   * container's {@code close} bracket. The decoded value is exposed via
-   * {@link #getToken()} / {@link #tokenLength()} and {@link #tokenWasQuoted()}.
+   * Reads one array element up to (but not consuming) the next {@code delim} or the
+   * closing {@code '}'}, with the whitespace rule of {@code array_in}: whitespace
+   * outside quotes is not part of the value, whitespace inside quotes is. The decoded
+   * value is exposed via {@link #getToken()} / {@link #tokenLength()} and
+   * {@link #tokenWasQuoted()}.
    *
-   * <p>Only {@code close} terminates an unquoted run, not every bracket kind:
-   * an unquoted composite field may legitimately contain {@code {}}/{@code []}
-   * (for example an empty array field {@code {}}), and an unquoted array element
-   * may be a literal {@code )} or {@code ]}. The server quotes any value
-   * containing the container's own delimiter or close bracket, so those only
-   * ever appear unquoted as structural tokens.</p>
+   * <p>Only {@code '}'} terminates an unquoted run, not every bracket kind: an unquoted
+   * array element may be a literal {@code )} or {@code ]}. The server quotes any value
+   * containing the container's own delimiter or close bracket, so those only ever appear
+   * unquoted as structural tokens.</p>
    *
-   * <p>An unquoted run is trimmed of leading and trailing ASCII whitespace only;
-   * inner whitespace is kept, matching the server's own {@code array_in}. A Unicode
-   * space such as U+2001 is not ASCII whitespace, so it is never trimmed. A quoted
-   * run is taken verbatim (escapes aside).</p>
+   * <p>Only ASCII whitespace is stripped. A Unicode space such as U+2001 is part of the
+   * value, as it is for the server.</p>
    *
    * @param delim the element delimiter (for example {@code ','} or {@code ';'})
-   * @param close the container's closing bracket ({@code '}'} for arrays,
-   *     {@code ')'} for composites/ranges)
    */
-  void readValue(char delim, char close) throws SQLException {
-    readValue(delim, close, close);
+  void readArrayElement(char delim) throws SQLException {
+    scanValue(delim, '}', '}', Whitespace.STRIP);
   }
 
   /**
-   * Reads one element terminated by either of two closing brackets. Ranges use
-   * this because a range literal may close with {@code ']'} or {@code ')'}
-   * independently of how it opened.
+   * Reads one composite field up to (but not consuming) the next {@code delim} or
+   * {@code close}, with the whitespace rule of {@code record_in} and
+   * {@code range_parse_bound}: whitespace belongs to the value wherever it appears, so
+   * {@code ( x,y)} has a first field of {@code " x"}. Those parsers strip whitespace only
+   * around the literal as a whole, which the container driver does through
+   * {@link #skipWhitespace()} and {@link #expect(char)}.
+   *
+   * <p>An unquoted run is terminated by {@code delim} or {@code close} alone, so an
+   * unquoted composite field may hold {@code {}}/{@code []} — an empty array field, for
+   * instance.</p>
+   *
+   * @param delim the element delimiter
+   * @param close the container's closing bracket
+   */
+  void readVerbatim(char delim, char close) throws SQLException {
+    scanValue(delim, close, close, Whitespace.KEEP);
+  }
+
+  /**
+   * Variant accepting two acceptable closing brackets, for a range upper bound
+   * that may be followed by either {@code ']'} (inclusive) or {@code ')'}
+   * (exclusive).
    *
    * @param delim the element delimiter
    * @param close1 one acceptable closing bracket
    * @param close2 the other acceptable closing bracket
    */
-  void readValue(char delim, char close1, char close2) throws SQLException {
-    skipWhitespace();
-    if (pos < end && src[pos] == '"') {
-      pos++; // consume opening quote
-      readQuoted();
-      tokenQuoted = true;
+  void readVerbatim(char delim, char close1, char close2) throws SQLException {
+    scanValue(delim, close1, close2, Whitespace.KEEP);
+  }
+
+  /** Whether whitespace outside quotes belongs to the value. */
+  private enum Whitespace {
+    /** {@code array_in}: whitespace around the value is structural, not data. */
+    STRIP,
+    /** {@code record_in} / {@code range_parse_bound}: whitespace is data. */
+    KEEP
+  }
+
+  /**
+   * Reads one element the way the server's own parsers do: a value is a run of segments,
+   * quoted and unquoted, concatenated into one string. {@code ab"cd"} is therefore
+   * {@code abcd} and {@code ( "x",y)} has a first field of {@code " x"}, and a delimiter
+   * only terminates the element when it appears outside quotes.
+   */
+  private void scanValue(char delim, char close1, char close2, Whitespace ws) throws SQLException {
+    if (ws == Whitespace.STRIP) {
       skipWhitespace();
-      return;
     }
     int runStart = pos;
-    while (pos < end) {
-      char c = src[pos];
-      if (c == delim || c == close1 || c == close2) {
+    int runEnd = probe(runStart, delim, close1, close2);
+    pos = runEnd;
+    tokenQuoted = probeHasQuote;
+
+    // Where the value ends once whitespace outside quotes is discarded. The closing quote
+    // of a quoted segment is not whitespace, so this never eats into a quoted segment.
+    int valueEnd = runEnd;
+    if (ws == Whitespace.STRIP) {
+      while (valueEnd > runStart && isWhitespace(src[valueEnd - 1])) {
+        valueEnd--;
+      }
+    }
+
+    if (!probeHasQuote && !probeEscapes) {
+      // The common case: the run is the value, so it stays a view into src. A backslash
+      // counts as an escape outside quotes too, so it does not reach here.
+      tokenBuf = src;
+      tokenOff = runStart;
+      tokenLen = valueEnd - runStart;
+      return;
+    }
+    if (!probeEscapes && probeSegments == 1
+        && src[runStart] == '"' && probeSegmentEnd == valueEnd - 1) {
+      // One fully quoted segment with nothing to unescape — what the server itself emits.
+      // The value is the interior, still a view into src.
+      tokenBuf = src;
+      tokenOff = runStart + 1;
+      tokenLen = probeSegmentEnd - runStart - 1;
+      return;
+    }
+    unescapeInto(runStart, runEnd, ws);
+  }
+
+  /**
+   * Copies {@code [from, to)} into the scratch buffer, dropping the quotes and resolving
+   * the {@code \x} and {@code ""} escapes, and points the token at the result.
+   */
+  private void unescapeInto(int from, int to, Whitespace ws) {
+    char[] buf = ensureScratch(to - from);
+    int n = 0;
+    int lastKept = 0; // end of the value once trailing unquoted whitespace is dropped
+    boolean inQuotes = false;
+    int q = from;
+    while (q < to) {
+      char c = src[q];
+      if (c == '\\') {
+        buf[n++] = src[q + 1];
+        lastKept = n;
+        q += 2;
+        continue;
+      }
+      if (c == '"') {
+        if (inQuotes && q + 1 < to && src[q + 1] == '"') {
+          buf[n++] = '"';
+          lastKept = n;
+          q += 2;
+          continue;
+        }
+        inQuotes = !inQuotes;
+        q++;
+        continue;
+      }
+      buf[n++] = c;
+      q++;
+      if (inQuotes || !isWhitespace(c)) {
+        lastKept = n;
+      }
+    }
+    tokenBuf = buf;
+    tokenOff = 0;
+    tokenLen = ws == Whitespace.STRIP ? lastKept : n;
+  }
+
+  /**
+   * Scans one element without materializing it and returns the index of its terminator,
+   * recording in the {@code probe*} fields what the value pass then needs: whether the run
+   * was quoted at all, whether it holds escapes, and where its single quoted segment ends
+   * when that is all there is.
+   */
+  private int probe(int from, char delim, char close1, char close2) throws SQLException {
+    probeHasQuote = false;
+    probeEscapes = false;
+    probeSegments = 0;
+    probeSegmentEnd = -1;
+    boolean inQuotes = false;
+    int p = from;
+    while (p < end) {
+      char c = src[p];
+      if (c == '\\') {
+        if (p + 1 >= end) {
+          throw malformed(close1); // the literal ends inside an escape
+        }
+        probeEscapes = true;
+        p += 2;
+        continue;
+      }
+      if (c == '"') {
+        probeHasQuote = true;
+        if (!inQuotes) {
+          inQuotes = true;
+          probeSegments++;
+          p++;
+        } else if (p + 1 < end && src[p + 1] == '"') {
+          probeEscapes = true;
+          p += 2;
+        } else {
+          inQuotes = false;
+          probeSegmentEnd = p;
+          p++;
+        }
+        continue;
+      }
+      if (!inQuotes && (c == delim || c == close1 || c == close2)) {
         break;
       }
-      pos++;
+      p++;
     }
-    // Trim trailing ASCII whitespace; leading whitespace was already consumed above.
-    // Inner whitespace is kept, so the slice stays a contiguous view into src.
-    int tokenEnd = pos;
-    while (tokenEnd > runStart && isWhitespace(src[tokenEnd - 1])) {
-      tokenEnd--;
+    if (inQuotes) {
+      throw malformed('"');
     }
-    tokenBuf = src;
-    tokenOff = runStart;
-    tokenLen = tokenEnd - runStart;
-    tokenQuoted = false;
-    skipWhitespace();
+    return p;
   }
 
   /**
@@ -304,23 +453,14 @@ final class LiteralCursor {
 
   // -------------------------- structural skipping (measure pass) --------------------------
 
-  /** Skips one scalar element (quote-aware) without materializing its value. */
+  /**
+   * Skips one scalar element without materializing its value. Runs the same structural
+   * scan as {@link #readArrayElement}, so the measuring pass and the value pass agree on
+   * where every element ends — including for a delimiter that sits inside quotes.
+   */
   void skipScalar(char delim, char close) throws SQLException {
     skipWhitespace();
-    if (pos < end && src[pos] == '"') {
-      pos++;
-      skipRestOfQuoted();
-      skipWhitespace();
-      return;
-    }
-    while (pos < end) {
-      char c = src[pos];
-      if (c == delim || c == close) {
-        break;
-      }
-      pos++;
-    }
-    skipWhitespace();
+    pos = probe(pos, delim, close, close);
   }
 
   /**
@@ -343,7 +483,9 @@ final class LiteralCursor {
         throw malformed('}');
       }
       char c = src[pos++];
-      if (c == '"') {
+      if (c == '\\') {
+        pos++; // an escaped brace is data, not structure
+      } else if (c == '"') {
         skipRestOfQuoted();
       } else if (c == '{') {
         depth++;
@@ -354,59 +496,6 @@ final class LiteralCursor {
   }
 
   // -------------------------- internals --------------------------
-
-  /** Assumes the opening quote was already consumed; materializes up to the closing quote. */
-  private void readQuoted() throws SQLException {
-    int start = pos;
-    boolean needsScratch = false;
-    int p = pos;
-    while (p < end) {
-      char c = src[p];
-      if (c == '\\') {
-        needsScratch = true;
-        p += 2;
-        continue;
-      }
-      if (c == '"') {
-        if (p + 1 < end && src[p + 1] == '"') {
-          needsScratch = true;
-          p += 2;
-          continue;
-        }
-        break;
-      }
-      p++;
-    }
-    if (p >= end) {
-      throw malformed('"');
-    }
-    if (!needsScratch) {
-      tokenBuf = src;
-      tokenOff = start;
-      tokenLen = p - start;
-    } else {
-      char[] buf = ensureScratch(p - start);
-      int n = 0;
-      int q = start;
-      while (q < p) {
-        char c = src[q];
-        if (c == '\\' && q + 1 < end) {
-          buf[n++] = src[q + 1];
-          q += 2;
-        } else if (c == '"' && q + 1 < p && src[q + 1] == '"') {
-          buf[n++] = '"';
-          q += 2;
-        } else {
-          buf[n++] = c;
-          q++;
-        }
-      }
-      tokenBuf = buf;
-      tokenOff = 0;
-      tokenLen = n;
-    }
-    pos = p + 1; // consume closing quote
-  }
 
   /** Assumes the opening quote was already consumed; advances past the closing quote. */
   private void skipRestOfQuoted() {
