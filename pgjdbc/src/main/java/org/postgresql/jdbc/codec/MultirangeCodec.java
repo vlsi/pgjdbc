@@ -178,6 +178,7 @@ public final class MultirangeCodec implements StreamingBinaryCodec, TextCodec {
     }
     LiteralCursor cur = LiteralCursor.over(data);
     Object multirange = decodeMultirange(cur, type, ctx);
+    cur.expectEnd();
     return multirange;
   }
 

@@ -241,6 +241,7 @@ public final class RangeCodec implements StreamingBinaryCodec, TextCodec {
     }
     LiteralCursor cur = LiteralCursor.over(data);
     Object range = decodeRange(cur, type, ctx);
+    cur.expectEnd();
     return range;
   }
 

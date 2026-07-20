@@ -596,6 +596,7 @@ class ServerTruthOracleTest {
     String[][] refusedArrays = {
         {"unterminated", "{1,2"},
         {"unterminated-quote", "{\"a}"},
+        {"trailing-junk", "{1,2}x"},
     };
     for (String[] c : refusedArrays) {
       String literal = c[1];
@@ -607,6 +608,7 @@ class ServerTruthOracleTest {
         {"unterminated", "( x"},
         {"unterminated-quote", "(\"a,62701)"},
         {"trailing-backslash", "(a\\"},
+        {"trailing-junk", "(a,62701)x"},
         {"too-few-fields", "(a)"},
         {"too-many-fields", "(a,62701,extra)"},
         {"no-fields", "()"},
@@ -630,6 +632,8 @@ class ServerTruthOracleTest {
           {"unterminated-quote", "[\"a,b)"},
           {"no-open-bracket", "a,b)"},
           {"three-bounds", "[a,b,c)"},
+          {"trailing-junk", "[a,b)x"},
+          {"trailing-junk-after-inclusive", "[a,b]extra"},
       };
       for (String[] c : refusedRanges) {
         String literal = c[1];

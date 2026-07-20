@@ -160,6 +160,7 @@ public final class MultiDimArrayText {
     LiteralCursor values = measure.restart();
     values.skipDimensionPrefix();
     walkAndDecode(values, result, dimensions, delim, ctx, leaf);
+    values.expectEnd();
     return result;
   }
 

@@ -185,6 +185,22 @@ final class LiteralCursor {
   }
 
   /**
+   * Fails unless the literal ends where the container did, trailing whitespace aside. The three
+   * input functions all end with this check ({@code record_in}'s "Junk after right parenthesis"),
+   * and without it text after the closing bracket is silently dropped, so {@code (a,1)x} would
+   * decode as {@code (a,1)}.
+   *
+   * <p>For the container that owns the whole literal only. A nested container is handed exactly its
+   * own slice, and a multirange peels several ranges off one cursor, so neither can call this.</p>
+   */
+  void expectEnd() throws SQLException {
+    skipWhitespace();
+    if (pos < end) {
+      throw Exceptions.junkAfterLiteral(pos, literal());
+    }
+  }
+
+  /**
    * Skips the leading {@code [l:u]=} dimension prefix of an array literal, if any.
    * The bounds are discarded, matching the existing JDBC array behaviour.
    */

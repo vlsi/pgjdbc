@@ -324,6 +324,7 @@ public final class CompositeCodec implements StreamingBinaryCodec, StreamingText
     LiteralCursor cur = LiteralCursor.over(text);
     readCompositeFields(cur, (index, isNull, token) ->
         values.add(isNull ? null : token.toString()));
+    cur.expectEnd();
     return values.toArray(new @Nullable String[0]);
   }
 
@@ -498,6 +499,7 @@ public final class CompositeCodec implements StreamingBinaryCodec, StreamingText
       throws SQLException {
     LiteralCursor cur = LiteralCursor.over(data);
     Struct struct = decodeTextAsStruct(cur, type, ctx, data);
+    cur.expectEnd();
     return struct;
   }
 

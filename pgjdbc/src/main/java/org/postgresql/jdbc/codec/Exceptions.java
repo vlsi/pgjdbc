@@ -499,6 +499,13 @@ class Exceptions {
         PSQLState.DATA_ERROR);
   }
 
+  static SQLException junkAfterLiteral(int pos, String literal) {
+    return new PSQLException(
+        GT.tr("Malformed array/composite literal: unexpected text at offset {0} in ''{1}''",
+            pos, literal),
+        PSQLState.DATA_ERROR);
+  }
+
   // range/multirange: subtype (or range-type) resolution, wire format, and text format.
   //
   // "range"/"range type"/"multirange"/"multirange type" stay as fixed text in each message below

@@ -608,6 +608,7 @@ public final class ArrayCodec implements StreamingBinaryCodec, StreamingTextCode
       } while (cur.tryConsume(delimiter));
       cur.expect('}');
     }
+    cur.expectEnd();
     return new TextArrayElements(dimensions, elements);
   }
 
