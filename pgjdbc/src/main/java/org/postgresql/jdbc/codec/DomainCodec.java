@@ -125,10 +125,11 @@ public final class DomainCodec implements StreamingBinaryCodec, StreamingTextCod
     try {
       Codec baseCodec = getBaseCodec(type, ctx);
       TypeDescriptor baseType = getBaseType(type, ctx);
-      if (baseCodec instanceof BinaryCodec) {
-        return ((BinaryCodec) baseCodec).encodeBinary(value, baseType, ctx);
-      }
-      return FallbackCodec.INSTANCE.encodeBinary(value, baseType, ctx);
+      // A domain is transparent: it binds binary only when its base type genuinely encodes binary.
+      // A base with no real binary codec must fall back to text at the format-choice site, so encode
+      // refuses here rather than emitting text-shaped bytes (FallbackCodec's) into the binary wire.
+      BinaryCodec binary = CodecFormatSupport.requireBinaryEncoder(baseCodec, value, baseType, ctx);
+      return binary.encodeBinary(value, baseType, ctx);
     } finally {
       CodecDepth.exit();
     }
@@ -141,11 +142,8 @@ public final class DomainCodec implements StreamingBinaryCodec, StreamingTextCod
     try {
       Codec baseCodec = getBaseCodec(type, ctx);
       TypeDescriptor baseType = getBaseType(type, ctx);
-      if (baseCodec instanceof BinaryCodec) {
-        CodecFormatSupport.writeBinary(out, value, (BinaryCodec) baseCodec, baseType, ctx);
-      } else {
-        out.write(FallbackCodec.INSTANCE.encodeBinary(value, baseType, ctx));
-      }
+      BinaryCodec binary = CodecFormatSupport.requireBinaryEncoder(baseCodec, value, baseType, ctx);
+      CodecFormatSupport.writeBinary(out, value, binary, baseType, ctx);
     } finally {
       CodecDepth.exit();
     }

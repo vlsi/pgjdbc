@@ -25,6 +25,10 @@ import java.sql.SQLException;
  * binary-encode some values and not others); the read-side and text checks depend only on the
  * codec.</p>
  *
+ * <p>{@link #requireBinaryEncoder} is the single enforcement gate for a binary payload: every
+ * sink-based write funnels through {@link #writeBinary}, and the {@code byte[]}-materializing paths
+ * call it directly, so no {@code encodeBinary} bytes reach a binary wire without it.</p>
+ *
  * @since 42.8.0
  */
 @Experimental("Codec API is experimental and may change in future releases")
@@ -92,7 +96,22 @@ public final class CodecFormatSupport {
   // Codecs.encode/decode enforce the requested format through the same predicates a negotiating
   // caller would consult, rather than each site re-deriving the instanceof + capability check.
 
-  static BinaryCodec requireBinaryEncoder(Codec codec, Object value, TypeDescriptor type,
+  /**
+   * Narrows {@code codec} to a {@link BinaryCodec} that can binary-encode {@code value} for
+   * {@code type}, or fails. This is the enforcement gate for a real binary payload: it is the last
+   * check before {@link BinaryCodec#encodeBinary} bytes reach a binary wire, so a codec that cannot
+   * produce binary for this value is rejected here rather than writing text-shaped bytes into the
+   * binary format. {@link #writeBinary} funnels every sink-based binary write through it, and the
+   * {@code byte[]}-materializing paths ({@link Codecs#encode}, {@code DomainCodec}) call it directly.
+   *
+   * @param codec the codec resolved for {@code type}
+   * @param value the value to be encoded
+   * @param type the target type metadata
+   * @param ctx the codec context
+   * @return {@code codec} narrowed to {@link BinaryCodec}
+   * @throws SQLException if {@code codec} cannot binary-encode {@code value}, or resolution fails
+   */
+  public static BinaryCodec requireBinaryEncoder(Codec codec, Object value, TypeDescriptor type,
       CodecContext ctx) throws SQLException {
     if (!canWriteBinary(codec, value, type, ctx)) {
       throw Exceptions.noCodecForFormat(type, "binary");
@@ -129,16 +148,22 @@ public final class CodecFormatSupport {
    * {@link BinaryCodec} encodes into a {@code byte[]} first, which is then copied in. The body
    * carries no length prefix — {@link #writeBinaryElement} adds one where the format needs it.</p>
    *
+   * <p>Every sink-based binary write funnels through here, so the {@link #requireBinaryEncoder}
+   * gate runs once for every value before its bytes reach the sink: a codec that cannot binary-encode
+   * {@code value} — a delegating codec whose child is text-only, a plain {@code PGobject} bound to a
+   * composite — fails here instead of writing text-shaped bytes into the binary wire.</p>
+   *
    * @param out the sink the body is written to
    * @param value the value to encode
    * @param codec the codec that encodes {@code value}
    * @param type the type to encode {@code value} as
    * @param ctx the codec context supplying connection settings
-   * @throws SQLException if encoding fails
+   * @throws SQLException if {@code codec} cannot binary-encode {@code value}, or encoding fails
    * @throws IOException if {@code out} throws
    */
   public static void writeBinary(BackpatchingByteArrayOutputStream out, Object value, BinaryCodec codec,
       TypeDescriptor type, CodecContext ctx) throws SQLException, IOException {
+    requireBinaryEncoder(codec, value, type, ctx);
     if (codec instanceof StreamingBinaryCodec) {
       ((StreamingBinaryCodec) codec).encodeBinary(value, type, ctx, out);
     } else {
