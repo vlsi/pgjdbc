@@ -17,6 +17,14 @@ import java.sql.SQLException;
  */
 final class MultiDimArraySupport {
 
+  /**
+   * Maximum number of array dimensions, matching the server's {@code MAXDIM} (see
+   * {@code src/include/utils/array.h}). Wire data claiming more dimensions than this is corrupt or
+   * hostile, so both formats reject it before sizing anything on the count: the binary header would
+   * otherwise drive an allocation, and the text literal would recurse once per leading brace.
+   */
+  static final int MAX_DIMENSIONS = 6;
+
   private MultiDimArraySupport() {
     // Utility class
   }

@@ -152,6 +152,12 @@ public final class MultiDimArrayText {
     if (dimensions == 0) {
       throw Exceptions.requiresArrayLiteral("MultiDimArrayText.decode", data.toString());
     }
+    // Bound the brace count before it sizes anything, the text counterpart of the binary header
+    // check. Both the dimension array below and the measuring pass scale with this count, and it
+    // comes straight off the wire.
+    if (dimensions > MultiDimArraySupport.MAX_DIMENSIONS) {
+      throw Exceptions.invalidArrayDimensionCount(dimensions);
+    }
     int[] dimLengths = new int[dimensions];
     measureDim(measure, dimLengths, dimensions, delim);
 

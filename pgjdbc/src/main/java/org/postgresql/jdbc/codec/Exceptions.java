@@ -447,7 +447,7 @@ class Exceptions {
 
   static SQLException invalidArrayDimensionCount(int dimensions) {
     return new PSQLException(
-        GT.tr("Invalid binary array data: dimension count {0} out of range", dimensions),
+        GT.tr("Invalid array data: dimension count {0} out of range", dimensions),
         PSQLState.DATA_ERROR);
   }
 

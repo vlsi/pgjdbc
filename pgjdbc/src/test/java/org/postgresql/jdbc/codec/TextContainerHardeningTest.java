@@ -26,11 +26,15 @@ import java.sql.SQLException;
  * Robustness guards for the text container decoders, the text counterpart of
  * {@link BinaryContainerHardeningTest}.
  *
- * <p>A container's structural framing comes off the wire and was previously trusted past the
- * closing bracket: text that followed it was dropped rather than refused, so {@code (a,1)x}
- * decoded as {@code (a,1)} and a mistyped literal produced a plausible value instead of an error.
- * Every input function ends with this check — {@code record_in} reports "Junk after right
- * parenthesis" — and each of the driver's own container parsers must too.</p>
+ * <p>Both guards here exist because a container's structural framing comes off the wire and was
+ * previously trusted. Text after the closing bracket was dropped rather than refused, so a
+ * mistyped literal decoded to a plausible value; and the dimension count, read as a run of leading
+ * braces, sized both the dimension-length array and the measuring pass unchecked, which drove a
+ * {@link StackOverflowError} out of the driver — an {@link Error}, so it escaped every
+ * {@code SQLException} handler on the path — and leaked an {@link IllegalArgumentException} from
+ * {@code Array.newInstance} for shallower-but-still-oversized literals. Both must refuse as a
+ * {@link PSQLException}, and the dimension bound must be the {@code MAXDIM} the binary header is
+ * already held to, so a literal is not accepted in one wire format and rejected in the other.</p>
  *
  * <p>These run offline: the codecs take a {@code null} context, or the connectionless one
  * {@link OfflineCodecs} builds, so the guards are pinned without a server.</p>
@@ -99,6 +103,53 @@ class TextContainerHardeningTest {
     assertArrayEquals(new int[]{1, 2}, (int[]) decodeInt4Array("{1,2} "));
     assertArrayEquals(new String[]{"a", "1"}, CompositeCodec.parseCompositeText("(a,1) "));
     assertEquals(2, ArrayCodec.splitTextArray("{1,2} ", ',').elements().size());
+  }
+
+  // -------------------------- dimensions above MAXDIM --------------------------
+
+  /** Builds {@code {{{…1…}}}} with {@code dimensions} levels of braces around a single element. */
+  private static String nested(int dimensions) {
+    StringBuilder sb = new StringBuilder(2 * dimensions + 1);
+    for (int i = 0; i < dimensions; i++) {
+      sb.append('{');
+    }
+    sb.append('1');
+    for (int i = 0; i < dimensions; i++) {
+      sb.append('}');
+    }
+    return sb.toString();
+  }
+
+  @Test
+  void atMaxdim_decodes() throws SQLException {
+    // Six dimensions is the server's MAXDIM and must still round-trip.
+    Object decoded = decodeInt4Array(nested(6));
+    assertArrayEquals(new int[]{1}, (int[]) ((Object[]) ((Object[]) ((Object[]) ((Object[])
+        ((Object[]) decoded)[0])[0])[0])[0])[0]);
+  }
+
+  @Test
+  void oneAboveMaxdim_refusesCleanly() {
+    assertRefused(() -> decodeInt4Array(nested(7)));
+  }
+
+  @Test
+  void deeplyNested_refusesCleanlyWithoutStackOverflow() {
+    // Regression pin: this used to recurse once per brace and die with a StackOverflowError.
+    assertRefused(() -> decodeInt4Array(nested(100_000)));
+  }
+
+  @Test
+  void moderatelyNested_refusesCleanlyRatherThanLeakingFromArrayNewInstance() {
+    // Above MAXDIM but below the JVM's own 255-dimension ceiling, so the old code reached
+    // Array.newInstance and surfaced its unchecked IllegalArgumentException.
+    assertRefused(() -> decodeInt4Array(nested(200)));
+  }
+
+  @Test
+  void dimensionPrefixedLiteralAboveMaxdim_refusesCleanly() {
+    // The [l:u]= prefix is skipped before the braces are counted, so the guard still applies.
+    assertRefused(() -> decodeInt4Array("[1:1][1:1][1:1][1:1][1:1][1:1][1:1]=" + nested(7)));
   }
 
   private static void assertRefused(Executable decode) {

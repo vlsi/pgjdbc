@@ -52,7 +52,7 @@ import java.util.Arrays;
  *
  * <p>The array cases build an {@code array -> composite -> array} cycle because a PostgreSQL array type
  * never nests into itself directly (multidimensionality is one type, capped at
- * {@code MultiDimArrayBinary.MAX_DIMENSIONS}); the only unbounded array recursion runs through a
+ * {@code MultiDimArraySupport.MAX_DIMENSIONS}); the only unbounded array recursion runs through a
  * composite/domain element, so that is what the test constructs.
  */
 class CodecNestingDepthOfflineTest {

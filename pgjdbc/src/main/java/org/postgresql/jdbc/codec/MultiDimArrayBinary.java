@@ -38,13 +38,6 @@ import java.sql.SQLException;
  */
 public final class MultiDimArrayBinary {
 
-  /**
-   * Maximum number of array dimensions, matching the server's {@code MAXDIM} (see
-   * {@code src/include/utils/array.h}). A binary array header carrying more dimensions than this is
-   * corrupt or hostile wire, so reject it rather than allocate on the count.
-   */
-  private static final int MAX_DIMENSIONS = 6;
-
   private MultiDimArrayBinary() {
     // Utility class
   }
@@ -212,7 +205,7 @@ public final class MultiDimArrayBinary {
     // dimensions is read straight from the wire: a negative count would throw
     // NegativeArraySizeException on the array allocations below, and an oversized one would drive an
     // OutOfMemoryError. The server never nests deeper than MAXDIM, so bound it before allocating.
-    if (dimensions < 0 || dimensions > MAX_DIMENSIONS) {
+    if (dimensions < 0 || dimensions > MultiDimArraySupport.MAX_DIMENSIONS) {
       throw Exceptions.invalidArrayDimensionCount(dimensions);
     }
     if (hasNulls && leafComponentType.isPrimitive()) {
