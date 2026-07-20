@@ -5,7 +5,7 @@
 
 package org.postgresql.jdbc.codec;
 
-import org.postgresql.api.codec.BackpatchingBinarySink;
+import org.postgresql.api.codec.BackpatchingByteArrayOutputStream;
 import org.postgresql.api.codec.CodecContext;
 import org.postgresql.api.codec.TypeDescriptor;
 import org.postgresql.core.Oid;
@@ -44,7 +44,7 @@ interface ArrayLeafCodec extends MultiDimArrayBinary.LeafBinaryWriter,
   default String getArrayTypeDescription(CodecContext ctx) {
     try {
       TypeDescriptor elementType = ctx.resolveType(getElementOid());
-      return elementType.getFullName() + "[]";
+      return elementType.getFormattedName() + "[]";
     } catch (RuntimeException | SQLException e) {
       // Fall through to built-in Oid names when the context has no type cache,
       // for instance in unit tests that pass a connectionless CodecContext.
@@ -57,7 +57,7 @@ interface ArrayLeafCodec extends MultiDimArrayBinary.LeafBinaryWriter,
   }
 
   @Override
-  boolean writeLeaf(Object leaf, BackpatchingBinarySink out, CodecContext ctx)
+  boolean writeLeaf(Object leaf, BackpatchingByteArrayOutputStream out, CodecContext ctx)
       throws IOException, SQLException;
 
   @Override

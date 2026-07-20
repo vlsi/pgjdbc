@@ -5,27 +5,24 @@
 
 package org.postgresql.jdbc.codec;
 
-import org.postgresql.api.codec.BackpatchingBinarySink;
+import org.postgresql.api.codec.BackpatchingByteArrayOutputStream;
 import org.postgresql.api.codec.BinaryCodec;
 import org.postgresql.api.codec.CodecContext;
-import org.postgresql.api.codec.CompositeField;
+import org.postgresql.api.codec.CodecFormatSupport;
+import org.postgresql.api.codec.CompositeAttribute;
 import org.postgresql.api.codec.StreamingBinaryCodec;
 import org.postgresql.api.codec.StreamingTextCodec;
 import org.postgresql.api.codec.TextCodec;
 import org.postgresql.api.codec.TypeDescriptor;
 import org.postgresql.core.Oid;
 import org.postgresql.jdbc.CodecDepth;
-import org.postgresql.jdbc.PgCodecContext;
 import org.postgresql.jdbc.PgField;
-import org.postgresql.jdbc.PgSQLInputBinary;
-import org.postgresql.jdbc.PgSQLInputText;
-import org.postgresql.jdbc.PgSQLOutput;
-import org.postgresql.jdbc.PgSQLOutputBinary;
 import org.postgresql.jdbc.PgSQLOutputText;
 import org.postgresql.jdbc.PgStruct;
 import org.postgresql.jdbc.PgType;
 import org.postgresql.util.ByteConverter;
 import org.postgresql.util.PGobject;
+import org.postgresql.util.internal.CompositeWireErrors;
 
 import org.checkerframework.checker.nullness.qual.Nullable;
 
@@ -36,7 +33,6 @@ import java.sql.SQLInput;
 import java.sql.Struct;
 import java.util.ArrayList;
 import java.util.Arrays;
-import java.util.Collections;
 import java.util.List;
 
 /**
@@ -57,29 +53,33 @@ public final class CompositeCodec implements StreamingBinaryCodec, StreamingText
     // Singleton for composite handling
   }
 
-  // The composite codec downcasts to PgCodecContext to pass the connection (or null, offline) into
-  // the PgStruct it returns, and to hand the concrete PgType and PgCodecContext to the internal
-  // SQLData adapters (PgSQLInput*/PgSQLOutput*). The struct and the SQLData adapters both work
-  // offline; only a nested array or XML field inside an SQLData value still needs a connection and
-  // reports a clear error. Child field types and codecs resolve through the CodecContext interface
-  // (slice 2c).
-  private static PgCodecContext impl(CodecContext ctx) {
-    return (PgCodecContext) ctx;
-  }
-
   /**
    * Returns the composite's attribute fields, loading them through the context when the descriptor
    * does not already carry them. The anonymous RECORD pseudo-type has no catalog attributes, so its
    * fields resolve to an empty list.
    */
-  private static List<? extends CompositeField> resolveFields(
+  private static List<? extends CompositeAttribute> resolveFields(
       TypeDescriptor type, CodecContext ctx) throws SQLException {
-    List<? extends CompositeField> fields = type.getFields();
-    if (fields != null) {
+    List<? extends CompositeAttribute> fields = type.getAttributes();
+    if (!fields.isEmpty()) {
       return fields;
     }
-    fields = ctx.resolveType(type.getOid()).getFields();
-    return fields != null ? fields : Collections.emptyList();
+    // Empty means either the anonymous RECORD, which has no catalog attributes, or a descriptor
+    // whose attributes the driver has not loaded. Re-resolving settles both: RECORD stays empty.
+    return ctx.resolveType(type.getOid()).getAttributes();
+  }
+
+  /**
+   * Returns the attribute's type. A connection-bound composite resolved its attribute types when
+   * its metadata was loaded, so the descriptor comes off the attribute; an offline attribute has
+   * none and is resolved through the context, stamped with its modifier.
+   */
+  private static TypeDescriptor attributeType(CompositeAttribute field, CodecContext ctx)
+      throws SQLException {
+    TypeDescriptor cached = field.getType();
+    return cached != null
+        ? cached
+        : ctx.resolveType(field.getTypeOid(), field.getAppliedTypmod());
   }
 
   // =========================================================================
@@ -169,7 +169,7 @@ public final class CompositeCodec implements StreamingBinaryCodec, StreamingText
   public static List<DecodedField> decodeBinaryFields(byte[] data, int start, int len)
       throws SQLException {
     if (len < 4) {
-      throw Exceptions.invalidCompositeTooShort();
+      throw CompositeWireErrors.tooShort();
     }
 
     int end = start + len;
@@ -178,21 +178,21 @@ public final class CompositeCodec implements StreamingBinaryCodec, StreamingText
     int fieldCount = ByteConverter.int4(data, pos);
     pos += 4;
     if (fieldCount < 0) {
-      throw Exceptions.invalidCompositeNegativeFieldCount(fieldCount);
+      throw CompositeWireErrors.negativeFieldCount(fieldCount);
     }
     // Bound the field count against the bytes that remain before sizing the list: every field carries
     // at least an 8-byte header (type OID + length) on the wire, so a count larger than
     // (remaining bytes / 8) is corrupt. Without this, a hostile count near Integer.MAX_VALUE would
     // drive an OutOfMemoryError in the ArrayList allocation before the per-field bounds check runs.
     if (fieldCount > (end - pos) / 8) {
-      throw Exceptions.invalidCompositeFieldCountExceedsData(fieldCount);
+      throw CompositeWireErrors.fieldCountExceedsData(fieldCount);
     }
 
     List<DecodedField> fields = new ArrayList<>(fieldCount);
 
     for (int i = 0; i < fieldCount; i++) {
       if (end - pos < 8) {
-        throw Exceptions.invalidCompositeUnexpectedEnd(i);
+        throw CompositeWireErrors.unexpectedEnd(i);
       }
 
       int typeOid = ByteConverter.int4(data, pos);
@@ -203,10 +203,10 @@ public final class CompositeCodec implements StreamingBinaryCodec, StreamingText
       if (length == -1) {
         fields.add(new DecodedField(typeOid, data, pos, -1));
       } else if (length < 0) {
-        throw Exceptions.invalidCompositeFieldLength(length, i);
+        throw CompositeWireErrors.fieldLength(length, i);
       } else {
         if (end - pos < length) {
-          throw Exceptions.invalidCompositeNotEnoughData(i);
+          throw CompositeWireErrors.notEnoughData(i);
         }
         fields.add(new DecodedField(typeOid, data, pos, length));
         pos += length;
@@ -240,14 +240,13 @@ public final class CompositeCodec implements StreamingBinaryCodec, StreamingText
    * Encodes struct/composite attributes as a PostgreSQL composite text value
    * by delegating each attribute to its per-field {@link TextCodec}.
    *
-   * <p>Field types are resolved via {@code compositeType.getFields()} (loaded
-   * lazily through {@link org.postgresql.core.TypeInfo#getFields(int)} when
-   * not yet cached). Each non-null attribute is converted by the registered
-   * text codec for its field's OID, then quoted/escaped per PostgreSQL's
+   * <p>Attribute types come from {@code compositeType.getAttributes()}, which a descriptor
+   * reaching a codec already carries. Each non-null attribute is converted by the registered
+   * text codec for its attribute's OID, then quoted/escaped per PostgreSQL's
    * composite text format.</p>
    *
    * @param attributes the attribute values (may contain nulls)
-   * @param compositeType the composite type metadata; must have fields loaded or loadable
+   * @param compositeType the composite type metadata, resolved for its kind
    * @param ctx the codec context
    * @return the text representation in PostgreSQL composite format: (val1,val2,...)
    * @throws SQLException if a field codec is missing or attribute encoding fails
@@ -267,16 +266,7 @@ public final class CompositeCodec implements StreamingBinaryCodec, StreamingText
       out.append(value);
       return;
     }
-    out.append('"');
-    for (int i = 0; i < value.length(); i++) {
-      char c = value.charAt(i);
-      // record_out doubles embedded quotes and backslashes.
-      if (c == '"' || c == '\\') {
-        out.append(c);
-      }
-      out.append(c);
-    }
-    out.append('"');
+    ContainerTextEscaper.appendQuotedRecordStyle(out, value);
   }
 
   /**
@@ -285,7 +275,9 @@ public final class CompositeCodec implements StreamingBinaryCodec, StreamingText
    * already-unquoted slice. The surrounding parentheses are optional.
    *
    * <p>A field is SQL NULL iff it was unquoted and empty; a quoted empty field
-   * is the empty string. Composites have at least one field, so an empty
+   * is the empty string. Whitespace is part of the field, as it is for
+   * {@code record_in}, so {@code ( ,y)} has a first field of one space rather
+   * than NULL. Composites have at least one field, so an empty
    * {@code ()} yields a single NULL field. The slice is valid only for the
    * duration of the {@code accept} call (the cursor reuses its unescape buffer),
    * so the consumer must decode it before the next field.</p>
@@ -301,7 +293,7 @@ public final class CompositeCodec implements StreamingBinaryCodec, StreamingText
     while (true) {
       cur.readValue(',', ')');
       boolean isNull = !cur.tokenWasQuoted() && cur.tokenLength() == 0;
-      consumer.accept(index, isNull, cur.tokenChars(), cur.tokenOffset(), cur.tokenLength());
+      consumer.accept(index, isNull, cur.getToken());
       index++;
       if (!cur.tryConsume(',')) {
         break;
@@ -312,10 +304,10 @@ public final class CompositeCodec implements StreamingBinaryCodec, StreamingText
     }
   }
 
-  /** Receives one composite field as a borrowed, already-unquoted char slice. */
+  /** Receives one composite field as a borrowed, already-unquoted sequence. */
   @FunctionalInterface
   private interface CompositeFieldConsumer {
-    void accept(int index, boolean isNull, char[] buf, int offset, int length) throws SQLException;
+    void accept(int index, boolean isNull, CharSequence token) throws SQLException;
   }
 
   /**
@@ -327,10 +319,11 @@ public final class CompositeCodec implements StreamingBinaryCodec, StreamingText
    * @return per-field strings (with composite escape sequences resolved)
    * @throws SQLException if the literal is malformed
    */
-  public static @Nullable String[] parseCompositeText(String text) throws SQLException {
+  public static @Nullable String[] parseCompositeText(CharSequence text) throws SQLException {
     List<@Nullable String> values = new ArrayList<>();
-    readCompositeFields(LiteralCursor.over(text), (index, isNull, buf, offset, length) ->
-        values.add(isNull ? null : new String(buf, offset, length)));
+    LiteralCursor cur = LiteralCursor.over(text);
+    readCompositeFields(cur, (index, isNull, token) ->
+        values.add(isNull ? null : token.toString()));
     return values.toArray(new @Nullable String[0]);
   }
 
@@ -354,11 +347,6 @@ public final class CompositeCodec implements StreamingBinaryCodec, StreamingText
   }
 
   @Override
-  public String getPrimaryTypeName() {
-    return "record";
-  }
-
-  @Override
   public Class<?> getDefaultJavaType() {
     return Struct.class;
   }
@@ -379,7 +367,7 @@ public final class CompositeCodec implements StreamingBinaryCodec, StreamingText
    * Decodes binary composite data into a PgStruct with per-attribute decoding
    * routed through the codec registered for each field's OID.
    */
-  private static PgStruct decodeBinaryAsStruct(byte[] data, int offset, int length, TypeDescriptor type,
+  private static Struct decodeBinaryAsStruct(byte[] data, int offset, int length, TypeDescriptor type,
       CodecContext ctx) throws SQLException {
     CodecDepth.enter();
     try {
@@ -387,7 +375,7 @@ public final class CompositeCodec implements StreamingBinaryCodec, StreamingText
       // Catalog attributes carry the modifiers the binary wire does not (it self-describes only the
       // field OID). Read them positionally, guarded by an OID match below so a wire/catalog skew
       // (e.g. dropped columns, or the anonymous RECORD with no attributes) falls back to no modifier.
-      List<? extends CompositeField> catalogFields = type.getFields();
+      List<? extends CompositeAttribute> catalogFields = type.getAttributes();
       @Nullable Object[] attributes = new @Nullable Object[binaryFields.size()];
       for (int i = 0; i < binaryFields.size(); i++) {
         DecodedField field = binaryFields.get(i);
@@ -396,12 +384,17 @@ public final class CompositeCodec implements StreamingBinaryCodec, StreamingText
           continue;
         }
         int fieldOid = field.getTypeOid();
-        int fieldTypmod = -1;
-        if (catalogFields != null && i < catalogFields.size()
+        // The catalog attribute supplies the modifier and the pre-resolved descriptor the binary
+        // wire lacks (it self-describes only the field OID). The OID guard keeps a wire/catalog
+        // skew (dropped columns, or the anonymous RECORD with no attributes) on the plain resolve.
+        TypeDescriptor fieldType = null;
+        if (i < catalogFields.size()
             && catalogFields.get(i).getTypeOid() == fieldOid) {
-          fieldTypmod = catalogFields.get(i).getTypmod();
+          fieldType = attributeType(catalogFields.get(i), ctx);
         }
-        TypeDescriptor fieldType = ctx.resolveType(fieldOid, fieldTypmod);
+        if (fieldType == null) {
+          fieldType = ctx.resolveType(fieldOid, -1);
+        }
         BinaryCodec fieldCodec = ctx.resolveBinaryCodec(fieldOid);
         if (fieldCodec == null) {
           attributes[i] = field.getData();
@@ -411,63 +404,47 @@ public final class CompositeCodec implements StreamingBinaryCodec, StreamingText
       }
       // The struct carries the codec context (offline or connection-bound), so getValue() can
       // rebuild the text literal from the attributes either way; getAttributes() works regardless.
-      return PgStruct.withCodecContext(structTypeFor(type, binaryFields), attributes, impl(ctx));
+      return ctx.getValueFactory().createStruct(structTypeFor(type, binaryFields), attributes, null);
     } finally {
       CodecDepth.exit();
     }
   }
 
   /**
-   * Returns the {@link PgType} the decoded {@link PgStruct} should carry. For a
-   * named composite this is {@code type} as-is (its fields come from the
-   * catalog). For the anonymous record pseudo-type (OID 2249) the catalog has no
-   * attributes, so the field types are synthesized from the self-describing
-   * binary wire — without touching the type cache — so that
-   * {@link PgStruct#getValue()} can rebuild the {@code record_out} literal.
+   * Returns the type the decoded {@link java.sql.Struct} should carry. For a named composite this
+   * is {@code type} as-is (its attributes come from the catalog). For the anonymous record
+   * pseudo-type (OID 2249) the catalog has no attributes, so they are synthesized from the
+   * self-describing binary wire — without touching the type cache — so that the struct can rebuild
+   * the {@code record_out} literal.
    */
-  private static PgType structTypeFor(TypeDescriptor type, List<DecodedField> binaryFields) {
-    // The SPI type reaching this codec is the driver's own PgType; PgStruct needs the concrete
-    // type so it can carry the fields synthesized below for the anonymous RECORD pseudo-type.
-    PgType pgType = (PgType) type;
-    if (pgType.getOid() != Oid.RECORD) {
-      return pgType;
+  private static TypeDescriptor structTypeFor(TypeDescriptor type, List<DecodedField> binaryFields) {
+    if (type.getOid() != Oid.RECORD) {
+      return type;
     }
     List<PgField> synthesized = new ArrayList<>(binaryFields.size());
     for (int i = 0; i < binaryFields.size(); i++) {
       // Anonymous record fields have no catalog names; "fN" is positional only.
       synthesized.add(new PgField("f" + (i + 1), binaryFields.get(i).getTypeOid(), i + 1, -1));
     }
-    return pgType.withFields(synthesized);
+    return type.withAttributes(synthesized);
   }
 
   @Override
   public byte[] encodeBinary(Object value, TypeDescriptor type, CodecContext ctx) throws SQLException {
+    BackpatchingByteArrayOutputStream out = new BackpatchingByteArrayOutputStream();
     if (value instanceof SQLData) {
-      BackpatchByteArrayOutputStream sink = new BackpatchByteArrayOutputStream();
-      encodeSQLData((SQLData) value, new PgSQLOutputBinary((PgType) type, impl(ctx), sink));
-      return sink.toByteArray();
-    }
-    if (value instanceof Struct) {
-      Struct struct = (Struct) value;
-      BackpatchByteArrayOutputStream out = new BackpatchByteArrayOutputStream();
-      encodeAttributes(struct.getAttributes(), type, ctx, out);
+      ctx.getValueFactory().writeSQLData(type, (SQLData) value, out);
+      return out.toByteArray();
+    } else if (value instanceof Struct) {
+      encodeAttributes(((Struct) value).getAttributes(), type, ctx, out);
       return out.toByteArray();
     }
     throw Exceptions.cannotEncodeCompositeBinary(value);
   }
 
-  private static void encodeSQLData(SQLData value, PgSQLOutput out) throws SQLException {
-    CodecDepth.enter();
-    try (PgSQLOutput output = out) {
-      value.writeSQL(output);
-    } finally {
-      CodecDepth.exit();
-    }
-  }
-
   /**
    * Writes one composite field's text value into {@code out}, streaming through the codec's
-   * {@link StreamingTextCodec} form (wrapped in a record-style {@link EscapingAppendable} when the
+   * {@link StreamingTextCodec} form (wrapped in a record-style {@link ContainerTextEscaper} when the
    * field may need quoting) when available, and otherwise quoting the codec's {@code String}. The
    * caller writes the inter-field comma; a SQL NULL attribute is an empty field and never reaches
    * here. Shared by {@link #encodeAttributes} (the {@link Struct} path) and
@@ -481,7 +458,8 @@ public final class CompositeCodec implements StreamingBinaryCodec, StreamingText
         streamingTextCodec.encodeText(value, fieldType, ctx, out);
       } else {
         out.append('"');
-        streamingTextCodec.encodeText(value, fieldType, ctx, new EscapingAppendable(out, true));
+        streamingTextCodec.encodeText(value, fieldType, ctx,
+            new ContainerTextEscaper(out, ContainerTextEscaper.EscapeStyle.RECORD));
         out.append('"');
       }
     } else {
@@ -497,46 +475,43 @@ public final class CompositeCodec implements StreamingBinaryCodec, StreamingText
   }
 
   @Override
-  public @Nullable Object decodeText(String data, TypeDescriptor type, CodecContext ctx) throws SQLException {
+  public @Nullable Object decodeText(CharSequence data, TypeDescriptor type, CodecContext ctx) throws SQLException {
     if (data == null) {
       return null;
     }
     // PgStruct extends PGobject and implements Struct, so the same return value
     // satisfies both the legacy "(PGobject) rs.getObject(i)" contract and the
     // new "(Struct) rs.getObject(i)" contract.
-    PgStruct struct = decodeTextAsStruct(LiteralCursor.over(data), type, ctx);
-    // The top-level value already exists as a String, so record it on the PGobject
-    // view verbatim — callers that fall back to getValue() see the exact server text.
-    struct.setValue(data);
-    return struct;
-  }
-
-  @Override
-  public @Nullable Object decodeText(char[] data, int offset, int length, TypeDescriptor type,
-      CodecContext ctx) throws SQLException {
-    // Slice form: a composite nested in an array/composite is decoded directly off
-    // the parent's borrowed char[] — no per-element String and no toCharArray
-    // round-trip. The PGobject view's raw value is left unset; PgStruct.getValue()
-    // reconstructs it lazily from the attributes if needed (the same path that
-    // getObject(col, Struct.class) already relies on).
-    return decodeTextAsStruct(new LiteralCursor(data, offset, length), type, ctx);
+    return decodeWholeLiteral(data, type, ctx);
   }
 
   /**
    * Decodes composite text into a PgStruct with per-attribute decoding routed
    * through the text codec registered for each field's OID.
    */
-  private static PgStruct decodeTextAsStruct(LiteralCursor cur, TypeDescriptor type, CodecContext ctx)
+  /**
+   * Decodes {@code data} as a composite that occupies the whole literal, so text after the closing
+   * parenthesis is an error rather than something to drop. A nested composite goes through
+   * {@link #decodeTextAsStruct} directly, since its cursor is positioned inside a larger literal.
+   */
+  private static Struct decodeWholeLiteral(CharSequence data, TypeDescriptor type, CodecContext ctx)
       throws SQLException {
+    LiteralCursor cur = LiteralCursor.over(data);
+    Struct struct = decodeTextAsStruct(cur, type, ctx, data);
+    return struct;
+  }
+
+  private static Struct decodeTextAsStruct(LiteralCursor cur, TypeDescriptor type, CodecContext ctx,
+      @Nullable CharSequence literal) throws SQLException {
     CodecDepth.enter();
     try {
-      final List<? extends CompositeField> fieldList = resolveFields(type, ctx);
+      final List<? extends CompositeAttribute> fieldList = resolveFields(type, ctx);
       final int expected = fieldList.size();
       final @Nullable Object[] attributes = new @Nullable Object[expected];
       final int[] seen = {0};
       // Decode each field from its borrowed slice in place: no per-field String,
       // and nested composites/arrays recurse through the child codec's own cursor.
-      readCompositeFields(cur, (index, isNull, buf, offset, length) -> {
+      readCompositeFields(cur, (index, isNull, token) -> {
         if (index >= expected) {
           // A named composite (expected > 0) must match its literal exactly: surface a
           // catalog/literal field-count skew (e.g. after ALTER TYPE ADD ATTRIBUTE) instead of
@@ -546,36 +521,36 @@ public final class CompositeCodec implements StreamingBinaryCodec, StreamingText
           if (expected == 0) {
             return;
           }
-          throw Exceptions.compositeTextHasMoreAttributes(type.getTypeName().getName(), expected);
+          throw Exceptions.compositeTextHasMoreAttributes(type.getName().getLocalName(), expected);
         }
         seen[0] = index + 1;
         if (isNull) {
           attributes[index] = null;
           return;
         }
-        CompositeField field = fieldList.get(index);
+        CompositeAttribute field = fieldList.get(index);
         int fieldOid = field.getTypeOid();
-        // Stamp the attribute modifier (atttypmod) so a modifier-sensitive field such as
-        // numeric(10,2) decodes to its declared scale.
-        TypeDescriptor fieldType = ctx.resolveType(fieldOid, field.getTypmod());
+        // The descriptor already carries the attribute modifier (atttypmod), so a
+        // modifier-sensitive field such as numeric(10,2) decodes to its declared scale.
+        TypeDescriptor fieldType = attributeType(field, ctx);
         TextCodec fieldCodec = ctx.resolveTextCodec(fieldOid);
         if (fieldCodec == null) {
-          attributes[index] = new String(buf, offset, length);
+          attributes[index] = token.toString();
         } else {
-          attributes[index] = fieldCodec.decodeText(buf, offset, length, fieldType, ctx);
+          attributes[index] = fieldCodec.decodeText(token, fieldType, ctx);
         }
       });
       if (expected > 0 && seen[0] != expected) {
         // Fewer literal fields than the type declares is the same catalog/literal skew as the
         // surplus case above; reject it rather than NULL-filling the missing trailing fields.
-        throw Exceptions.compositeTextAttributeCountMismatch(type.getTypeName().getName(), expected, seen[0]);
+        throw Exceptions.compositeTextAttributeCountMismatch(type.getName().getLocalName(), expected, seen[0]);
       }
       // Text transfer carries no per-field OIDs, so an anonymous record keeps the
       // fieldless pseudo-type; getValue() still works because the raw server
       // literal is recorded verbatim by the caller. The SPI type reaching this codec is
       // the driver's own PgType, which PgStruct (internal) carries. The struct also carries the
       // codec context so getValue() can rebuild the literal offline.
-      return PgStruct.withCodecContext((PgType) type, attributes, impl(ctx));
+      return ctx.getValueFactory().createStruct(type, attributes, literal);
     } finally {
       CodecDepth.exit();
     }
@@ -585,7 +560,7 @@ public final class CompositeCodec implements StreamingBinaryCodec, StreamingText
   public String encodeText(Object value, TypeDescriptor type, CodecContext ctx) throws SQLException {
     if (value instanceof SQLData) {
       StringBuilder sb = new StringBuilder();
-      encodeSQLData((SQLData) value, new PgSQLOutputText((PgType) type, impl(ctx), sb));
+      ctx.getValueFactory().writeSQLData(type, (SQLData) value, sb);
       return sb.toString();
     }
     if (value instanceof Struct) {
@@ -615,18 +590,18 @@ public final class CompositeCodec implements StreamingBinaryCodec, StreamingText
    * String produced by {@link #encodeText(Object, TypeDescriptor, CodecContext)} —
    * worthwhile when the composite is itself an element of an array, because
    * the array codec then wraps {@code out} in an
-   * {@link EscapingAppendable} and array-level escaping happens char-by-char
+   * {@link ContainerTextEscaper} and array-level escaping happens char-by-char
    * during the write rather than as a second pass over a buffered String.
    *
    * <p>The {@link SQLData} path streams too: its {@code writeSQL} callbacks append the composite
    * literal straight into {@code out}, its {@code record_out} escaping compounding through any
-   * enclosing {@link EscapingAppendable}, with no intermediate {@code String}.</p>
+   * enclosing {@link ContainerTextEscaper}, with no intermediate {@code String}.</p>
    */
   @Override
   public void encodeText(Object value, TypeDescriptor type, CodecContext ctx, Appendable out)
       throws SQLException, IOException {
     if (value instanceof SQLData) {
-      encodeSQLData((SQLData) value, new PgSQLOutputText((PgType) type, impl(ctx), out));
+      ctx.getValueFactory().writeSQLData(type, (SQLData) value, out);
       return;
     }
     if (value instanceof Struct) {
@@ -650,9 +625,9 @@ public final class CompositeCodec implements StreamingBinaryCodec, StreamingText
       TypeDescriptor compositeType,
       CodecContext ctx,
       Appendable out) throws SQLException {
-    List<? extends CompositeField> fields = resolveFields(compositeType, ctx);
+    List<? extends CompositeAttribute> fields = resolveFields(compositeType, ctx);
     if (fields.size() != attributes.length) {
-      throw Exceptions.compositeAttributeCountMismatch(compositeType.getTypeName().getName(), fields.size(), attributes.length);
+      throw Exceptions.compositeAttributeCountMismatch(compositeType.getName().getLocalName(), fields.size(), attributes.length);
     }
     CodecDepth.enter();
     try {
@@ -665,7 +640,7 @@ public final class CompositeCodec implements StreamingBinaryCodec, StreamingText
         if (attr == null) {
           continue;
         }
-        CompositeField field = fields.get(i);
+        CompositeAttribute field = fields.get(i);
         int fieldOid = field.getTypeOid();
         // For a nested anonymous record (OID 2249) fieldTypeFor swaps in the decoded PgStruct's own
         // synthesized-field type, so the composite codec streams the nested record recursively
@@ -673,7 +648,7 @@ public final class CompositeCodec implements StreamingBinaryCodec, StreamingText
         TypeDescriptor fieldType = fieldTypeFor(fieldOid, attr, ctx);
         TextCodec codec = ctx.resolveTextCodec(fieldOid);
         if (codec == null) {
-          throw Exceptions.noTextCodecForCompositeField(fieldOid, field.getName(), compositeType.getTypeName().getName());
+          throw Exceptions.noTextCodecForCompositeField(fieldOid, field.getName(), compositeType.getName().getLocalName());
         }
         writeTextFieldValue(out, attr, fieldType, codec, ctx);
       }
@@ -688,9 +663,9 @@ public final class CompositeCodec implements StreamingBinaryCodec, StreamingText
   /** Streaming variant of {@link #encodeBinary(Object, TypeDescriptor, CodecContext)}. */
   @Override
   public void encodeBinary(Object value, TypeDescriptor type, CodecContext ctx,
-      BackpatchingBinarySink out) throws SQLException, IOException {
+      BackpatchingByteArrayOutputStream out) throws SQLException, IOException {
     if (value instanceof SQLData) {
-      encodeSQLData((SQLData) value, new PgSQLOutputBinary((PgType) type, impl(ctx), out));
+      ctx.getValueFactory().writeSQLData(type, (SQLData) value, out);
       return;
     }
     if (value instanceof Struct) {
@@ -708,16 +683,16 @@ public final class CompositeCodec implements StreamingBinaryCodec, StreamingText
       @Nullable Object[] attributes,
       TypeDescriptor compositeType,
       CodecContext ctx,
-      BackpatchingBinarySink out) throws SQLException {
-    List<? extends CompositeField> fields = resolveFields(compositeType, ctx);
+      BackpatchingByteArrayOutputStream out) throws SQLException {
+    List<? extends CompositeAttribute> fields = resolveFields(compositeType, ctx);
     if (fields.size() != attributes.length) {
-      throw Exceptions.compositeAttributeCountMismatch(compositeType.getTypeName().getName(), fields.size(), attributes.length);
+      throw Exceptions.compositeAttributeCountMismatch(compositeType.getName().getLocalName(), fields.size(), attributes.length);
     }
     CodecDepth.enter();
     try {
       out.writeInt32(fields.size());
       for (int i = 0; i < attributes.length; i++) {
-        CompositeField field = fields.get(i);
+        CompositeAttribute field = fields.get(i);
         int fieldOid = field.getTypeOid();
         // type oid
         out.writeInt32(fieldOid);
@@ -729,9 +704,9 @@ public final class CompositeCodec implements StreamingBinaryCodec, StreamingText
         TypeDescriptor fieldType = fieldTypeFor(fieldOid, attr, ctx);
         BinaryCodec codec = ctx.resolveBinaryCodec(fieldOid);
         if (codec == null) {
-          throw Exceptions.noBinaryCodecForCompositeField(fieldOid, field.getName(), compositeType.getTypeName().getName());
+          throw Exceptions.noBinaryCodecForCompositeField(fieldOid, field.getName(), compositeType.getName().getLocalName());
         }
-        BinaryCodec.writeElement(out, attr, codec, fieldType, ctx);
+        CodecFormatSupport.writeBinaryElement(out, attr, codec, fieldType, ctx);
       }
     } catch (IOException e) {
       throw Exceptions.errorWritingComposite(e);
@@ -755,7 +730,7 @@ public final class CompositeCodec implements StreamingBinaryCodec, StreamingText
       throws SQLException {
     if (fieldOid == Oid.RECORD && attr instanceof PgStruct) {
       PgType carried = ((PgStruct) attr).getResolvedType();
-      if (carried != null && carried.getFields() != null) {
+      if (carried != null && carried.hasFieldsLoaded()) {
         return carried;
       }
     }
@@ -777,8 +752,8 @@ public final class CompositeCodec implements StreamingBinaryCodec, StreamingText
       try {
         Class<? extends SQLData> sqlDataClass = (Class<? extends SQLData>) targetClass;
         SQLData sqlData = createSQLDataInstance(sqlDataClass);
-        SQLInput input = new PgSQLInputBinary(data, offset, length, (PgType) type, impl(ctx));
-        sqlData.readSQL(input, type.getFullName());
+        SQLInput input = ctx.getValueFactory().createSQLInput(type, data, offset, length);
+        sqlData.readSQL(input, type.getFormattedName());
         return (T) sqlData;
       } finally {
         CodecDepth.exit();
@@ -800,11 +775,14 @@ public final class CompositeCodec implements StreamingBinaryCodec, StreamingText
 
   @Override
   @SuppressWarnings("unchecked")
-  public <T> @Nullable T decodeTextAs(String data, TypeDescriptor type, Class<T> targetClass, CodecContext ctx)
+  public <T> @Nullable T decodeTextAs(CharSequence data, TypeDescriptor type, Class<T> targetClass, CodecContext ctx)
       throws SQLException {
-    if (data == null || data.isEmpty()) {
+    if (data.length() == 0) {
       return null;
     }
+    // No eager toString(): each branch below either consumes the literal within this call or
+    // materializes exactly what it retains, so a borrowed slice costs nothing on the paths that
+    // never keep it.
 
     // Handle SQLData implementations
     if (SQLData.class.isAssignableFrom(targetClass)) {
@@ -812,8 +790,9 @@ public final class CompositeCodec implements StreamingBinaryCodec, StreamingText
       try {
         Class<? extends SQLData> sqlDataClass = (Class<? extends SQLData>) targetClass;
         SQLData sqlData = createSQLDataInstance(sqlDataClass);
-        SQLInput input = new PgSQLInputText(data, (PgType) type, impl(ctx));
-        sqlData.readSQL(input, type.getFullName());
+        // The input is consumed by readSQL before this returns, so it can read the slice in place.
+        SQLInput input = ctx.getValueFactory().createSQLInput(type, data);
+        sqlData.readSQL(input, type.getFormattedName());
         return (T) sqlData;
       } finally {
         CodecDepth.exit();
@@ -822,7 +801,7 @@ public final class CompositeCodec implements StreamingBinaryCodec, StreamingText
 
     // Structured access — build a PgStruct with per-field decoded attributes.
     if (targetClass == Struct.class || targetClass == PgStruct.class) {
-      return (T) decodeTextAsStruct(LiteralCursor.over(data), type, ctx);
+      return (T) decodeWholeLiteral(data, type, ctx);
     }
 
     // Legacy access — return the typed PGobject wrapper produced by decodeText.
@@ -832,7 +811,7 @@ public final class CompositeCodec implements StreamingBinaryCodec, StreamingText
 
     // String is allowed
     if (targetClass == String.class) {
-      return (T) data;
+      return (T) data.toString();
     }
 
     throw Exceptions.cannotConvertCompositeTo(targetClass.getName());

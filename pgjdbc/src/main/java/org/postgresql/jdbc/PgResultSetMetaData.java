@@ -453,7 +453,7 @@ public class PgResultSetMetaData implements ResultSetMetaData, PGResultSetMetaDa
         return displayName;
       }
     }
-    return pgType.getTypeName().getName();
+    return pgType.getName().getLocalName();
   }
 
   protected int getSQLType(int columnIndex) throws SQLException {

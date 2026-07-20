@@ -48,15 +48,15 @@ public final class Codecs {
    * @return the encoded value, backed by a freshly allocated array
    * @throws SQLException if no codec for {@code type} supports {@code format}, or encoding fails
    */
-  public static RawValue encode(Object value, TypeDescriptor type, CodecContext ctx, Format format)
+  public static WireValueSlice encode(Object value, TypeDescriptor type, CodecContext ctx, Format format)
       throws SQLException {
     Codec codec = ctx.resolveCodec(type.getOid());
     if (format == Format.BINARY) {
       BinaryCodec binary = CodecFormatSupport.requireBinaryEncoder(codec, value, type, ctx);
-      return RawValue.binary(binary.encodeBinary(value, type, ctx));
+      return WireValueSlice.binary(binary.encodeBinary(value, type, ctx));
     }
     TextCodec text = CodecFormatSupport.requireTextEncoder(codec, type);
-    return RawValue.text(text.encodeText(value, type, ctx).getBytes(ctx.getCharset()));
+    return WireValueSlice.text(text.encodeText(value, type, ctx).getBytes(ctx.getCharset()));
   }
 
   /**
@@ -74,7 +74,7 @@ public final class Codecs {
    * @return the decoded value, or null if the codec decodes it as null
    * @throws SQLException if no codec for {@code type} supports the value's format, or decoding fails
    */
-  public static <T> @Nullable T decode(RawValue value, TypeDescriptor type, CodecContext ctx,
+  public static <T> @Nullable T decode(WireValueSlice value, TypeDescriptor type, CodecContext ctx,
       Class<T> targetClass) throws SQLException {
     Codec codec = ctx.resolveCodec(type.getOid());
     if (value.getFormat() == Format.BINARY) {
@@ -142,65 +142,4 @@ public final class Codecs {
         PSQLState.INVALID_PARAMETER_TYPE);
   }
 
-  // Composite binary wire format: shared by org.postgresql.jdbc.codec.CompositeCodec (via its own
-  // package-private Exceptions) and org.postgresql.jdbc.PgSQLInputBinary (via its own), which parse
-  // the same wire format from two different entry points.
-
-  /**
-   * The binary composite value was too short to hold a field count.
-   *
-   * @return decode error, carrying {@link org.postgresql.util.PSQLState#DATA_ERROR}
-   */
-  public static SQLException invalidCompositeTooShort() {
-    return new PSQLException(GT.tr("Invalid binary composite data: too short"), PSQLState.DATA_ERROR);
-  }
-
-  /**
-   * The binary composite value declared a negative field count.
-   *
-   * @param fieldCount the (negative) declared field count
-   * @return decode error, carrying {@link org.postgresql.util.PSQLState#DATA_ERROR}
-   */
-  public static SQLException invalidCompositeNegativeFieldCount(int fieldCount) {
-    return new PSQLException(
-        GT.tr("Invalid binary composite data: negative field count {0}", fieldCount),
-        PSQLState.DATA_ERROR);
-  }
-
-  /**
-   * The binary composite value ended before its declared field count was satisfied.
-   *
-   * @param fieldIndex the 0-based field index where the data ran out
-   * @return decode error, carrying {@link org.postgresql.util.PSQLState#DATA_ERROR}
-   */
-  public static SQLException invalidCompositeUnexpectedEnd(int fieldIndex) {
-    return new PSQLException(
-        GT.tr("Invalid binary composite data: unexpected end at field {0}", fieldIndex),
-        PSQLState.DATA_ERROR);
-  }
-
-  /**
-   * A composite field declared a negative length.
-   *
-   * @param length the (negative) declared field length
-   * @param fieldIndex the 0-based field index
-   * @return decode error, carrying {@link org.postgresql.util.PSQLState#DATA_ERROR}
-   */
-  public static SQLException invalidCompositeFieldLength(int length, int fieldIndex) {
-    return new PSQLException(
-        GT.tr("Invalid binary composite data: invalid length {0} at field {1}", length, fieldIndex),
-        PSQLState.DATA_ERROR);
-  }
-
-  /**
-   * A composite field's declared length exceeds the remaining data.
-   *
-   * @param fieldIndex the 0-based field index
-   * @return decode error, carrying {@link org.postgresql.util.PSQLState#DATA_ERROR}
-   */
-  public static SQLException invalidCompositeNotEnoughData(int fieldIndex) {
-    return new PSQLException(
-        GT.tr("Invalid binary composite data: not enough data for field {0}", fieldIndex),
-        PSQLState.DATA_ERROR);
-  }
 }

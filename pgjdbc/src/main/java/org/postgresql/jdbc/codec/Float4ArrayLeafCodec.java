@@ -5,7 +5,7 @@
 
 package org.postgresql.jdbc.codec;
 
-import org.postgresql.api.codec.BackpatchingBinarySink;
+import org.postgresql.api.codec.BackpatchingByteArrayOutputStream;
 import org.postgresql.api.codec.CodecContext;
 import org.postgresql.core.Oid;
 import org.postgresql.util.ByteConverter;
@@ -48,13 +48,13 @@ final class Float4ArrayLeafCodec implements ArrayLeafCodec {
   }
 
   @Override
-  public boolean writeLeaf(Object leaf, BackpatchingBinarySink out, CodecContext ctx)
+  public boolean writeLeaf(Object leaf, BackpatchingByteArrayOutputStream out, CodecContext ctx)
       throws IOException, SQLException {
     if (leaf instanceof float[]) {
       float[] arr = (float[]) leaf;
       for (float v : arr) {
         out.writeInt32(4);
-        out.writeFloat(v);
+        out.writeFloat4(v);
       }
       return false;
     }
@@ -67,7 +67,7 @@ final class Float4ArrayLeafCodec implements ArrayLeafCodec {
           hasNulls = true;
         } else {
           out.writeInt32(4);
-          out.writeFloat(Float4Codec.toFloat(element));
+          out.writeFloat4(Float4Codec.toFloat(element));
         }
       }
       return hasNulls;
@@ -176,7 +176,7 @@ final class Float4ArrayLeafCodec implements ArrayLeafCodec {
   }
 
   private static float parseFloat(LiteralCursor cur) throws SQLException {
-    String s = new String(cur.tokenChars(), cur.tokenOffset(), cur.tokenLength());
+    String s = cur.getToken().toString();
     try {
       return Float.parseFloat(s);
     } catch (NumberFormatException e) {

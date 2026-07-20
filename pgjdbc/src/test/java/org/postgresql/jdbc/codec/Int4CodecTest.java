@@ -9,11 +9,10 @@ import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 
-import org.postgresql.api.codec.CharArraySequence;
 import org.postgresql.api.codec.CodecContext;
 import org.postgresql.api.codec.PrimitiveDecoders;
+import org.postgresql.api.codec.TypeName;
 import org.postgresql.core.Oid;
-import org.postgresql.jdbc.ObjectName;
 import org.postgresql.jdbc.PgType;
 import org.postgresql.jdbc.TestCodecContext;
 import org.postgresql.util.ByteConverter;
@@ -23,6 +22,7 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
 import java.math.BigDecimal;
+import java.nio.CharBuffer;
 import java.nio.charset.StandardCharsets;
 import java.sql.SQLException;
 
@@ -47,7 +47,7 @@ class Int4CodecTest {
     codec = Int4Codec.INSTANCE;
     // Create a minimal PgType for int4
     int4Type = new PgType(
-        new ObjectName("pg_catalog", "int4"),
+        TypeName.of("pg_catalog", "int4"),
         "integer",
         Oid.INT4,
         'b', // base type
@@ -118,14 +118,14 @@ class Int4CodecTest {
   void decodeAsInt_charSlice() throws SQLException {
     // The fast path reads the digits off the slice with no String and no box.
     char[] buf = "x-42y".toCharArray();
-    assertEquals(-42, codec.decodeAsInt(new CharArraySequence(buf, 1, 3), int4Type, null));
+    assertEquals(-42, codec.decodeAsInt(CharBuffer.wrap(buf, 1, 3), int4Type, null));
     // A leading '+' is rejected by the fast path and handled by the String fallback.
     char[] plus = "+7".toCharArray();
-    assertEquals(7, codec.decodeAsInt(new CharArraySequence(plus, 0, plus.length), int4Type, null));
+    assertEquals(7, codec.decodeAsInt(CharBuffer.wrap(plus, 0, plus.length), int4Type, null));
     // Out of int4 range surfaces the same error as the String form.
     char[] overflow = "99999999999".toCharArray();
     assertThrows(PSQLException.class,
-        () -> codec.decodeAsInt(new CharArraySequence(overflow, 0, overflow.length), int4Type, null));
+        () -> codec.decodeAsInt(CharBuffer.wrap(overflow, 0, overflow.length), int4Type, null));
   }
 
   @Test
@@ -263,7 +263,7 @@ class Int4CodecTest {
     byte[] data = new byte[4];
     ByteConverter.int4(data, 0, 42);
 
-    int result = PrimitiveDecoders.asInt(codec, data, int4Type, null);
+    int result = PrimitiveDecoders.asInt(codec, data, 0, data.length, int4Type, null);
     assertEquals(42, result);
   }
 
@@ -278,7 +278,7 @@ class Int4CodecTest {
     byte[] data = new byte[4];
     ByteConverter.int4(data, 0, 42);
 
-    long result = PrimitiveDecoders.asLong(codec, data, int4Type, null);
+    long result = PrimitiveDecoders.asLong(codec, data, 0, data.length, int4Type, null);
     assertEquals(42L, result);
   }
 
@@ -293,7 +293,7 @@ class Int4CodecTest {
     byte[] data = new byte[4];
     ByteConverter.int4(data, 0, 42);
 
-    double result = PrimitiveDecoders.asDouble(codec, data, int4Type, null);
+    double result = PrimitiveDecoders.asDouble(codec, data, 0, data.length, int4Type, null);
     assertEquals(42.0, result);
   }
 
@@ -386,7 +386,7 @@ class Int4CodecTest {
   void binaryRoundtrip_positiveValue() throws SQLException {
     int original = 12345;
     byte[] encoded = codec.encodeBinary(original, int4Type, null);
-    int decoded = PrimitiveDecoders.asInt(codec, encoded, int4Type, null);
+    int decoded = PrimitiveDecoders.asInt(codec, encoded, 0, encoded.length, int4Type, null);
     assertEquals(original, decoded);
   }
 
@@ -394,7 +394,7 @@ class Int4CodecTest {
   void binaryRoundtrip_negativeValue() throws SQLException {
     int original = -12345;
     byte[] encoded = codec.encodeBinary(original, int4Type, null);
-    int decoded = PrimitiveDecoders.asInt(codec, encoded, int4Type, null);
+    int decoded = PrimitiveDecoders.asInt(codec, encoded, 0, encoded.length, int4Type, null);
     assertEquals(original, decoded);
   }
 
@@ -402,7 +402,7 @@ class Int4CodecTest {
   void binaryRoundtrip_maxValue() throws SQLException {
     int original = Integer.MAX_VALUE;
     byte[] encoded = codec.encodeBinary(original, int4Type, null);
-    int decoded = PrimitiveDecoders.asInt(codec, encoded, int4Type, null);
+    int decoded = PrimitiveDecoders.asInt(codec, encoded, 0, encoded.length, int4Type, null);
     assertEquals(original, decoded);
   }
 
@@ -410,7 +410,7 @@ class Int4CodecTest {
   void binaryRoundtrip_minValue() throws SQLException {
     int original = Integer.MIN_VALUE;
     byte[] encoded = codec.encodeBinary(original, int4Type, null);
-    int decoded = PrimitiveDecoders.asInt(codec, encoded, int4Type, null);
+    int decoded = PrimitiveDecoders.asInt(codec, encoded, 0, encoded.length, int4Type, null);
     assertEquals(original, decoded);
   }
 
@@ -431,11 +431,6 @@ class Int4CodecTest {
   }
 
   // ==================== Codec Metadata ====================
-
-  @Test
-  void getPrimaryTypeName() {
-    assertEquals("int4", codec.getPrimaryTypeName());
-  }
 
   @Test
   void getDefaultJavaType() {

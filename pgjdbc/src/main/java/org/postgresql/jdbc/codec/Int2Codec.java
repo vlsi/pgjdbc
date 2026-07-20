@@ -5,13 +5,13 @@
 
 package org.postgresql.jdbc.codec;
 
-import org.postgresql.api.codec.BackpatchingBinarySink;
+import org.postgresql.api.codec.BackpatchingByteArrayOutputStream;
 import org.postgresql.api.codec.CodecContext;
 import org.postgresql.api.codec.PrimitiveBinaryDecoder;
 import org.postgresql.api.codec.PrimitiveBinaryEncoder;
 import org.postgresql.api.codec.PrimitiveTextDecoder;
 import org.postgresql.api.codec.PrimitiveTextEncoder;
-import org.postgresql.api.codec.TextSink;
+import org.postgresql.api.codec.PrimitiveTextSink;
 import org.postgresql.api.codec.TypeDescriptor;
 import org.postgresql.core.Encoding;
 import org.postgresql.util.ByteConverter;
@@ -36,11 +36,6 @@ public final class Int2Codec implements PrimitiveBinaryEncoder, PrimitiveBinaryD
 
   private Int2Codec() {
     // Singleton
-  }
-
-  @Override
-  public String getPrimaryTypeName() {
-    return "int2";
   }
 
   @Override
@@ -79,58 +74,45 @@ public final class Int2Codec implements PrimitiveBinaryEncoder, PrimitiveBinaryD
 
   @Override
   public void encodeBinary(Object value, TypeDescriptor type, CodecContext ctx,
-      BackpatchingBinarySink out) throws SQLException, IOException {
+      BackpatchingByteArrayOutputStream out) throws SQLException, IOException {
     out.writeInt16(toShort(value));
   }
 
   @Override
-  public void encodeInt(int value, TypeDescriptor type, CodecContext ctx, BackpatchingBinarySink out)
+  public void encodeInt(int value, TypeDescriptor type, CodecContext ctx, BackpatchingByteArrayOutputStream out)
       throws SQLException, IOException {
     out.writeInt16(toShort(value));
   }
 
   @Override
-  public void encodeLong(long value, TypeDescriptor type, CodecContext ctx, BackpatchingBinarySink out)
+  public void encodeLong(long value, TypeDescriptor type, CodecContext ctx, BackpatchingByteArrayOutputStream out)
       throws SQLException, IOException {
     out.writeInt16(toShort(value));
   }
 
   @Override
-  public @Nullable Object decodeText(String data, TypeDescriptor type, CodecContext ctx) throws SQLException {
+  public @Nullable Object decodeText(CharSequence data, TypeDescriptor type, CodecContext ctx) throws SQLException {
     return decodeAsInt(data, type, ctx);
-  }
-
-  @Override
-  public @Nullable Object decodeText(char[] data, int offset, int length, TypeDescriptor type,
-      CodecContext ctx) throws SQLException {
-    try {
-      return (int) NumberParser.getFastLong(
-          data, offset, length, Short.MIN_VALUE, Short.MAX_VALUE);
-    } catch (NumberFormatException fast) {
-      // Anything the fast path rejects (a leading '+', whitespace, out-of-range)
-      // falls back to the String parser, which owns the error message.
-      return decodeText(new String(data, offset, length), type, ctx);
-    }
   }
 
   @Override
   public void encodeText(Object value, TypeDescriptor type, CodecContext ctx, Appendable out)
       throws SQLException, IOException {
-    TextSink.appendInt(out, toShort(value));
+    PrimitiveTextSink.appendInt(out, toShort(value));
   }
 
   @Override
   public void encodeInt(int value, TypeDescriptor type, CodecContext ctx, Appendable out)
       throws SQLException, IOException {
     // writeShort/writeByte always fit; writeInt into an int2 field is range-checked like toShort.
-    TextSink.appendInt(out, toShort(value));
+    PrimitiveTextSink.appendInt(out, toShort(value));
   }
 
   @Override
   public void encodeLong(long value, TypeDescriptor type, CodecContext ctx, Appendable out)
       throws SQLException, IOException {
     // writeShort/writeByte always fit; writeInt into an int2 field is range-checked like toShort.
-    TextSink.appendInt(out, toShort(value));
+    PrimitiveTextSink.appendInt(out, toShort(value));
   }
 
   @Override
@@ -220,7 +202,7 @@ public final class Int2Codec implements PrimitiveBinaryEncoder, PrimitiveBinaryD
   }
 
   @Override
-  public <T> @Nullable T decodeTextAs(String data, TypeDescriptor type, Class<T> targetClass, CodecContext ctx)
+  public <T> @Nullable T decodeTextAs(CharSequence data, TypeDescriptor type, Class<T> targetClass, CodecContext ctx)
       throws SQLException {
     int value = decodeAsInt(data, type, ctx);
     return decodeShortAs(value, targetClass);

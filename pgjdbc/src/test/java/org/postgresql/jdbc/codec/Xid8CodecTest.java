@@ -9,12 +9,12 @@ import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 
-import org.postgresql.api.codec.CharArraySequence;
+import org.postgresql.api.codec.BinaryCodec;
 import org.postgresql.api.codec.CodecContext;
 import org.postgresql.api.codec.PrimitiveDecoders;
 import org.postgresql.api.codec.TypeDescriptor;
+import org.postgresql.api.codec.TypeName;
 import org.postgresql.core.Oid;
-import org.postgresql.jdbc.ObjectName;
 import org.postgresql.jdbc.PgType;
 import org.postgresql.util.ByteConverter;
 import org.postgresql.util.PSQLException;
@@ -24,6 +24,7 @@ import org.junit.jupiter.api.Test;
 
 import java.math.BigDecimal;
 import java.math.BigInteger;
+import java.nio.CharBuffer;
 import java.sql.SQLException;
 
 /**
@@ -48,16 +49,11 @@ class Xid8CodecTest {
   void setUp() {
     codec = Xid8Codec.INSTANCE;
     xid8Type = new PgType(
-        new ObjectName("pg_catalog", "xid8"),
+        TypeName.of("pg_catalog", "xid8"),
         "xid8",
         Oid.XID8,
         'b', 'U', -1, 0, 0, 0
     );
-  }
-
-  @Test
-  void getPrimaryTypeName() {
-    assertEquals("xid8", codec.getPrimaryTypeName());
   }
 
   @Test
@@ -103,14 +99,14 @@ class Xid8CodecTest {
   void decodeBinary_unsignedHighBit() throws SQLException {
     byte[] data = new byte[8];
     ByteConverter.int8(data, 0, MAX_UNSIGNED);
-    long result = PrimitiveDecoders.asLong(codec, data, xid8Type, null);
+    long result = PrimitiveDecoders.asLong(codec, data, 0, data.length, xid8Type, null);
     assertEquals(MAX_UNSIGNED, result);
   }
 
   @Test
   void decodeBinary_invalidLength() {
     byte[] data = new byte[7]; // wrong length
-    assertThrows(PSQLException.class, () -> PrimitiveDecoders.asLong(codec, data, xid8Type, null));
+    assertThrows(PSQLException.class, () -> PrimitiveDecoders.asLong((BinaryCodec) codec, data, 0, data.length, (TypeDescriptor) xid8Type, (CodecContext) null));
   }
 
   // ==================== Encoding ====================
@@ -158,7 +154,7 @@ class Xid8CodecTest {
   void decodeAsDouble_unsignedHighBit() throws SQLException {
     byte[] data = new byte[8];
     ByteConverter.int8(data, 0, MAX_UNSIGNED);
-    double result = PrimitiveDecoders.asDouble(codec, data, xid8Type, null);
+    double result = PrimitiveDecoders.asDouble(codec, data, 0, data.length, xid8Type, null);
     // 2^64 - 1 rounds to 2^64 in a double (53-bit mantissa).
     assertEquals(Math.pow(2, 64), result);
   }
@@ -170,8 +166,8 @@ class Xid8CodecTest {
   void decodeAsFloat_unsignedHighBit_matchesUnsignedDouble() throws SQLException {
     byte[] data = new byte[8];
     ByteConverter.int8(data, 0, MAX_UNSIGNED);
-    double asDouble = PrimitiveDecoders.asDouble(codec, data, xid8Type, null);
-    float asFloat = PrimitiveDecoders.asFloat(codec, data, xid8Type, null);
+    double asDouble = PrimitiveDecoders.asDouble(codec, data, 0, data.length, xid8Type, null);
+    float asFloat = PrimitiveDecoders.asFloat(codec, data, 0, data.length, xid8Type, null);
     assertEquals(Float.floatToRawIntBits((float) asDouble), Float.floatToRawIntBits(asFloat));
     assertEquals((float) Math.pow(2, 64), asFloat);
   }
@@ -183,7 +179,7 @@ class Xid8CodecTest {
     char[] chars = MAX_UNSIGNED_BIG_INTEGER.toString().toCharArray();
     assertEquals(
         Double.doubleToRawLongBits(codec.decodeAsDouble(MAX_UNSIGNED_BIG_INTEGER.toString(), xid8Type, null)),
-        Double.doubleToRawLongBits(codec.decodeAsDouble(new CharArraySequence(chars, 0, chars.length), xid8Type, null)));
+        Double.doubleToRawLongBits(codec.decodeAsDouble(CharBuffer.wrap(chars, 0, chars.length), xid8Type, null)));
   }
 
   @Test
@@ -238,14 +234,14 @@ class Xid8CodecTest {
     // 2^32 - 1 fits the unsigned int range; its int bit pattern is -1.
     byte[] data = new byte[8];
     ByteConverter.int8(data, 0, 0xFFFFFFFFL);
-    assertEquals(-1, PrimitiveDecoders.asInt(codec, data, xid8Type, null));
+    assertEquals(-1, PrimitiveDecoders.asInt(codec, data, 0, data.length, xid8Type, null));
   }
 
   @Test
   void decodeAsInt_beyondUnsignedRange_refuses() {
     byte[] data = new byte[8];
     ByteConverter.int8(data, 0, 0x1_0000_0000L); // 2^32, one past the unsigned int max
-    assertThrows(PSQLException.class, () -> PrimitiveDecoders.asInt(codec, data, xid8Type, null));
+    assertThrows(PSQLException.class, () -> PrimitiveDecoders.asInt((BinaryCodec) codec, data, 0, data.length, (TypeDescriptor) xid8Type, (CodecContext) null));
   }
 
   @Test
@@ -275,7 +271,7 @@ class Xid8CodecTest {
   @Test
   void binaryRoundtrip_unsignedHighBit() throws SQLException {
     byte[] encoded = codec.encodeBinary(MAX_UNSIGNED, xid8Type, null);
-    long decoded = PrimitiveDecoders.asLong(codec, encoded, xid8Type, null);
+    long decoded = PrimitiveDecoders.asLong(codec, encoded, 0, encoded.length, xid8Type, null);
     assertEquals(MAX_UNSIGNED, decoded);
   }
 

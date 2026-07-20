@@ -13,7 +13,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import org.postgresql.api.codec.CodecContext;
 import org.postgresql.api.codec.PrimitiveDecoders;
-import org.postgresql.jdbc.ObjectName;
+import org.postgresql.api.codec.TypeName;
 import org.postgresql.jdbc.PgType;
 import org.postgresql.jdbc.TestCodecContext;
 import org.postgresql.util.PSQLException;
@@ -51,7 +51,7 @@ class TimestampCodecTest {
   void setUp() {
     codec = TimestampCodec.INSTANCE;
     timestampType = new PgType(
-        new ObjectName("pg_catalog", "timestamp"),
+        TypeName.of("pg_catalog", "timestamp"),
         "timestamp without time zone",
         1114, // Oid.TIMESTAMP
         'b',  // base type
@@ -63,15 +63,10 @@ class TimestampCodecTest {
     );
 
     ctx = TestCodecContext.create();
-    ctxJavaTime = TestCodecContext.create(false, false, false, true, false);
+    ctxJavaTime = TestCodecContext.preferringJavaTimeForTimestamp();
   }
 
   // ==================== Codec Metadata ====================
-
-  @Test
-  void getPrimaryTypeName() {
-    assertEquals("timestamp", codec.getPrimaryTypeName());
-  }
 
   @Test
   void getDefaultJavaType() {

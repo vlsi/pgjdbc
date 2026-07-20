@@ -6,12 +6,15 @@
 package org.postgresql.jdbc;
 
 import org.postgresql.api.Experimental;
+import org.postgresql.api.codec.CompositeAttribute;
 import org.postgresql.api.codec.TypeDescriptor;
+import org.postgresql.api.codec.TypeName;
 import org.postgresql.core.Oid;
 
 import org.checkerframework.checker.nullness.qual.Nullable;
 
 import java.sql.Types;
+import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.HashSet;
@@ -30,7 +33,7 @@ public class PgType implements TypeDescriptor {
   private static final Set<String> TEXT_LIKE_SENDS = Collections.unmodifiableSet(
       new HashSet<>(Arrays.asList("textsend", "varcharsend", "bpcharsend", "namesend")));
 
-  private final ObjectName typeName;
+  private final TypeName typeName;
   private final String fullName;
   private final int oid;
   private final char typtype;      // 'b'=base, 'c'=composite, 'e'=enum, 'd'=domain, 'p'=pseudo, 'r'=range, 'm'=multirange
@@ -50,7 +53,8 @@ public class PgType implements TypeDescriptor {
   // pg_type.typreceive function name; "-" means no binary-receive function exists
   private final String typreceive;
 
-  // Composite type fields (null for non-composite types, empty list if not yet loaded)
+  // Composite type fields; null both for a non-composite type and for a composite whose fields are
+  // not loaded yet. hasFieldsLoaded() tells the two apart; getAttributes() reports either as empty.
   private final @Nullable List<PgField> fields;
 
   // Range subtype OID (pg_range.rngsubtype); 0 for non-range types or until loaded.
@@ -75,7 +79,7 @@ public class PgType implements TypeDescriptor {
    * @param arrayOid for non-array types, the OID of the corresponding array type
    * @param typbasetype for domain types, the OID of the base type
    */
-  public PgType(ObjectName typeName, String fullName, int oid, char typtype, char typcategory,
+  public PgType(TypeName typeName, String fullName, int oid, char typtype, char typcategory,
                 int typtypmod, int typelem, int arrayOid, int typbasetype) {
     this(typeName, fullName, oid, typtype, typcategory, typtypmod, typelem, arrayOid, typbasetype,
         oid == Oid.BOX || oid == Oid.BOX_ARRAY ? ';' : ',', null, "-", "-");
@@ -102,7 +106,7 @@ public class PgType implements TypeDescriptor {
    * @param arrayOid for non-array types, the OID of the corresponding array type
    * @param typbasetype for domain types, the OID of the base type
    */
-  public PgType(ObjectName typeName, String fullName, int oid, char typtype, char typcategory,
+  public PgType(TypeName typeName, String fullName, int oid, char typtype, char typcategory,
                 int typtypmod, String typsend, String typreceive, int typelem, int arrayOid,
                 int typbasetype) {
     this(typeName, fullName, oid, typtype, typcategory, typtypmod, typelem, arrayOid, typbasetype,
@@ -123,7 +127,7 @@ public class PgType implements TypeDescriptor {
    * @param typbasetype for domain types, the OID of the base type
    * @param delimiter the array delimiter character from pg_type.typdelim
    */
-  public PgType(ObjectName typeName, String fullName, int oid, char typtype, char typcategory,
+  public PgType(TypeName typeName, String fullName, int oid, char typtype, char typcategory,
                 int typtypmod, int typelem, int arrayOid, int typbasetype, char delimiter) {
     this(typeName, fullName, oid, typtype, typcategory, typtypmod, typelem, arrayOid, typbasetype, delimiter, null, "-", "-");
   }
@@ -145,7 +149,7 @@ public class PgType implements TypeDescriptor {
    * @param typsend the name of the binary-send function from pg_type.typsend, or {@code "-"}
    * @param typreceive the name of the binary-receive function from pg_type.typreceive, or {@code "-"}
    */
-  public PgType(ObjectName typeName, String fullName, int oid, char typtype, char typcategory,
+  public PgType(TypeName typeName, String fullName, int oid, char typtype, char typcategory,
                 int typtypmod, int typelem, int arrayOid, int typbasetype, char delimiter,
                 String typsend, String typreceive) {
     this(typeName, fullName, oid, typtype, typcategory, typtypmod, typelem, arrayOid, typbasetype, delimiter, null, typsend, typreceive);
@@ -165,7 +169,7 @@ public class PgType implements TypeDescriptor {
    * @param typbasetype for domain types, the OID of the base type
    * @param fields the list of fields for composite types, or null for non-composite types
    */
-  public PgType(ObjectName typeName, String fullName, int oid, char typtype, char typcategory,
+  public PgType(TypeName typeName, String fullName, int oid, char typtype, char typcategory,
                 int typtypmod, int typelem, int arrayOid, int typbasetype,
                 @Nullable List<PgField> fields) {
     this(typeName, fullName, oid, typtype, typcategory, typtypmod, typelem, arrayOid, typbasetype,
@@ -187,21 +191,21 @@ public class PgType implements TypeDescriptor {
    * @param delimiter the array delimiter character from pg_type.typdelim
    * @param fields the list of fields for composite types, or null for non-composite types
    */
-  public PgType(ObjectName typeName, String fullName, int oid, char typtype, char typcategory,
+  public PgType(TypeName typeName, String fullName, int oid, char typtype, char typcategory,
                 int typtypmod, int typelem, int arrayOid, int typbasetype, char delimiter,
                 @Nullable List<PgField> fields) {
     this(typeName, fullName, oid, typtype, typcategory, typtypmod, typelem, arrayOid, typbasetype,
         delimiter, fields, "-", "-");
   }
 
-  private PgType(ObjectName typeName, String fullName, int oid, char typtype, char typcategory,
+  private PgType(TypeName typeName, String fullName, int oid, char typtype, char typcategory,
                  int typtypmod, int typelem, int arrayOid, int typbasetype, char delimiter,
                  @Nullable List<PgField> fields, String typsend, String typreceive) {
     this(typeName, fullName, oid, typtype, typcategory, typtypmod, typelem, arrayOid, typbasetype,
         delimiter, fields, typsend, typreceive, Oid.UNSPECIFIED, Oid.UNSPECIFIED, -1);
   }
 
-  private PgType(ObjectName typeName, String fullName, int oid, char typtype, char typcategory,
+  private PgType(TypeName typeName, String fullName, int oid, char typtype, char typcategory,
                  int typtypmod, int typelem, int arrayOid, int typbasetype, char delimiter,
                  @Nullable List<PgField> fields, String typsend, String typreceive,
                  int rangeSubtype, int multirangeRange, int typmod) {
@@ -367,12 +371,12 @@ public class PgType implements TypeDescriptor {
   }
 
   @Override
-  public int getTyptypmod() {
+  public int getCatalogTypmod() {
     return typtypmod;
   }
 
   @Override
-  public int getTypmod() {
+  public int getAppliedTypmod() {
     return typmod;
   }
 
@@ -552,7 +556,7 @@ public class PgType implements TypeDescriptor {
    * @return the type name
    */
   @Override
-  public ObjectName getTypeName() {
+  public TypeName getName() {
     return typeName;
   }
 
@@ -562,7 +566,7 @@ public class PgType implements TypeDescriptor {
    * @return the full name
    */
   @Override
-  public String getFullName() {
+  public String getFormattedName() {
     return fullName;
   }
 
@@ -617,15 +621,19 @@ public class PgType implements TypeDescriptor {
   }
 
   /**
-   * Gets the fields of a composite type.
-   * For non-composite types, returns null.
-   * For composite types whose fields haven't been loaded yet, returns null.
+   * Gets the attributes of a composite type, or an empty list when this type has none.
    *
-   * @return the list of fields, or null if not a composite type or fields not loaded
+   * <p>A composite whose fields the driver has not loaded yet also reports an empty list, because
+   * the public contract has no "not loaded" state. Callers inside the driver that must tell the two
+   * apart — the lazy loader and the {@code SQLInput}/{@code SQLOutput} adapters — ask
+   * {@link #hasFieldsLoaded()} first.</p>
+   *
+   * @return the list of attributes, empty when the type has none or they are not loaded
    */
   @Override
-  public @Nullable List<PgField> getFields() {
-    return fields;
+  public List<PgField> getAttributes() {
+    List<PgField> loaded = fields;
+    return loaded == null ? Collections.emptyList() : loaded;
   }
 
   /**
@@ -639,26 +647,41 @@ public class PgType implements TypeDescriptor {
   }
 
   /**
-   * Creates a copy of this PgType with the specified fields.
-   * Used to update a composite type after loading its fields.
+   * Creates a copy of this PgType with the specified attributes, used to update a composite type
+   * after loading them.
    *
-   * @param fields the list of fields
-   * @return a new PgType with the fields set
+   * <p>The driver builds {@link PgField} attributes, so the common case passes them straight
+   * through; a foreign {@link CompositeAttribute} (an offline descriptor registered through the
+   * codec builder) is copied into one, numbering positions from the list order since
+   * {@code CompositeAttribute} does not carry a position.</p>
+   *
+   * @param attributes the list of attributes
+   * @return a new PgType with the attributes set
    */
-  public PgType withFields(List<PgField> fields) {
+  @Override
+  public PgType withAttributes(List<? extends CompositeAttribute> attributes) {
+    List<PgField> converted = new ArrayList<>(attributes.size());
+    int position = 1;
+    for (CompositeAttribute attribute : attributes) {
+      converted.add(attribute instanceof PgField
+          ? (PgField) attribute
+          : new PgField(attribute.getName(), attribute.getTypeOid(), position,
+              attribute.getAppliedTypmod(), attribute.getType()));
+      position++;
+    }
     return new PgType(typeName, fullName, oid, typtype, typcategory,
-        typtypmod, typelem, arrayOid, typbasetype, delimiter, fields, typsend, typreceive,
+        typtypmod, typelem, arrayOid, typbasetype, delimiter, converted, typsend, typreceive,
         rangeSubtype, multirangeRange, typmod);
   }
 
   /**
-   * Creates a copy of this PgType reporting the given applied modifier from {@link #getTypmod()}.
+   * Creates a copy of this PgType reporting the given applied modifier from {@link #getAppliedTypmod()}.
    * Used to stamp a result column's, composite attribute's, or domain's modifier onto the descriptor
    * handed to a codec, so a modifier-sensitive type such as {@code numeric(10,2)} decodes correctly.
-   * Leaves {@code pg_type.typtypmod} ({@link #getTyptypmod()}) unchanged.
+   * Leaves {@code pg_type.typtypmod} ({@link #getCatalogTypmod()}) unchanged.
    *
    * @param typmod the applied type modifier, or {@code -1} for none
-   * @return a copy reporting {@code typmod} from {@link #getTypmod()}, or {@code this} if unchanged
+   * @return a copy reporting {@code typmod} from {@link #getAppliedTypmod()}, or {@code this} if unchanged
    */
   @Override
   public PgType withTypmod(int typmod) {

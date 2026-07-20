@@ -5,7 +5,7 @@
 
 package org.postgresql.jdbc.codec;
 
-import org.postgresql.api.codec.BackpatchingBinarySink;
+import org.postgresql.api.codec.BackpatchingByteArrayOutputStream;
 import org.postgresql.api.codec.BinaryCodec;
 import org.postgresql.api.codec.Codec;
 import org.postgresql.api.codec.CodecContext;
@@ -59,11 +59,6 @@ public final class PGobjectCodec implements StreamingBinaryCodec, StreamingTextC
   }
 
   @Override
-  public String getPrimaryTypeName() {
-    return delegate.getPrimaryTypeName();
-  }
-
-  @Override
   public Class<?> getDefaultJavaType() {
     return pgObjectClass;
   }
@@ -71,8 +66,10 @@ public final class PGobjectCodec implements StreamingBinaryCodec, StreamingTextC
   // ---- Decode: produce the registered PGobject subclass --------------------
 
   @Override
-  public @Nullable Object decodeText(String data, TypeDescriptor type, CodecContext ctx) throws SQLException {
-    return fromText(data, type);
+  public @Nullable Object decodeText(CharSequence data, TypeDescriptor type, CodecContext ctx) throws SQLException {
+    // The PGobject keeps the text as its value, so it must own a String rather than the caller's
+    // borrowed view.
+    return fromText(data.toString(), type);
   }
 
   @Override
@@ -91,15 +88,15 @@ public final class PGobjectCodec implements StreamingBinaryCodec, StreamingTextC
 
   @Override
   @SuppressWarnings("unchecked")
-  public <T> @Nullable T decodeTextAs(String data, TypeDescriptor type, Class<T> targetClass, CodecContext ctx)
+  public <T> @Nullable T decodeTextAs(CharSequence data, TypeDescriptor type, Class<T> targetClass, CodecContext ctx)
       throws SQLException {
     if (targetClass.isAssignableFrom(pgObjectClass)) {
-      return (T) fromText(data, type);
+      return (T) fromText(data.toString(), type);
     }
     if (delegate instanceof TextCodec) {
       return ((TextCodec) delegate).decodeTextAs(data, type, targetClass, ctx);
     }
-    throw Exceptions.cannotDecode(getPrimaryTypeName(), targetClass.getName());
+    throw Exceptions.cannotDecode(type.getFormattedName(), targetClass.getName());
   }
 
   @Override
@@ -112,7 +109,7 @@ public final class PGobjectCodec implements StreamingBinaryCodec, StreamingTextC
     if (delegate instanceof BinaryCodec) {
       return ((BinaryCodec) delegate).decodeBinaryAs(data, offset, length, type, targetClass, ctx);
     }
-    throw Exceptions.cannotDecode(getPrimaryTypeName(), targetClass.getName());
+    throw Exceptions.cannotDecode(type.getFormattedName(), targetClass.getName());
   }
 
   // ---- Encode and coercions: forward to the delegate -----------------------
@@ -122,7 +119,7 @@ public final class PGobjectCodec implements StreamingBinaryCodec, StreamingTextC
     if (delegate instanceof TextCodec) {
       return ((TextCodec) delegate).encodeText(value, type, ctx);
     }
-    throw Exceptions.cannotEncode(value, type.getFullName());
+    throw Exceptions.cannotEncode(value, type.getFormattedName());
   }
 
   @Override
@@ -133,7 +130,7 @@ public final class PGobjectCodec implements StreamingBinaryCodec, StreamingTextC
     } else if (delegate instanceof TextCodec) {
       out.append(((TextCodec) delegate).encodeText(value, type, ctx));
     } else {
-      throw Exceptions.cannotEncode(value, type.getFullName());
+      throw Exceptions.cannotEncode(value, type.getFormattedName());
     }
   }
 
@@ -142,18 +139,18 @@ public final class PGobjectCodec implements StreamingBinaryCodec, StreamingTextC
     if (delegate instanceof BinaryCodec) {
       return ((BinaryCodec) delegate).encodeBinary(value, type, ctx);
     }
-    throw Exceptions.cannotEncode(value, type.getFullName());
+    throw Exceptions.cannotEncode(value, type.getFormattedName());
   }
 
   @Override
   public void encodeBinary(Object value, TypeDescriptor type, CodecContext ctx,
-      BackpatchingBinarySink out) throws SQLException, IOException {
+      BackpatchingByteArrayOutputStream out) throws SQLException, IOException {
     if (delegate instanceof StreamingBinaryCodec) {
       ((StreamingBinaryCodec) delegate).encodeBinary(value, type, ctx, out);
     } else if (delegate instanceof BinaryCodec) {
       out.write(((BinaryCodec) delegate).encodeBinary(value, type, ctx));
     } else {
-      throw Exceptions.cannotEncode(value, type.getFullName());
+      throw Exceptions.cannotEncode(value, type.getFormattedName());
     }
   }
 
@@ -182,11 +179,11 @@ public final class PGobjectCodec implements StreamingBinaryCodec, StreamingTextC
   }
 
   @Override
-  public @Nullable String decodeAsString(String data, TypeDescriptor type, CodecContext ctx) throws SQLException {
+  public @Nullable String decodeAsString(CharSequence data, TypeDescriptor type, CodecContext ctx) throws SQLException {
     if (delegate instanceof TextCodec) {
       return ((TextCodec) delegate).decodeAsString(data, type, ctx);
     }
-    return data;
+    return data.toString();
   }
 
   @Override
@@ -195,7 +192,7 @@ public final class PGobjectCodec implements StreamingBinaryCodec, StreamingTextC
     if (delegate instanceof BinaryCodec) {
       return ((BinaryCodec) delegate).decodeAsString(data, offset, length, type, ctx);
     }
-    throw Exceptions.cannotDecode(getPrimaryTypeName(), "String");
+    throw Exceptions.cannotDecode(type.getFormattedName(), "String");
   }
 
   // ---- Materialization -----------------------------------------------------
@@ -207,7 +204,7 @@ public final class PGobjectCodec implements StreamingBinaryCodec, StreamingTextC
     } catch (ReflectiveOperationException e) {
       throw Exceptions.cannotInstantiate(pgObjectClass.getName(), e);
     }
-    obj.setType(type.getFullName());
+    obj.setType(type.getFormattedName());
     return obj;
   }
 

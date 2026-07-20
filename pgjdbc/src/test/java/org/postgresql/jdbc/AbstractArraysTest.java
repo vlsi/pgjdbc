@@ -305,7 +305,7 @@ public abstract class AbstractArraysTest<A> {
     }
 
     @Override
-    public void registerCodec(org.postgresql.api.codec.Codec codec) {
+    public void registerCodec(String typeName, org.postgresql.api.codec.Codec codec) {
       throw new UnsupportedOperationException("Not implemented in test mock");
     }
 

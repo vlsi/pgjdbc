@@ -5,9 +5,10 @@
 
 package org.postgresql.jdbc.codec;
 
-import org.postgresql.api.codec.BackpatchingBinarySink;
+import org.postgresql.api.codec.BackpatchingByteArrayOutputStream;
 import org.postgresql.api.codec.BinaryCodec;
 import org.postgresql.api.codec.CodecContext;
+import org.postgresql.api.codec.CodecFormatSupport;
 import org.postgresql.api.codec.StreamingBinaryCodec;
 import org.postgresql.api.codec.TextCodec;
 import org.postgresql.api.codec.TypeDescriptor;
@@ -52,27 +53,8 @@ public final class MultirangeCodec implements StreamingBinaryCodec, TextCodec {
   }
 
   @Override
-  public String getPrimaryTypeName() {
-    return "multirange";
-  }
-
-  @Override
   public Class<?> getDefaultJavaType() {
     return PGmultirange.class;
-  }
-
-  /**
-   * Resolves the OID of the range type this multirange is over. A multirange carries
-   * {@code typelem == 0}, so the range type comes from the metadata: the value already cached on the
-   * {@link TypeDescriptor} when present, otherwise from {@link CodecContext#resolveType(int)}, which
-   * loads {@code pg_range.rngtypid} lazily. Returns {@code 0} when it cannot be resolved.
-   */
-  private static int resolveRangeOid(TypeDescriptor type, CodecContext ctx) throws SQLException {
-    int rangeOid = type.getMultirangeRange();
-    if (rangeOid == 0) {
-      rangeOid = ctx.resolveType(type.getOid()).getMultirangeRange();
-    }
-    return rangeOid;
   }
 
   // ==================== Binary Codec Methods ====================
@@ -86,14 +68,14 @@ public final class MultirangeCodec implements StreamingBinaryCodec, TextCodec {
 
     CodecDepth.enter();
     try {
-      int rangeOid = resolveRangeOid(type, ctx);
+      int rangeOid = type.getMultirangeRange();
       if (rangeOid == 0) {
-        throw Exceptions.multirangeRangeTypeUnresolvedForDecode(type.getFullName());
+        throw Exceptions.multirangeRangeTypeUnresolvedForDecode(type.getFormattedName());
       }
       TypeDescriptor rangeType = ctx.resolveType(rangeOid);
       BinaryCodec rangeCodec = ctx.resolveBinaryCodec(rangeOid);
       if (rangeCodec == null) {
-        throw Exceptions.multirangeRangeCodecMissingForDecode(type.getFullName(), rangeOid);
+        throw Exceptions.multirangeRangeCodecMissingForDecode(type.getFormattedName(), rangeOid);
       }
 
       // Bounds are tracked against the caller's slice (srcOffset..srcOffset + srcLength); every
@@ -134,18 +116,18 @@ public final class MultirangeCodec implements StreamingBinaryCodec, TextCodec {
 
   @Override
   public byte[] encodeBinary(Object value, TypeDescriptor type, CodecContext ctx) throws SQLException {
-    BackpatchByteArrayOutputStream out = new BackpatchByteArrayOutputStream();
+    BackpatchingByteArrayOutputStream out = new BackpatchingByteArrayOutputStream();
     try {
       encodeBinary(value, type, ctx, out);
     } catch (IOException e) {
-      throw new AssertionError(e); // BackpatchByteArrayOutputStream never throws
+      throw new AssertionError(e); // BackpatchingByteArrayOutputStream never throws
     }
     return out.toByteArray();
   }
 
   @Override
   public void encodeBinary(Object value, TypeDescriptor type, CodecContext ctx,
-      BackpatchingBinarySink out) throws SQLException, IOException {
+      BackpatchingByteArrayOutputStream out) throws SQLException, IOException {
     if (!(value instanceof PGmultirange)) {
       throw Exceptions.cannotEncodeMultirange(value);
     }
@@ -154,20 +136,20 @@ public final class MultirangeCodec implements StreamingBinaryCodec, TextCodec {
     try {
       PGmultirange<?> multirange = (PGmultirange<?>) value;
 
-      int rangeOid = resolveRangeOid(type, ctx);
+      int rangeOid = type.getMultirangeRange();
       if (rangeOid == 0) {
-        throw Exceptions.multirangeRangeTypeUnresolvedForEncode(type.getFullName());
+        throw Exceptions.multirangeRangeTypeUnresolvedForEncode(type.getFormattedName());
       }
       TypeDescriptor rangeType = ctx.resolveType(rangeOid);
       BinaryCodec rangeCodec = ctx.resolveBinaryCodec(rangeOid);
       if (rangeCodec == null) {
-        throw Exceptions.multirangeRangeCodecMissingForEncode(type.getFullName(), rangeOid);
+        throw Exceptions.multirangeRangeCodecMissingForEncode(type.getFormattedName(), rangeOid);
       }
 
       List<? extends PGRange<?>> ranges = multirange.getRanges();
       out.writeInt32(ranges.size());
       for (PGRange<?> range : ranges) {
-        BinaryCodec.writeElement(out, range, rangeCodec, rangeType, ctx);
+        CodecFormatSupport.writeBinaryElement(out, range, rangeCodec, rangeType, ctx);
       }
     } finally {
       CodecDepth.exit();
@@ -190,22 +172,13 @@ public final class MultirangeCodec implements StreamingBinaryCodec, TextCodec {
   // ==================== Text Codec Methods ====================
 
   @Override
-  public @Nullable Object decodeText(String data, TypeDescriptor type, CodecContext ctx) throws SQLException {
-    if (data == null || data.isEmpty()) {
+  public @Nullable Object decodeText(CharSequence data, TypeDescriptor type, CodecContext ctx) throws SQLException {
+    if (data == null || data.length() == 0) {
       return null;
     }
-    return decodeMultirange(LiteralCursor.over(data), type, ctx);
-  }
-
-  @Override
-  public @Nullable Object decodeText(char[] data, int offset, int length, TypeDescriptor type,
-      CodecContext ctx) throws SQLException {
-    if (length == 0) {
-      return null;
-    }
-    // Slice form: parse a multirange nested in a composite/array directly off the
-    // borrowed char[] without materializing a per-element String first.
-    return decodeMultirange(new LiteralCursor(data, offset, length), type, ctx);
+    LiteralCursor cur = LiteralCursor.over(data);
+    Object multirange = decodeMultirange(cur, type, ctx);
+    return multirange;
   }
 
   /**
@@ -215,9 +188,9 @@ public final class MultirangeCodec implements StreamingBinaryCodec, TextCodec {
    */
   private static @Nullable Object decodeMultirange(LiteralCursor cur, TypeDescriptor type,
       CodecContext ctx) throws SQLException {
-    int rangeOid = resolveRangeOid(type, ctx);
+    int rangeOid = type.getMultirangeRange();
     if (rangeOid == 0) {
-      throw Exceptions.multirangeRangeTypeUnresolvedForDecodeText(type.getFullName());
+      throw Exceptions.multirangeRangeTypeUnresolvedForDecodeText(type.getFormattedName());
     }
     TypeDescriptor rangeType = ctx.resolveType(rangeOid);
 
@@ -253,20 +226,21 @@ public final class MultirangeCodec implements StreamingBinaryCodec, TextCodec {
 
   @Override
   @SuppressWarnings("unchecked")
-  public <T> @Nullable T decodeTextAs(String data, TypeDescriptor type, Class<T> targetClass, CodecContext ctx)
+  public <T> @Nullable T decodeTextAs(CharSequence data, TypeDescriptor type, Class<T> targetClass, CodecContext ctx)
       throws SQLException {
     if (targetClass == PGmultirange.class || targetClass == Object.class) {
       return (T) decodeText(data, type, ctx);
     }
     if (targetClass == String.class) {
-      return (T) data;
+      return (T) data.toString();
     }
     throw Exceptions.cannotDecodeMultirangeTo(targetClass.getName());
   }
 
   @Override
-  public @Nullable String decodeAsString(String data, TypeDescriptor type, CodecContext ctx) throws SQLException {
-    return data;
+  public @Nullable String decodeAsString(CharSequence data, TypeDescriptor type, CodecContext ctx)
+      throws SQLException {
+    return data.toString();
   }
 
   // ==================== Helpers ====================
@@ -274,7 +248,7 @@ public final class MultirangeCodec implements StreamingBinaryCodec, TextCodec {
   /** Wraps the decoded ranges in a {@link PGmultirange} labelled with the multirange's type name. */
   private static PGmultirange<Object> newMultirange(List<PGRange<Object>> ranges, TypeDescriptor type) {
     PGmultirange<Object> multirange = new PGmultirange<>(ranges);
-    multirange.setType(type.getFullName());
+    multirange.setType(type.getFormattedName());
     return multirange;
   }
 

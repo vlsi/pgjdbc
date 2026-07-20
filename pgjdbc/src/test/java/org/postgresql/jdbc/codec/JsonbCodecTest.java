@@ -11,8 +11,8 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 import org.postgresql.api.codec.CodecContext;
 import org.postgresql.api.codec.PrimitiveDecoders;
 import org.postgresql.api.codec.TypeDescriptor;
+import org.postgresql.api.codec.TypeName;
 import org.postgresql.core.Oid;
-import org.postgresql.jdbc.ObjectName;
 import org.postgresql.jdbc.PgType;
 import org.postgresql.util.PGobject;
 import org.postgresql.util.PSQLException;
@@ -32,16 +32,11 @@ class JsonbCodecTest {
   void setUp() {
     codec = JsonbCodec.INSTANCE;
     jsonbType = new PgType(
-        new ObjectName("pg_catalog", "jsonb"),
+        TypeName.of("pg_catalog", "jsonb"),
         "jsonb",
         Oid.JSONB,
         'b', 'U', -1, 0, 0, 0
     );
-  }
-
-  @Test
-  void getPrimaryTypeName() {
-    assertEquals("jsonb", codec.getPrimaryTypeName());
   }
 
   @Test

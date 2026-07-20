@@ -8,9 +8,9 @@ package org.postgresql.jdbc.codec;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 
+import org.postgresql.api.codec.TypeName;
 import org.postgresql.core.Oid;
 import org.postgresql.geometric.PGcircle;
-import org.postgresql.jdbc.ObjectName;
 import org.postgresql.jdbc.PgType;
 import org.postgresql.util.ByteConverter;
 import org.postgresql.util.PSQLException;
@@ -29,7 +29,7 @@ class CircleCodecTest {
   void setUp() {
     codec = CircleCodec.INSTANCE;
     circleType = new PgType(
-        new ObjectName("pg_catalog", "circle"),
+        TypeName.of("pg_catalog", "circle"),
         "circle",
         Oid.CIRCLE,
         'b', 'G', -1, 0, 0, 0
@@ -94,11 +94,6 @@ class CircleCodecTest {
     String encoded = codec.encodeText(original, circleType, null);
     Object decoded = codec.decodeText(encoded, circleType, null);
     assertEquals(original, decoded);
-  }
-
-  @Test
-  void getPrimaryTypeName() {
-    assertEquals("circle", codec.getPrimaryTypeName());
   }
 
   @Test

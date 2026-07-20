@@ -14,7 +14,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import org.postgresql.api.codec.CodecContext;
 import org.postgresql.api.codec.TypeDescriptor;
-import org.postgresql.jdbc.ObjectName;
+import org.postgresql.api.codec.TypeName;
 import org.postgresql.jdbc.PgType;
 import org.postgresql.jdbc.TestCodecContext;
 import org.postgresql.util.PGUnknownBinary;
@@ -38,7 +38,7 @@ class TextLikeCodecTest {
     codec = TextLikeCodec.INSTANCE;
     // A text-send type: refcursor. The codec only reads the type name, so a minimal PgType suffices.
     refcursorType = new PgType(
-        new ObjectName("pg_catalog", "refcursor"), "refcursor", 1790, 'b', 'U', -1, 0, 0, 0);
+        TypeName.of("pg_catalog", "refcursor"), "refcursor", 1790, 'b', 'U', -1, 0, 0, 0);
     ctx = TestCodecContext.create();
     abcBytes = "abc".getBytes(ctx.getCharset());
   }

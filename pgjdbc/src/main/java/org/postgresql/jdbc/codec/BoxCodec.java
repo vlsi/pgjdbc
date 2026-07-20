@@ -5,7 +5,7 @@
 
 package org.postgresql.jdbc.codec;
 
-import org.postgresql.api.codec.BackpatchingBinarySink;
+import org.postgresql.api.codec.BackpatchingByteArrayOutputStream;
 import org.postgresql.api.codec.CodecContext;
 import org.postgresql.api.codec.StreamingBinaryCodec;
 import org.postgresql.api.codec.TextCodec;
@@ -37,11 +37,6 @@ public final class BoxCodec implements StreamingBinaryCodec, TextCodec {
   }
 
   @Override
-  public String getPrimaryTypeName() {
-    return "box";
-  }
-
-  @Override
   public Class<?> getDefaultJavaType() {
     return PGbox.class;
   }
@@ -68,17 +63,18 @@ public final class BoxCodec implements StreamingBinaryCodec, TextCodec {
 
   @Override
   public void encodeBinary(Object value, TypeDescriptor type, CodecContext ctx,
-      BackpatchingBinarySink out) throws SQLException, IOException {
+      BackpatchingByteArrayOutputStream out) throws SQLException, IOException {
     PGpoint[] hiLo = normalizedCorners(value);
-    out.writeDouble(hiLo[0].x);
-    out.writeDouble(hiLo[0].y);
-    out.writeDouble(hiLo[1].x);
-    out.writeDouble(hiLo[1].y);
+    out.writeFloat8(hiLo[0].x);
+    out.writeFloat8(hiLo[0].y);
+    out.writeFloat8(hiLo[1].x);
+    out.writeFloat8(hiLo[1].y);
   }
 
   @Override
-  public @Nullable Object decodeText(String data, TypeDescriptor type, CodecContext ctx) throws SQLException {
-    PGtokenizer t = new PGtokenizer(data, ',');
+  public @Nullable Object decodeText(CharSequence data, TypeDescriptor type, CodecContext ctx) throws SQLException {
+    String text = data.toString();
+    PGtokenizer t = new PGtokenizer(text, ',');
     try {
       if (t.getSize() != 2) {
         throw new NumberFormatException("expected 2 points, got " + t.getSize());
@@ -87,7 +83,7 @@ public final class BoxCodec implements StreamingBinaryCodec, TextCodec {
       double[] p2 = PGpointFormat.parseText(t.getToken(1));
       return normalize(p1[0], p1[1], p2[0], p2[1]);
     } catch (NumberFormatException e) {
-      throw Exceptions.cannotConvertValue("box", data, PSQLState.DATA_TYPE_MISMATCH, e);
+      throw Exceptions.cannotConvertValue("box", text, PSQLState.DATA_TYPE_MISMATCH, e);
     }
   }
 

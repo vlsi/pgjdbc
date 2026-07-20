@@ -5,7 +5,7 @@
 
 package org.postgresql.fuzzkit.coercion;
 
-import org.postgresql.jdbc.ObjectName;
+import org.postgresql.api.codec.TypeName;
 import org.postgresql.jdbc.PgField;
 import org.postgresql.jdbc.PgType;
 
@@ -80,7 +80,7 @@ public final class CompositeDescriptor extends PgTypeDescriptor {
       Field field = fields.get(i);
       pgFields.add(new PgField(field.name(), field.oid(), i + 1, -1));
     }
-    return new PgType(new ObjectName(schema, typeName), fullName, oid(), 'c', 'C', -1, 0, 0, 0, ',',
+    return new PgType(TypeName.of(schema, typeName), fullName, oid(), 'c', 'C', -1, 0, 0, 0, ',',
         pgFields);
   }
 

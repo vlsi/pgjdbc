@@ -12,8 +12,8 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 import org.postgresql.api.codec.CodecContext;
 import org.postgresql.api.codec.PrimitiveDecoders;
 import org.postgresql.api.codec.TypeDescriptor;
+import org.postgresql.api.codec.TypeName;
 import org.postgresql.core.Oid;
-import org.postgresql.jdbc.ObjectName;
 import org.postgresql.jdbc.PgType;
 import org.postgresql.jdbc.TestCodecContext;
 import org.postgresql.util.PSQLException;
@@ -33,17 +33,12 @@ class XmlCodecTest {
   void setUp() {
     codec = XmlCodec.INSTANCE;
     xmlType = new PgType(
-        new ObjectName("pg_catalog", "xml"),
+        TypeName.of("pg_catalog", "xml"),
         "xml",
         Oid.XML,
         'b', 'U', -1, 0, 0, 0
     );
     ctx = TestCodecContext.create();
-  }
-
-  @Test
-  void getPrimaryTypeName() {
-    assertEquals("xml", codec.getPrimaryTypeName());
   }
 
   @Test

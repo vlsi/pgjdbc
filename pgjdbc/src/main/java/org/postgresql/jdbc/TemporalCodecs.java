@@ -6,7 +6,7 @@
 package org.postgresql.jdbc;
 
 import org.postgresql.PGStatement;
-import org.postgresql.api.codec.BackpatchingBinarySink;
+import org.postgresql.api.codec.BackpatchingByteArrayOutputStream;
 import org.postgresql.api.codec.CodecContext;
 import org.postgresql.api.codec.Codecs;
 
@@ -45,6 +45,17 @@ import java.util.TimeZone;
 public final class TemporalCodecs {
 
   /**
+   * Whether the backend sends {@code float8} time values.
+   *
+   * <p>The codec API reports the server's setting under its own name, {@code integer_datetimes},
+   * while the {@link TimestampUtils} conversions below take the opposite flag. Inverting once here
+   * keeps the negation out of every call site.</p>
+   */
+  private static boolean usesDouble(CodecContext ctx) {
+    return !ctx.usesIntegerDateTimes();
+  }
+
+  /**
    * Reusable scratch {@link Calendar}, one per thread, for the conversions that compose or split a
    * value through a {@link Calendar}.
    *
@@ -73,10 +84,10 @@ public final class TemporalCodecs {
     // Static utility
   }
 
-  /** The timezone to decode in: the per-call Calendar's zone, else the context default. */
+  /** The timezone to decode in: the caller-supplied zone, else the context default. */
   private static TimeZone decodeTz(CodecContext ctx) {
-    Calendar cal = ctx.getCalendar();
-    return cal != null ? cal.getTimeZone() : ctx.getDefaultTimeZone();
+    TimeZone tz = ctx.getCallerTimeZone();
+    return tz != null ? tz : ctx.getDefaultTimeZone();
   }
 
   /**
@@ -113,17 +124,17 @@ public final class TemporalCodecs {
   public static Time decodeTimeBin(byte[] data, int off, int len, CodecContext ctx)
       throws SQLException {
     TimeZone tz = decodeTz(ctx);
-    return TimestampUtils.toTimeBin(ctx.usesDoubleDateTime(), tz, dstScratch(tz), data, off, len);
+    return TimestampUtils.toTimeBin(usesDouble(ctx), tz, dstScratch(tz), data, off, len);
   }
 
   public static LocalTime decodeLocalTimeBin(byte[] data, int off, int len, CodecContext ctx)
       throws SQLException {
-    return TimestampUtils.toLocalTimeBin(ctx.usesDoubleDateTime(), data, off, len);
+    return TimestampUtils.toLocalTimeBin(usesDouble(ctx), data, off, len);
   }
 
   public static OffsetTime decodeOffsetTimeBin(byte[] data, int off, int len, CodecContext ctx)
       throws SQLException {
-    return TimestampUtils.toOffsetTimeBin(ctx.usesDoubleDateTime(), data, off, len);
+    return TimestampUtils.toOffsetTimeBin(usesDouble(ctx), data, off, len);
   }
 
   public static Timestamp decodeTimestampBin(byte[] data, int off, int len, boolean timestamptz,
@@ -132,18 +143,18 @@ public final class TemporalCodecs {
     // A timestamptz carries its own instant, so the guess-timestamp (calendar) path never runs and
     // needs no scratch; a plain timestamp needs it only for a non-simple zone.
     Calendar scratch = timestamptz ? null : dstScratch(tz);
-    return TimestampUtils.toTimestampBin(ctx.usesDoubleDateTime(), tz, scratch, data, off, len,
+    return TimestampUtils.toTimestampBin(usesDouble(ctx), tz, scratch, data, off, len,
         timestamptz);
   }
 
   public static LocalDateTime decodeLocalDateTimeBin(byte[] data, int off, int len, CodecContext ctx)
       throws SQLException {
-    return TimestampUtils.toLocalDateTimeBin(ctx.usesDoubleDateTime(), data, off, len);
+    return TimestampUtils.toLocalDateTimeBin(usesDouble(ctx), data, off, len);
   }
 
   public static OffsetDateTime decodeOffsetDateTimeBin(byte[] data, int off, int len,
       CodecContext ctx) throws SQLException {
-    return TimestampUtils.toOffsetDateTimeBin(ctx.usesDoubleDateTime(), data, off, len);
+    return TimestampUtils.toOffsetDateTimeBin(usesDouble(ctx), data, off, len);
   }
 
   // ----------------------------- text decode -----------------------------
@@ -248,19 +259,19 @@ public final class TemporalCodecs {
   /** Formats the binary {@code time} payload as text without an intermediate object (24:00:00-safe). */
   public static String formatLocalTimeBin(byte[] data, int off, int len, CodecContext ctx)
       throws SQLException {
-    return TimestampUtils.toStringLocalTimeBin(ctx.usesDoubleDateTime(), data, off, len, null);
+    return TimestampUtils.toStringLocalTimeBin(usesDouble(ctx), data, off, len, null);
   }
 
   /** Formats the binary {@code timetz} payload as text without an intermediate object. */
   public static String formatOffsetTimeBin(byte[] data, int off, int len, CodecContext ctx)
       throws SQLException {
-    return TimestampUtils.toStringOffsetTimeBin(ctx.usesDoubleDateTime(), data, off, len, null);
+    return TimestampUtils.toStringOffsetTimeBin(usesDouble(ctx), data, off, len, null);
   }
 
   /** Formats the binary {@code timestamptz} payload as text without an intermediate object. */
   public static String formatOffsetDateTimeBin(byte[] data, int off, int len, CodecContext ctx)
       throws SQLException {
-    return TimestampUtils.toStringOffsetDateTimeBin(ctx.usesDoubleDateTime(),
+    return TimestampUtils.toStringOffsetDateTimeBin(usesDouble(ctx),
         ctx.getClientTimeZone(), data, off, len, null);
   }
 
@@ -273,17 +284,17 @@ public final class TemporalCodecs {
 
   /** Encodes {@code value} as a binary PostgreSQL {@code time} (8 bytes). */
   public static byte[] encodeTimeBin(Object value, CodecContext ctx) throws SQLException {
-    return TimestampUtils.toBinTime(ctx.usesDoubleDateTime(), localTimeOf(value, ctx));
+    return TimestampUtils.toBinTime(usesDouble(ctx), localTimeOf(value, ctx));
   }
 
   /** Encodes {@code value} as a binary PostgreSQL {@code timetz} (12 bytes). */
   public static byte[] encodeTimetzBin(Object value, CodecContext ctx) throws SQLException {
-    return TimestampUtils.toBinTimeTz(ctx.usesDoubleDateTime(), offsetTimeOf(value, ctx));
+    return TimestampUtils.toBinTimeTz(usesDouble(ctx), offsetTimeOf(value, ctx));
   }
 
   /** Encodes {@code value} as a binary PostgreSQL {@code timestamp} (8 bytes). */
   public static byte[] encodeTimestampBin(Object value, CodecContext ctx) throws SQLException {
-    boolean usesDouble = ctx.usesDoubleDateTime();
+    boolean usesDouble = usesDouble(ctx);
     if (value instanceof Timestamp) {
       Timestamp ts = (Timestamp) value;
       Long inf = infinityOf(ts);
@@ -296,7 +307,7 @@ public final class TemporalCodecs {
 
   /** Encodes {@code value} as a binary PostgreSQL {@code timestamptz} (8 bytes). */
   public static byte[] encodeTimestamptzBin(Object value, CodecContext ctx) throws SQLException {
-    boolean usesDouble = ctx.usesDoubleDateTime();
+    boolean usesDouble = usesDouble(ctx);
     if (value instanceof Timestamp) {
       Timestamp ts = (Timestamp) value;
       Long inf = infinityOf(ts);
@@ -312,27 +323,27 @@ public final class TemporalCodecs {
   // avoid a per-element scratch byte[].
 
   /** Streaming counterpart of {@link #encodeDateBin(Date, byte[], CodecContext)}. */
-  public static void writeDateBin(Date value, BackpatchingBinarySink out, CodecContext ctx)
+  public static void writeDateBin(Date value, BackpatchingByteArrayOutputStream out, CodecContext ctx)
       throws SQLException, IOException {
     TimestampUtils.writeBinDate(ctx.getDefaultTimeZone(), out, value);
   }
 
   /** Streaming counterpart of {@link #encodeTimeBin(Object, CodecContext)}. */
-  public static void writeTimeBin(Object value, BackpatchingBinarySink out, CodecContext ctx)
+  public static void writeTimeBin(Object value, BackpatchingByteArrayOutputStream out, CodecContext ctx)
       throws SQLException, IOException {
-    TimestampUtils.writeBinTime(ctx.usesDoubleDateTime(), localTimeOf(value, ctx), out);
+    TimestampUtils.writeBinTime(usesDouble(ctx), localTimeOf(value, ctx), out);
   }
 
   /** Streaming counterpart of {@link #encodeTimetzBin(Object, CodecContext)}. */
-  public static void writeTimetzBin(Object value, BackpatchingBinarySink out, CodecContext ctx)
+  public static void writeTimetzBin(Object value, BackpatchingByteArrayOutputStream out, CodecContext ctx)
       throws SQLException, IOException {
-    TimestampUtils.writeBinTimeTz(ctx.usesDoubleDateTime(), offsetTimeOf(value, ctx), out);
+    TimestampUtils.writeBinTimeTz(usesDouble(ctx), offsetTimeOf(value, ctx), out);
   }
 
   /** Streaming counterpart of {@link #encodeTimestampBin(Object, CodecContext)}. */
-  public static void writeTimestampBin(Object value, BackpatchingBinarySink out, CodecContext ctx)
+  public static void writeTimestampBin(Object value, BackpatchingByteArrayOutputStream out, CodecContext ctx)
       throws SQLException, IOException {
-    boolean usesDouble = ctx.usesDoubleDateTime();
+    boolean usesDouble = usesDouble(ctx);
     if (value instanceof Timestamp) {
       Long inf = infinityOf((Timestamp) value);
       if (inf != null) {
@@ -344,9 +355,9 @@ public final class TemporalCodecs {
   }
 
   /** Streaming counterpart of {@link #encodeTimestamptzBin(Object, CodecContext)}. */
-  public static void writeTimestamptzBin(Object value, BackpatchingBinarySink out, CodecContext ctx)
+  public static void writeTimestamptzBin(Object value, BackpatchingByteArrayOutputStream out, CodecContext ctx)
       throws SQLException, IOException {
-    boolean usesDouble = ctx.usesDoubleDateTime();
+    boolean usesDouble = usesDouble(ctx);
     if (value instanceof Timestamp) {
       Long inf = infinityOf((Timestamp) value);
       if (inf != null) {

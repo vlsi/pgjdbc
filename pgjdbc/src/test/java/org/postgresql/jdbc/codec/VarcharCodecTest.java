@@ -9,8 +9,8 @@ import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 
 import org.postgresql.api.codec.CodecContext;
+import org.postgresql.api.codec.TypeName;
 import org.postgresql.core.Oid;
-import org.postgresql.jdbc.ObjectName;
 import org.postgresql.jdbc.PgType;
 import org.postgresql.jdbc.TestCodecContext;
 
@@ -31,17 +31,12 @@ class VarcharCodecTest {
   void setUp() {
     codec = VarcharCodec.INSTANCE;
     varcharType = new PgType(
-        new ObjectName("pg_catalog", "varchar"),
+        TypeName.of("pg_catalog", "varchar"),
         "character varying",
         Oid.VARCHAR,
         'b', 'S', -1, 0, 0, 0
     );
     ctx = TestCodecContext.create();
-  }
-
-  @Test
-  void getPrimaryTypeName() {
-    assertEquals("varchar", codec.getPrimaryTypeName());
   }
 
   @Test

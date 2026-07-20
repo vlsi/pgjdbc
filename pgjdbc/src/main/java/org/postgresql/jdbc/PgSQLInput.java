@@ -71,16 +71,15 @@ public abstract class PgSQLInput implements SQLInput {
   protected PgSQLInput(PgType type, PgCodecContext ctx) throws SQLException {
     this.compositeType = type;
     this.ctx = ctx;
-    List<PgField> typeFields = type.getFields();
-    if (typeFields != null) {
-      this.fields = typeFields;
+    if (type.hasFieldsLoaded()) {
+      this.fields = type.getAttributes();
     } else if (ctx.isConnectionBound()) {
       // Fields are loaded lazily for composite types: fall back to the type info cache.
       this.fields = ctx.getTypeInfo().getFields(type.getOid());
     } else {
       // Offline contexts have no type cache to load attributes from, so the caller must register
       // the composite type with its fields.
-      throw Exceptions.offlineCompositeAccessNeedsAttributes(type.getFullName());
+      throw Exceptions.offlineCompositeAccessNeedsAttributes(type.getFormattedName());
     }
   }
 
@@ -105,12 +104,16 @@ public abstract class PgSQLInput implements SQLInput {
     lastWasNull = isNull;
     if (!isNull) {
       // Resolved only for a non-null field: a null field is never decoded, so there is nothing to
-      // resolve it for, and resolveType() can be non-trivial (it loads composite/range/multirange
-      // structure on first use). Stamp the attribute modifier (atttypmod) so a modifier-sensitive
-      // field such as numeric(10,2) decodes to its declared scale, matching CompositeCodec's own
-      // field walker; -1 leaves the resolved type unchanged.
+      // resolve it for. A connection-bound composite resolved its attribute types when its metadata
+      // was loaded, and that descriptor already carries the attribute modifier (atttypmod), so a
+      // modifier-sensitive field such as numeric(10,2) decodes to its declared scale. An offline
+      // attribute has no cached descriptor and falls back to resolving through the context, which
+      // can be non-trivial (it loads composite/range/multirange structure on first use).
       PgField field = fields.get(fieldIndex - 1);
-      currentType = ctx.resolveType(field.getTypeOid(), field.getTypmod());
+      TypeDescriptor cached = field.getType();
+      currentType = cached != null
+          ? cached
+          : ctx.resolveType(field.getTypeOid(), field.getAppliedTypmod());
     }
     return isNull;
   }

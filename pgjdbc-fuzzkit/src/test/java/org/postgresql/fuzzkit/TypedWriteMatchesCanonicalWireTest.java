@@ -8,19 +8,19 @@ package org.postgresql.fuzzkit;
 import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 
+import org.postgresql.api.codec.BackpatchingByteArrayOutputStream;
 import org.postgresql.api.codec.Codecs;
 import org.postgresql.api.codec.Format;
-import org.postgresql.api.codec.RawValue;
+import org.postgresql.api.codec.TypeName;
+import org.postgresql.api.codec.WireValueSlice;
 import org.postgresql.fuzzkit.coercion.PgTypeDescriptors;
 import org.postgresql.fuzzkit.coercion.ScalarDescriptor;
 import org.postgresql.fuzzkit.coercion.WriteCoercions.Method;
-import org.postgresql.jdbc.ObjectName;
 import org.postgresql.jdbc.OfflineCodecs;
 import org.postgresql.jdbc.PgCodecContext;
 import org.postgresql.jdbc.PgSQLOutputBinary;
 import org.postgresql.jdbc.PgSQLOutputText;
 import org.postgresql.jdbc.PgType;
-import org.postgresql.jdbc.codec.BackpatchByteArrayOutputStream;
 import org.postgresql.jdbc.codec.CompositeCodec;
 
 import org.junit.jupiter.api.Test;
@@ -119,12 +119,12 @@ class TypedWriteMatchesCanonicalWireTest {
     PgType comp = FuzzComposites.singleField(oid);
     PgCodecContext ctx = (PgCodecContext) OfflineCodecs.builder()
         .type(comp)
-        .timeZone(TimeZone.getDefault())
+        .clientTimeZone(TimeZone.getDefault())
         .build();
 
     // The canonical wire the reader is handed: the field's own codec, same scalar PgType shape the
     // reader fuzzer uses.
-    RawValue canonical = Codecs.encode(value, scalar(oid), ctx, format);
+    WireValueSlice canonical = Codecs.encode(value, scalar(oid), ctx, format);
 
     // The typed-write field bytes, with the composite framing stripped: the write is driven straight
     // through the format's PgSQLOutput, and the single field's buffer is read back before framing.
@@ -161,7 +161,7 @@ class TypedWriteMatchesCanonicalWireTest {
       assertEquals(1, fields.length, "one field written");
       return fields[0];
     }
-    BackpatchByteArrayOutputStream sink = new BackpatchByteArrayOutputStream();
+    BackpatchingByteArrayOutputStream sink = new BackpatchingByteArrayOutputStream();
     try (PgSQLOutputBinary out = new PgSQLOutputBinary(comp, ctx, sink)) {
       writeField(out, descriptor, typedWriter, value);
     }
@@ -189,6 +189,6 @@ class TypedWriteMatchesCanonicalWireTest {
 
   /** The scalar {@link PgType} the reader fuzzer's canonical path resolves (a bare raw-OID base type). */
   private static PgType scalar(int oid) {
-    return new PgType(new ObjectName("pg_catalog", "t" + oid), "t" + oid, oid, 'b', 'N', -1, 0, 0, 0);
+    return new PgType(TypeName.of("pg_catalog", "t" + oid), "t" + oid, oid, 'b', 'N', -1, 0, 0, 0);
   }
 }

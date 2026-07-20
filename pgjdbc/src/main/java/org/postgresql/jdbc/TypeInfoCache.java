@@ -8,6 +8,8 @@ package org.postgresql.jdbc;
 import static org.postgresql.util.internal.Nullness.castNonNull;
 
 import org.postgresql.api.codec.Codec;
+import org.postgresql.api.codec.TypeDescriptor;
+import org.postgresql.api.codec.TypeName;
 import org.postgresql.core.BaseConnection;
 import org.postgresql.core.BaseStatement;
 import org.postgresql.core.Oid;
@@ -174,9 +176,9 @@ public class TypeInfoCache implements TypeInfo {
     for (PgType type : BaseTypes.BASE_TYPES) {
       typesByOid.put(type.getOid(), type);
       // TODO: double-check if we should have fullName or quoted "user"."object_name" or both
-      typesByPgName.put(type.getFullName(), type);
+      typesByPgName.put(type.getFormattedName(), type);
       // Allow both lowercase and uppercase lookups
-      typesByPgName.put(type.getFullName().toUpperCase(Locale.ROOT), type);
+      typesByPgName.put(type.getFormattedName().toUpperCase(Locale.ROOT), type);
     }
     DEFAULT_TYPES_BY_OID = typesByOid;
     DEFAULT_TYPES_BY_PGNAME = typesByPgName;
@@ -287,7 +289,7 @@ public class TypeInfoCache implements TypeInfo {
       typreceive = "-";
     }
     return new PgType(
-        new ObjectName(rs.getString("typnspname"), typName),
+        TypeName.of(rs.getString("typnspname"), typName),
         typFullName,
         oid,
         typtype,
@@ -521,6 +523,22 @@ public class TypeInfoCache implements TypeInfo {
       }
       return loaded;
     }
+  }
+
+  @Override
+  public PgType resolveFully(int oid) throws SQLException {
+    PgType type = getPgTypeByOid(oid);
+    // Each branch loads the structure on a fresh PgType in the cache, so re-fetch to pick it up.
+    if (type.isComposite() && !type.hasFieldsLoaded()) {
+      getFields(oid);
+    } else if (type.getTyptype() == 'r' && type.getRangeSubtype() == Oid.UNSPECIFIED) {
+      getRangeSubtype(oid);
+    } else if (type.getTyptype() == 'm' && type.getMultirangeRange() == Oid.UNSPECIFIED) {
+      getMultirangeRange(oid);
+    } else {
+      return type;
+    }
+    return getPgTypeByOid(oid);
   }
 
   @Override
@@ -805,29 +823,25 @@ public class TypeInfoCache implements TypeInfo {
       return java.util.Collections.emptyList();
     }
 
-    List<PgField> fields = pgType.getFields();
-    if (fields != null) {
-      return fields;
+    if (pgType.hasFieldsLoaded()) {
+      return pgType.getAttributes();
     }
 
     // Fields not loaded yet, load them now
     try (ResourceLock ignore = lock.obtain()) {
       // Double-check after acquiring lock - check connection cache first
       PgType cachedType = typesByOid.get(oid);
-      if (cachedType != null) {
-        List<PgField> cachedFields = cachedType.getFields();
-        if (cachedFields != null) {
-          return cachedFields;
-        }
+      if (cachedType != null && cachedType.hasFieldsLoaded()) {
+        return cachedType.getAttributes();
       }
 
-      fields = loadCompositeFields(oid);
+      List<PgField> fields = loadCompositeFields(oid);
 
       // Update the cached type with fields
       // Use cachedType if available, otherwise use the original pgType
       // (which may be from DEFAULT_TYPES_BY_OID for built-in types)
       PgType baseType = cachedType != null ? cachedType : pgType;
-      PgType updatedType = baseType.withFields(fields);
+      PgType updatedType = baseType.withAttributes(fields);
       typesByOid.put(oid, updatedType);
 
       return fields;
@@ -1197,7 +1211,17 @@ public class TypeInfoCache implements TypeInfo {
       }
     }
 
-    return fields;
+    // Resolve each attribute's type only after the ResultSet above is closed: findCompositeFields
+    // is a cached PreparedStatement, and an attribute that is itself a composite re-enters
+    // getFields and would reuse it, invalidating the cursor we are still reading.
+    List<PgField> resolved = new ArrayList<>(fields.size());
+    for (PgField field : fields) {
+      TypeDescriptor fieldType =
+          resolveFully(field.getTypeOid()).withTypmod(field.getAppliedTypmod());
+      resolved.add(new PgField(field.getName(), field.getTypeOid(), field.getPosition(),
+          field.getAppliedTypmod(), fieldType));
+    }
+    return resolved;
   }
 
   private PreparedStatement prepareFindRangeSubtype() throws SQLException {

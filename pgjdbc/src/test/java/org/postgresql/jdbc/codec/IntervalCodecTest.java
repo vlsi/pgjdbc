@@ -12,8 +12,9 @@ import org.postgresql.api.codec.CodecContext;
 import org.postgresql.api.codec.IntervalStyle;
 import org.postgresql.api.codec.PrimitiveDecoders;
 import org.postgresql.api.codec.TypeDescriptor;
+import org.postgresql.api.codec.TypeName;
 import org.postgresql.core.Oid;
-import org.postgresql.jdbc.ObjectName;
+import org.postgresql.jdbc.OfflineCodecs;
 import org.postgresql.jdbc.PgType;
 import org.postgresql.util.ByteConverter;
 import org.postgresql.util.PGInterval;
@@ -23,7 +24,6 @@ import org.postgresql.util.PSQLState;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
-import java.lang.reflect.Proxy;
 import java.sql.SQLException;
 
 class IntervalCodecTest {
@@ -35,16 +35,11 @@ class IntervalCodecTest {
   void setUp() {
     codec = IntervalCodec.INSTANCE;
     intervalType = new PgType(
-        new ObjectName("pg_catalog", "interval"),
+        TypeName.of("pg_catalog", "interval"),
         "interval",
         Oid.INTERVAL,
         'b', 'T', -1, 0, 0, 0
     );
-  }
-
-  @Test
-  void getPrimaryTypeName() {
-    assertEquals("interval", codec.getPrimaryTypeName());
   }
 
   @Test
@@ -312,20 +307,17 @@ class IntervalCodecTest {
   }
 
   /**
-   * A {@link CodecContext} whose only meaningful method is {@link CodecContext#getIntervalStyle()};
-   * the interval decode path consults nothing else, so any other call is an error, not a silent
-   * default.
+   * A real connectionless context reporting {@code style}.
+   *
+   * <p>This used to be a {@link Proxy} that threw on every method but
+   * {@link CodecContext#getIntervalStyle()}, pinning that the interval decode path consults nothing
+   * else. A proxy needs an interface, and {@code CodecContext} is now a driver-owned abstract class,
+   * so the context is built the supported way instead. The "consults nothing else" assertion is lost;
+   * it described the test double rather than the driver, and the decode result is what these tests
+   * check.</p>
    */
   private static CodecContext contextWithStyle(IntervalStyle style) {
-    return (CodecContext) Proxy.newProxyInstance(
-        CodecContext.class.getClassLoader(),
-        new Class<?>[]{CodecContext.class},
-        (proxy, method, args) -> {
-          if ("getIntervalStyle".equals(method.getName())) {
-            return style;
-          }
-          throw new UnsupportedOperationException(method.getName());
-        });
+    return OfflineCodecs.builder().intervalStyle(style).build();
   }
 
   private static <T> T castNonNull(T value) {

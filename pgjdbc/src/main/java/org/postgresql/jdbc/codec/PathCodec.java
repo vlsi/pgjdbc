@@ -5,7 +5,7 @@
 
 package org.postgresql.jdbc.codec;
 
-import org.postgresql.api.codec.BackpatchingBinarySink;
+import org.postgresql.api.codec.BackpatchingByteArrayOutputStream;
 import org.postgresql.api.codec.CodecContext;
 import org.postgresql.api.codec.StreamingBinaryCodec;
 import org.postgresql.api.codec.TextCodec;
@@ -36,11 +36,6 @@ public final class PathCodec implements StreamingBinaryCodec, TextCodec {
 
   private PathCodec() {
     // Singleton
-  }
-
-  @Override
-  public String getPrimaryTypeName() {
-    return "path";
   }
 
   @Override
@@ -86,14 +81,14 @@ public final class PathCodec implements StreamingBinaryCodec, TextCodec {
 
   @Override
   public void encodeBinary(Object value, TypeDescriptor type, CodecContext ctx,
-      BackpatchingBinarySink out) throws SQLException, IOException {
+      BackpatchingByteArrayOutputStream out) throws SQLException, IOException {
     PGpath path = toPath(value);
     PGpoint[] points = points(path);
     out.writeByte(path.open ? 0 : 1);
     out.writeInt32(points.length);
     for (PGpoint point : points) {
-      out.writeDouble(point.x);
-      out.writeDouble(point.y);
+      out.writeFloat8(point.x);
+      out.writeFloat8(point.y);
     }
   }
 
@@ -124,17 +119,18 @@ public final class PathCodec implements StreamingBinaryCodec, TextCodec {
   }
 
   @Override
-  public @Nullable Object decodeText(String data, TypeDescriptor type, CodecContext ctx) throws SQLException {
+  public @Nullable Object decodeText(CharSequence data, TypeDescriptor type, CodecContext ctx) throws SQLException {
+    String text = data.toString();
     boolean open;
     String inner;
-    if (data.startsWith("[") && data.endsWith("]")) {
+    if (text.startsWith("[") && text.endsWith("]")) {
       open = true;
-      inner = PGtokenizer.removeBox(data);
-    } else if (data.startsWith("(") && data.endsWith(")")) {
+      inner = PGtokenizer.removeBox(text);
+    } else if (text.startsWith("(") && text.endsWith(")")) {
       open = false;
-      inner = PGtokenizer.removePara(data);
+      inner = PGtokenizer.removePara(text);
     } else {
-      throw new PSQLException(GT.tr("Cannot tell if path is open or closed: {0}.", data),
+      throw new PSQLException(GT.tr("Cannot tell if path is open or closed: {0}.", text),
           PSQLState.DATA_TYPE_MISMATCH);
     }
     PGtokenizer t = new PGtokenizer(inner, ',');

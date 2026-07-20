@@ -220,7 +220,7 @@ public class TypeInfoCacheTest {
                 + "    ) as t(typname)\n"
                 + ")\n"
                 + "select\n"
-                + "    'new PgType(new ObjectName(\"'||nspname||'\", \"'||typname||'\"), '\n"
+                + "    'new PgType(TypeName.of(\"'||nspname||'\", \"'||typname||'\"), '\n"
                 + "    ||'\"'||fullname||'\", '\n"
                 + "    ||oid_const||', '\n"
                 + "    ||''''||typtype::text||''''||', '\n"

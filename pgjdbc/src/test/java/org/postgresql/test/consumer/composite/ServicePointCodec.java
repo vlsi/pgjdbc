@@ -12,13 +12,6 @@ import org.postgresql.api.codec.TypeDescriptor;
 import java.sql.SQLException;
 
 public final class ServicePointCodec implements TextCodec {
-  // A test-owned type name so the ServiceLoader registration does
-  // not shadow the built-in geometric "point" type globally for
-  // every test that touches PGpoint.
-  @Override
-  public String getPrimaryTypeName() {
-    return "consumer_service_loader_service_point";
-  }
 
   @Override
   public Class<?> getDefaultJavaType() {
@@ -26,8 +19,8 @@ public final class ServicePointCodec implements TextCodec {
   }
 
   @Override
-  public Object decodeText(String data, TypeDescriptor type, CodecContext ctx) throws SQLException {
-    String trimmed = data.trim();
+  public Object decodeText(CharSequence data, TypeDescriptor type, CodecContext ctx) throws SQLException {
+    String trimmed = data.toString().trim();
     if (!trimmed.startsWith("(") || !trimmed.endsWith(")")) {
       throw new SQLException("Unexpected point format: " + data);
     }

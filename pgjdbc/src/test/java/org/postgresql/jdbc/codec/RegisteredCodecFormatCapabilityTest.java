@@ -14,11 +14,11 @@ import org.postgresql.api.codec.CodecContext;
 import org.postgresql.api.codec.CodecFormatSupport;
 import org.postgresql.api.codec.Codecs;
 import org.postgresql.api.codec.Format;
-import org.postgresql.api.codec.RawValue;
 import org.postgresql.api.codec.TypeDescriptor;
+import org.postgresql.api.codec.TypeName;
+import org.postgresql.api.codec.WireValueSlice;
 import org.postgresql.core.Oid;
 import org.postgresql.jdbc.CodecRegistry;
-import org.postgresql.jdbc.ObjectName;
 import org.postgresql.jdbc.OfflineCodecs;
 import org.postgresql.jdbc.PgType;
 import org.postgresql.test.data.EdgeCase;
@@ -47,18 +47,20 @@ class RegisteredCodecFormatCapabilityTest {
     int binaryRefusals = 0;
     for (Map.Entry<Integer, Codec> entry : builtins.entrySet()) {
       Codec codec = entry.getValue();
-      CodecContext ctx = new SingleCodecContext(codec);
-      TypeDescriptor type = builtinType(codec.getPrimaryTypeName(), entry.getKey());
-      String name = codec.getPrimaryTypeName();
+      CodecContext ctx = SingleCodecContexts.of(codec);
+      // The codec no longer carries a type name, and none is needed: the context resolves this one
+      // codec for every OID, so the name only labels the descriptor and the assertion messages.
+      String name = codec.getClass().getSimpleName();
+      TypeDescriptor type = builtinType(name, entry.getKey());
 
       if (!CodecFormatSupport.canReadBinary(codec)) {
-        RawValue binary = RawValue.binary(new byte[0]);
+        WireValueSlice binary = WireValueSlice.binary(new byte[0]);
         assertThrows(SQLException.class, () -> Codecs.decode(binary, type, ctx, Object.class),
             name + " declares it cannot read binary, so Codecs.decode(BINARY) must refuse it");
         binaryRefusals++;
       }
       if (!CodecFormatSupport.canReadText(codec)) {
-        RawValue text = RawValue.text(new byte[0]);
+        WireValueSlice text = WireValueSlice.text(new byte[0]);
         assertThrows(SQLException.class, () -> Codecs.decode(text, type, ctx, Object.class),
             name + " declares it cannot read text, so Codecs.decode(TEXT) must refuse it");
       }
@@ -80,7 +82,7 @@ class RegisteredCodecFormatCapabilityTest {
       throws SQLException {
     TypeDescriptor type = ctx.resolveType(oid);
     Codec codec = ctx.resolveCodec(oid);
-    String name = type.getTypeName().toString();
+    String name = type.getName().toString();
     int checked = 0;
     for (EdgeCase edge : cases) {
       Object value = edge.value();
@@ -93,7 +95,7 @@ class RegisteredCodecFormatCapabilityTest {
           name + " " + edge + " canWriteBinary");
       assertTrue(CodecFormatSupport.canWriteText(codec), name + " canWriteText");
       for (Format format : Format.values()) {
-        RawValue raw = Codecs.encode(value, type, ctx, format);
+        WireValueSlice raw = Codecs.encode(value, type, ctx, format);
         assertEquals(format, raw.getFormat(), name + " " + edge + " encode must keep " + format);
         Object back = Codecs.decode(raw, type, ctx, value.getClass());
         assertEquals(value, back, name + " " + edge + " round-trip in " + format);
@@ -104,6 +106,6 @@ class RegisteredCodecFormatCapabilityTest {
   }
 
   private static PgType builtinType(String name, int oid) {
-    return new PgType(new ObjectName("pg_catalog", name), name, oid, 'b', 'N', -1, 0, 0, 0);
+    return new PgType(TypeName.of("pg_catalog", name), name, oid, 'b', 'N', -1, 0, 0, 0);
   }
 }

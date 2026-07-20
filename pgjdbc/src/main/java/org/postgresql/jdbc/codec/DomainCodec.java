@@ -5,10 +5,11 @@
 
 package org.postgresql.jdbc.codec;
 
-import org.postgresql.api.codec.BackpatchingBinarySink;
+import org.postgresql.api.codec.BackpatchingByteArrayOutputStream;
 import org.postgresql.api.codec.BinaryCodec;
 import org.postgresql.api.codec.Codec;
 import org.postgresql.api.codec.CodecContext;
+import org.postgresql.api.codec.CodecFormatSupport;
 import org.postgresql.api.codec.PrimitiveBinaryDecoder;
 import org.postgresql.api.codec.PrimitiveDecoders;
 import org.postgresql.api.codec.PrimitiveTextDecoder;
@@ -52,9 +53,9 @@ import java.sql.SQLException;
  *   typmod on its base type (for example {@code CREATE DOMAIN price AS numeric(10,2)}), stored in
  *   {@code pg_type.typtypmod}. This codec forwards that modifier to the base type via
  *   {@link TypeDescriptor#withTypmod(int)}, so a modifier-sensitive base codec — numeric rescaling to
- *   the declared scale, for instance — observes it through {@link TypeDescriptor#getTypmod()}. Encode
+ *   the declared scale, for instance — observes it through {@link TypeDescriptor#getAppliedTypmod()}. Encode
  *   is unaffected: the numeric codecs encode from the value's own scale and the server enforces the
- *   domain constraint on input regardless. The domain's own {@link TypeDescriptor#getTyptypmod()} is
+ *   domain constraint on input regardless. The domain's own {@link TypeDescriptor#getCatalogTypmod()} is
  *   left unchanged for metadata such as column-size reporting.</li>
  * </ul>
  */
@@ -92,13 +93,8 @@ public final class DomainCodec implements StreamingBinaryCodec, StreamingTextCod
     // applies so the base codec can decode a modifier-sensitive base type such as numeric. Encode
     // ignores it (numeric encodes from the value's own scale), so stamping here is decode-only in
     // effect.
-    int typmod = domainType.getTypmod() != -1 ? domainType.getTypmod() : domainType.getTyptypmod();
+    int typmod = domainType.getAppliedTypmod() != -1 ? domainType.getAppliedTypmod() : domainType.getCatalogTypmod();
     return ctx.resolveType(baseTypeOid, typmod);
-  }
-
-  @Override
-  public String getPrimaryTypeName() {
-    return "domain";
   }
 
   @Override
@@ -140,15 +136,13 @@ public final class DomainCodec implements StreamingBinaryCodec, StreamingTextCod
 
   @Override
   public void encodeBinary(Object value, TypeDescriptor type, CodecContext ctx,
-      BackpatchingBinarySink out) throws SQLException, IOException {
+      BackpatchingByteArrayOutputStream out) throws SQLException, IOException {
     CodecDepth.enter();
     try {
       Codec baseCodec = getBaseCodec(type, ctx);
       TypeDescriptor baseType = getBaseType(type, ctx);
-      if (baseCodec instanceof StreamingBinaryCodec) {
-        ((StreamingBinaryCodec) baseCodec).encodeBinary(value, baseType, ctx, out);
-      } else if (baseCodec instanceof BinaryCodec) {
-        out.write(((BinaryCodec) baseCodec).encodeBinary(value, baseType, ctx));
+      if (baseCodec instanceof BinaryCodec) {
+        CodecFormatSupport.writeBinary(out, value, (BinaryCodec) baseCodec, baseType, ctx);
       } else {
         out.write(FallbackCodec.INSTANCE.encodeBinary(value, baseType, ctx));
       }
@@ -158,7 +152,7 @@ public final class DomainCodec implements StreamingBinaryCodec, StreamingTextCod
   }
 
   @Override
-  public @Nullable Object decodeText(String data, TypeDescriptor type, CodecContext ctx) throws SQLException {
+  public @Nullable Object decodeText(CharSequence data, TypeDescriptor type, CodecContext ctx) throws SQLException {
     CodecDepth.enter();
     try {
       Codec baseCodec = getBaseCodec(type, ctx);
@@ -223,7 +217,7 @@ public final class DomainCodec implements StreamingBinaryCodec, StreamingTextCod
   }
 
   @Override
-  public <T> @Nullable T decodeTextAs(String data, TypeDescriptor type, Class<T> targetClass, CodecContext ctx)
+  public <T> @Nullable T decodeTextAs(CharSequence data, TypeDescriptor type, Class<T> targetClass, CodecContext ctx)
       throws SQLException {
     CodecDepth.enter();
     try {
@@ -445,7 +439,7 @@ public final class DomainCodec implements StreamingBinaryCodec, StreamingTextCod
   }
 
   @Override
-  public @Nullable String decodeAsString(String data, TypeDescriptor type, CodecContext ctx) throws SQLException {
+  public @Nullable String decodeAsString(CharSequence data, TypeDescriptor type, CodecContext ctx) throws SQLException {
     CodecDepth.enter();
     try {
       Codec baseCodec = getBaseCodec(type, ctx);

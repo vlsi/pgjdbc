@@ -11,6 +11,7 @@ import org.postgresql.Driver;
 import org.postgresql.PGNotification;
 import org.postgresql.PGProperty;
 import org.postgresql.api.codec.Codec;
+import org.postgresql.api.codec.PrefersJavaTime;
 import org.postgresql.copy.CopyManager;
 import org.postgresql.core.BaseConnection;
 import org.postgresql.core.BaseStatement;
@@ -174,6 +175,11 @@ public class PgConnection implements BaseConnection {
   private final CodecRegistry codecRegistry;
   private final JavaTypeRegistry javaTypeRegistry;
 
+  // Memoized codec context. Every input is fixed at construction except typemap, so
+  // setTypeMapImpl clears this. PgCodecContext is final with final fields, so a race
+  // that builds it twice publishes both copies safely.
+  private @Nullable PgCodecContext codecContext;
+
   private boolean disableColumnSanitiser;
 
   // Default statement prepare threshold.
@@ -222,11 +228,7 @@ public class PgConnection implements BaseConnection {
   private final boolean convertBooleanToNumeric;
 
   // Date/time type preferences for getObject()
-  private final boolean prefersJavaTimeForDate;
-  private final boolean prefersJavaTimeForTime;
-  private final boolean prefersJavaTimeForTimetz;
-  private final boolean prefersJavaTimeForTimestamp;
-  private final boolean prefersJavaTimeForTimestamptz;
+  private final PrefersJavaTime prefersJavaTime;
 
   // Boolean type mapping preference for metadata
   private final boolean mapBooleanToBoolean;
@@ -450,11 +452,13 @@ public class PgConnection implements BaseConnection {
       this.convertBooleanToNumeric = PGProperty.CONVERT_BOOLEAN_TO_NUMERIC.getBoolean(info);
 
       // Initialize date/time type preferences for getObject()
-      this.prefersJavaTimeForDate = "java.time".equals(PGProperty.GETOBJECT_DATE.getOrDefault(info));
-      this.prefersJavaTimeForTime = "java.time".equals(PGProperty.GETOBJECT_TIME.getOrDefault(info));
-      this.prefersJavaTimeForTimetz = "java.time".equals(PGProperty.GETOBJECT_TIMETZ.getOrDefault(info));
-      this.prefersJavaTimeForTimestamp = "java.time".equals(PGProperty.GETOBJECT_TIMESTAMP.getOrDefault(info));
-      this.prefersJavaTimeForTimestamptz = "java.time".equals(PGProperty.GETOBJECT_TIMESTAMPTZ.getOrDefault(info));
+      this.prefersJavaTime = PrefersJavaTime.builder()
+          .date("java.time".equals(PGProperty.GETOBJECT_DATE.getOrDefault(info)))
+          .time("java.time".equals(PGProperty.GETOBJECT_TIME.getOrDefault(info)))
+          .timetz("java.time".equals(PGProperty.GETOBJECT_TIMETZ.getOrDefault(info)))
+          .timestamp("java.time".equals(PGProperty.GETOBJECT_TIMESTAMP.getOrDefault(info)))
+          .timestamptz("java.time".equals(PGProperty.GETOBJECT_TIMESTAMPTZ.getOrDefault(info)))
+          .build();
       this.mapBooleanToBoolean = "boolean".equals(PGProperty.MAP_PG_TYPE_BOOLEAN.getOrDefault(info));
 
       this.clientInfo = new Properties();
@@ -547,8 +551,8 @@ public class PgConnection implements BaseConnection {
         Oid.BIT_ARRAY,
         Oid.VARBIT_ARRAY,
         // json/jsonb carry a binary encoder/decoder via JsonCodec/JsonbCodec; json[]/jsonb[] decode
-        // to String[] through the array codec walker (JsonArrayLeafCodec) and the codec-backed slice
-        // decoder, both binary-aware (the jsonb version byte is handled by the codec).
+        // to String[] through the array codec walker (GenericArrayLeafCodec) and the codec-backed
+        // slice decoder, both binary-aware (the jsonb version byte is handled by the codec).
         Oid.JSON,
         Oid.JSONB,
         Oid.JSON_ARRAY,
@@ -1485,6 +1489,7 @@ public class PgConnection implements BaseConnection {
 
   public void setTypeMapImpl(Map<String, Class<?>> map) throws SQLException {
     typemap = map;
+    codecContext = null;
   }
 
   @Override
@@ -1706,7 +1711,7 @@ public class PgConnection implements BaseConnection {
     }
 
     // Carry the codec context (connection-bound here) so getValue() rebuilds the literal; pass the
-    // user-supplied typeName verbatim so getSQLTypeName() keeps returning it (pgType.getFullName()
+    // user-supplied typeName verbatim so getSQLTypeName() keeps returning it (pgType.getFormattedName()
     // may be schema-qualified). The type is resolved lazily by name on the first getValue().
     return PgStruct.withCodecContext(typeName, attributes, getCodecContext());
   }
@@ -2200,9 +2205,9 @@ public class PgConnection implements BaseConnection {
   }
 
   @Override
-  public void registerCodec(Codec codec) throws SQLException {
+  public void registerCodec(String typeName, Codec codec) throws SQLException {
     checkClosed();
-    codecRegistry.registerCustomCodec(codec);
+    codecRegistry.registerCustomCodec(typeName, codec);
   }
 
   @Override
@@ -2240,9 +2245,13 @@ public class PgConnection implements BaseConnection {
    */
   @Override
   public PgCodecContext getCodecContext() throws SQLException {
-    return new PgCodecContext(this, codecRegistry, javaTypeRegistry, typemap,
-        prefersJavaTimeForDate, prefersJavaTimeForTime, prefersJavaTimeForTimetz,
-        prefersJavaTimeForTimestamp, prefersJavaTimeForTimestamptz, convertBooleanToNumeric);
+    PgCodecContext ctx = codecContext;
+    if (ctx == null) {
+      ctx = new PgCodecContext(this, codecRegistry, javaTypeRegistry, typemap,
+          prefersJavaTime, convertBooleanToNumeric);
+      codecContext = ctx;
+    }
+    return ctx;
   }
 
   @Override

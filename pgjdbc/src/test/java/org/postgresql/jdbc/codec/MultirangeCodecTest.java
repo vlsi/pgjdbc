@@ -10,26 +10,20 @@ import static org.junit.jupiter.api.Assertions.assertInstanceOf;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
-import org.postgresql.api.codec.Codec;
 import org.postgresql.api.codec.CodecContext;
 import org.postgresql.api.codec.TypeDescriptor;
+import org.postgresql.api.codec.TypeName;
 import org.postgresql.core.Oid;
-import org.postgresql.jdbc.ObjectName;
+import org.postgresql.jdbc.OfflineCodecs;
 import org.postgresql.jdbc.PgType;
-import org.postgresql.jdbc.TestCodecContext;
 import org.postgresql.util.PGRange;
 import org.postgresql.util.PGmultirange;
 import org.postgresql.util.PSQLException;
 
-import org.checkerframework.checker.nullness.qual.Nullable;
 import org.junit.jupiter.api.Test;
 
-import java.nio.charset.Charset;
 import java.sql.SQLException;
 import java.util.Arrays;
-import java.util.Calendar;
-import java.util.Map;
-import java.util.TimeZone;
 
 /**
  * Unit tests for {@link MultirangeCodec}, run without a live connection.
@@ -50,22 +44,30 @@ class MultirangeCodecTest {
   private static final int UNRESOLVED_MULTIRANGE_OID = 99_997;
 
   private static final PgType INT4 = new PgType(
-      new ObjectName("pg_catalog", "int4"), "int4", Oid.INT4, 'b', 'N', -1, 0, 0, 0);
+      TypeName.of("pg_catalog", "int4"), "int4", Oid.INT4, 'b', 'N', -1, 0, 0, 0);
 
   private static final PgType INT4RANGE = new PgType(
-      new ObjectName("pg_catalog", "int4range"), "int4range", INT4RANGE_OID,
+      TypeName.of("pg_catalog", "int4range"), "int4range", INT4RANGE_OID,
       'r', 'R', -1, 0, 0, 0).withRangeSubtype(Oid.INT4);
 
   private static final PgType INT4MULTIRANGE = new PgType(
-      new ObjectName("pg_catalog", "int4multirange"), "int4multirange", INT4MULTIRANGE_OID,
+      TypeName.of("pg_catalog", "int4multirange"), "int4multirange", INT4MULTIRANGE_OID,
       'm', 'R', -1, 0, 0, 0).withMultirangeRange(INT4RANGE_OID);
 
   // typtype 'm' but no range link, and the context cannot supply one either.
   private static final PgType UNRESOLVED_MULTIRANGE = new PgType(
-      new ObjectName("public", "broken_multirange"), "broken_multirange", UNRESOLVED_MULTIRANGE_OID,
+      TypeName.of("public", "broken_multirange"), "broken_multirange", UNRESOLVED_MULTIRANGE_OID,
       'm', 'R', -1, 0, 0, 0);
 
-  private static final CodecContext CTX = new StubContext();
+  // A real connectionless driver context: registering the three descriptors is exactly what the
+  // old hand-written stub did by hand, and codec resolution then runs through the driver's own
+  // registry (typtype 'm' -> MultirangeCodec, 'r' -> RangeCodec) instead of a test-local switch.
+  private static final CodecContext CTX = OfflineCodecs.builder()
+      .type(INT4)
+      .type(INT4RANGE)
+      .type(INT4MULTIRANGE)
+      .type(UNRESOLVED_MULTIRANGE)
+      .build();
 
   @SafeVarargs
   private static PGmultirange<Integer> multirange(PGRange<Integer>... ranges) {
@@ -164,106 +166,4 @@ class MultirangeCodecTest {
     assertTrue(ex.getMessage().contains("broken_multirange"), ex.getMessage());
   }
 
-  /**
-   * A {@link CodecContext} that resolves the {@code int4multirange → int4range → int4} chain
-   * directly and delegates the wire/policy surface to a connectionless test context.
-   */
-  private static final class StubContext implements CodecContext {
-    private final CodecContext delegate = TestCodecContext.create();
-
-    @Override
-    public TypeDescriptor resolveType(int oid) {
-      if (oid == INT4MULTIRANGE_OID) {
-        return INT4MULTIRANGE;
-      }
-      if (oid == INT4RANGE_OID) {
-        return INT4RANGE;
-      }
-      if (oid == UNRESOLVED_MULTIRANGE_OID) {
-        return UNRESOLVED_MULTIRANGE;
-      }
-      return INT4;
-    }
-
-    @Override
-    public Codec resolveCodec(int oid) {
-      if (oid == INT4MULTIRANGE_OID || oid == UNRESOLVED_MULTIRANGE_OID) {
-        return MultirangeCodec.INSTANCE;
-      }
-      if (oid == INT4RANGE_OID) {
-        return RangeCodec.INSTANCE;
-      }
-      return Int4Codec.INSTANCE;
-    }
-
-    @Override
-    public CodecContext withoutJavaTimePreferences() {
-      return this;
-    }
-
-    @Override
-    public Charset getCharset() {
-      return delegate.getCharset();
-    }
-
-    @Override
-    public boolean usesDoubleDateTime() {
-      return delegate.usesDoubleDateTime();
-    }
-
-    @Override
-    public TimeZone getClientTimeZone() {
-      return delegate.getClientTimeZone();
-    }
-
-    @Override
-    public TimeZone getDefaultTimeZone() {
-      return delegate.getDefaultTimeZone();
-    }
-
-    @Override
-    public @Nullable Calendar getCalendar() {
-      return delegate.getCalendar();
-    }
-
-    @Override
-    public boolean prefersJavaTimeForDate() {
-      return delegate.prefersJavaTimeForDate();
-    }
-
-    @Override
-    public boolean prefersJavaTimeForTime() {
-      return delegate.prefersJavaTimeForTime();
-    }
-
-    @Override
-    public boolean prefersJavaTimeForTimetz() {
-      return delegate.prefersJavaTimeForTimetz();
-    }
-
-    @Override
-    public boolean prefersJavaTimeForTimestamp() {
-      return delegate.prefersJavaTimeForTimestamp();
-    }
-
-    @Override
-    public boolean prefersJavaTimeForTimestamptz() {
-      return delegate.prefersJavaTimeForTimestamptz();
-    }
-
-    @Override
-    public boolean getConvertBooleanToNumeric() {
-      return delegate.getConvertBooleanToNumeric();
-    }
-
-    @Override
-    public Map<String, Class<?>> getTypeMap() {
-      return delegate.getTypeMap();
-    }
-
-    @Override
-    public @Nullable Class<?> getMappedClass(String typeName) {
-      return delegate.getMappedClass(typeName);
-    }
-  }
 }

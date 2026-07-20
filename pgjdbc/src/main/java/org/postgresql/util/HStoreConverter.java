@@ -6,6 +6,7 @@
 package org.postgresql.util;
 
 import org.postgresql.core.Encoding;
+import org.postgresql.jdbc.codec.ContainerTextEscaper;
 
 import org.checkerframework.checker.nullness.qual.Nullable;
 
@@ -102,16 +103,8 @@ public class HStoreConverter {
 
   private static void appendEscaped(StringBuilder sb, @Nullable Object val) {
     if (val != null) {
-      sb.append('"');
-      String s = val.toString();
-      for (int pos = 0; pos < s.length(); pos++) {
-        char ch = s.charAt(pos);
-        if (ch == '"' || ch == '\\') {
-          sb.append('\\');
-        }
-        sb.append(ch);
-      }
-      sb.append('"');
+      // hstore_out quotes every key and value and escapes with a backslash, like array_out.
+      ContainerTextEscaper.appendQuotedArrayStyle(sb, val.toString());
     } else {
       sb.append("NULL");
     }

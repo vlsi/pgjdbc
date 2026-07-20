@@ -9,6 +9,7 @@ import static java.util.Collections.emptyList;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 
 import org.postgresql.api.codec.Codec;
+import org.postgresql.api.codec.CodecFormatSupport;
 import org.postgresql.jdbc.CodecDepth;
 
 import com.tngtech.archunit.core.domain.JavaClass;
@@ -31,7 +32,7 @@ import java.util.TreeSet;
  * as a stack overflow at runtime.
  *
  * <p>"Delegates" is read from bytecode: the class either calls {@link
- * org.postgresql.api.codec.BinaryCodec#writeElement} or invokes a {@code decode*}/{@code encode*}
+ * CodecFormatSupport#writeBinaryElement} or invokes a {@code decode*}/{@code encode*}
  * method on one of the {@code org.postgresql.api.codec} codec interfaces (a sibling codec resolved
  * from the registry, not its own overrides). {@code ArrayCodec} is an orchestrator that hands the
  * element codec to a leaf adapter and never calls either itself, so it is not flagged — the leaf
@@ -62,10 +63,6 @@ class DelegatingCodecDepthGuardArchTest {
    * Codecs that delegate to another codec yet deliberately carry no depth guard of their own because
    * they cannot create unbounded recursion.
    *
-   * <p>{@link JsonArrayLeafCodec} forwards each element to the {@code json}/{@code jsonb} scalar codec,
-   * whose content is opaque text/bytes — it decodes to a {@code String}/{@code PGobject} and never
-   * dispatches to a further codec, so the delegate is terminal.
-   *
    * <p>{@link PGobjectCodec} is a thin 1:1 decorator: each operation forwards exactly one call to a
    * fixed delegate resolved at registration time. It never loops over sub-elements or resolves sibling
    * codecs, so it adds at most one frame per level; any recursion lives entirely in the delegate,
@@ -73,7 +70,7 @@ class DelegatingCodecDepthGuardArchTest {
    * {@code PGobjectCodec} must pass through that guarded delegate, so it stays bounded.
    */
   private static final Set<Class<?>> ACKNOWLEDGED_WITHOUT_OWN_GUARD =
-      new LinkedHashSet<>(Arrays.asList(JsonArrayLeafCodec.class, PGobjectCodec.class));
+      new LinkedHashSet<>(Arrays.<Class<?>>asList(PGobjectCodec.class));
 
   @Test
   void everyDelegatingCodecReferencesCodecDepth() {

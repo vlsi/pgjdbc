@@ -131,6 +131,6 @@ class Float4ArrayLeafCodecTest {
   @Test
   void registry_float4_isArrayElementCodec() {
     CodecRegistry registry = new CodecRegistry();
-    assertInstanceOf(ArrayElementCodec.class, registry.getByName("float4"));
+    assertInstanceOf(ArrayElementCodec.class, registry.getByLocalName("float4"));
   }
 }

@@ -10,8 +10,8 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 
 import org.postgresql.api.codec.CodecContext;
 import org.postgresql.api.codec.TypeDescriptor;
+import org.postgresql.api.codec.TypeName;
 import org.postgresql.core.Oid;
-import org.postgresql.jdbc.ObjectName;
 import org.postgresql.jdbc.PgType;
 import org.postgresql.util.ByteConverter;
 import org.postgresql.util.PGobject;
@@ -32,7 +32,7 @@ class BitCodecTest {
   void setUp() {
     codec = BitCodec.INSTANCE;
     bitType = new PgType(
-        new ObjectName("pg_catalog", "bit"),
+        TypeName.of("pg_catalog", "bit"),
         "bit",
         Oid.BIT,
         'b', 'V', -1, 0, 0, 0

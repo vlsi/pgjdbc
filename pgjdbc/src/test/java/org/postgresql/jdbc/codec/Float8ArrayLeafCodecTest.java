@@ -148,6 +148,6 @@ class Float8ArrayLeafCodecTest {
   @Test
   void registry_float8_isArrayElementCodec() {
     CodecRegistry registry = new CodecRegistry();
-    assertInstanceOf(ArrayElementCodec.class, registry.getByName("float8"));
+    assertInstanceOf(ArrayElementCodec.class, registry.getByLocalName("float8"));
   }
 }

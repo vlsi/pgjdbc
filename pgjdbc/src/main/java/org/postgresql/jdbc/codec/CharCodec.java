@@ -38,7 +38,6 @@ public final class CharCodec extends AbstractTextCodec {
   public static final CharCodec INSTANCE = new CharCodec();
 
   private CharCodec() {
-    super("char");
   }
 
   @Override

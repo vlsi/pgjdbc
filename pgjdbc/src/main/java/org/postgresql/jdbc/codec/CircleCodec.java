@@ -5,7 +5,7 @@
 
 package org.postgresql.jdbc.codec;
 
-import org.postgresql.api.codec.BackpatchingBinarySink;
+import org.postgresql.api.codec.BackpatchingByteArrayOutputStream;
 import org.postgresql.api.codec.CodecContext;
 import org.postgresql.api.codec.StreamingBinaryCodec;
 import org.postgresql.api.codec.TextCodec;
@@ -35,11 +35,6 @@ public final class CircleCodec implements StreamingBinaryCodec, TextCodec {
   }
 
   @Override
-  public String getPrimaryTypeName() {
-    return "circle";
-  }
-
-  @Override
   public Class<?> getDefaultJavaType() {
     return PGcircle.class;
   }
@@ -66,11 +61,11 @@ public final class CircleCodec implements StreamingBinaryCodec, TextCodec {
 
   @Override
   public void encodeBinary(Object value, TypeDescriptor type, CodecContext ctx,
-      BackpatchingBinarySink out) throws SQLException, IOException {
+      BackpatchingByteArrayOutputStream out) throws SQLException, IOException {
     double[] xyr = toXyr(value);
-    out.writeDouble(xyr[0]);
-    out.writeDouble(xyr[1]);
-    out.writeDouble(xyr[2]);
+    out.writeFloat8(xyr[0]);
+    out.writeFloat8(xyr[1]);
+    out.writeFloat8(xyr[2]);
   }
 
   @Override
@@ -89,8 +84,9 @@ public final class CircleCodec implements StreamingBinaryCodec, TextCodec {
   }
 
   @Override
-  public @Nullable Object decodeText(String data, TypeDescriptor type, CodecContext ctx) throws SQLException {
-    PGtokenizer t = new PGtokenizer(PGtokenizer.removeAngle(data), ',');
+  public @Nullable Object decodeText(CharSequence data, TypeDescriptor type, CodecContext ctx) throws SQLException {
+    String text = data.toString();
+    PGtokenizer t = new PGtokenizer(PGtokenizer.removeAngle(text), ',');
     try {
       if (t.getSize() != 2) {
         throw new NumberFormatException("expected a center point and a radius, got " + t.getSize() + " tokens");
@@ -99,7 +95,7 @@ public final class CircleCodec implements StreamingBinaryCodec, TextCodec {
       double radius = Double.parseDouble(t.getToken(1));
       return new PGcircle(center[0], center[1], radius);
     } catch (NumberFormatException e) {
-      throw Exceptions.cannotConvertValue("circle", data, PSQLState.DATA_TYPE_MISMATCH, e);
+      throw Exceptions.cannotConvertValue("circle", text, PSQLState.DATA_TYPE_MISMATCH, e);
     }
   }
 

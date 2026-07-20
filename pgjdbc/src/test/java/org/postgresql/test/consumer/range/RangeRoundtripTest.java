@@ -178,7 +178,7 @@ public class RangeRoundtripTest extends BaseTest4 {
   @Test
   public void compositeWithRangeField_decodesRangeViaSlice() throws SQLException {
     // The composite codec peels the (quoted) range field and hands its borrowed
-    // char slice to RangeCodec.decodeText(char[], off, len) — the slice form.
+    // borrowed view to RangeCodec.decodeText(CharSequence, ...).
     try (Statement st = con.createStatement();
          ResultSet rs = st.executeQuery(
              "SELECT ROW(1, '[1,10)'::int4range)::consumer_range_holder")) {

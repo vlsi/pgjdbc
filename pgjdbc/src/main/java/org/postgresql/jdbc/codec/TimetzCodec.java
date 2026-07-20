@@ -5,7 +5,7 @@
 
 package org.postgresql.jdbc.codec;
 
-import org.postgresql.api.codec.BackpatchingBinarySink;
+import org.postgresql.api.codec.BackpatchingByteArrayOutputStream;
 import org.postgresql.api.codec.CodecContext;
 import org.postgresql.api.codec.StreamingBinaryCodec;
 import org.postgresql.api.codec.TextCodec;
@@ -35,11 +35,6 @@ public final class TimetzCodec implements StreamingBinaryCodec, TextCodec {
   }
 
   @Override
-  public String getPrimaryTypeName() {
-    return "timetz";
-  }
-
-  @Override
   public Class<?> getDefaultJavaType() {
     return Time.class;
   }
@@ -47,7 +42,7 @@ public final class TimetzCodec implements StreamingBinaryCodec, TextCodec {
   @Override
   public @Nullable Object decodeBinary(byte[] data, int offset, int length, TypeDescriptor type,
       CodecContext ctx) throws SQLException {
-    if (ctx.prefersJavaTimeForTimetz()) {
+    if (ctx.getJavaTimePreferences().forTimetz()) {
       return TemporalCodecs.decodeOffsetTimeBin(data, offset, length, ctx);
     }
     // timetz binary format is 12 bytes: 8 bytes for time + 4 bytes for timezone
@@ -61,16 +56,17 @@ public final class TimetzCodec implements StreamingBinaryCodec, TextCodec {
 
   @Override
   public void encodeBinary(Object value, TypeDescriptor type, CodecContext ctx,
-      BackpatchingBinarySink out) throws SQLException, IOException {
+      BackpatchingByteArrayOutputStream out) throws SQLException, IOException {
     TemporalCodecs.writeTimetzBin(value, out, ctx);
   }
 
   @Override
-  public @Nullable Object decodeText(String data, TypeDescriptor type, CodecContext ctx) throws SQLException {
-    if (ctx.prefersJavaTimeForTimetz()) {
-      return TemporalCodecs.decodeOffsetTimeText(data, ctx);
+  public @Nullable Object decodeText(CharSequence data, TypeDescriptor type, CodecContext ctx) throws SQLException {
+    String text = data.toString();
+    if (ctx.getJavaTimePreferences().forTimetz()) {
+      return TemporalCodecs.decodeOffsetTimeText(text, ctx);
     }
-    return TemporalCodecs.decodeTimeText(data, ctx);
+    return TemporalCodecs.decodeTimeText(text, ctx);
   }
 
   @Override
@@ -137,39 +133,40 @@ public final class TimetzCodec implements StreamingBinaryCodec, TextCodec {
   }
 
   @Override
-  public <T> @Nullable T decodeTextAs(String data, TypeDescriptor type, Class<T> targetClass, CodecContext ctx)
+  public <T> @Nullable T decodeTextAs(CharSequence data, TypeDescriptor type, Class<T> targetClass, CodecContext ctx)
       throws SQLException {
+    String text = data.toString();
     if (targetClass == Time.class || targetClass == Object.class) {
-      return targetClass.cast(TemporalCodecs.decodeTimeText(data, ctx));
+      return targetClass.cast(TemporalCodecs.decodeTimeText(text, ctx));
     }
     if (targetClass == OffsetTime.class) {
-      return targetClass.cast(TemporalCodecs.decodeOffsetTimeText(data, ctx));
+      return targetClass.cast(TemporalCodecs.decodeOffsetTimeText(text, ctx));
     }
     if (targetClass == OffsetDateTime.class) {
       // JDBC spec: timetz can be retrieved as OffsetDateTime with epoch date
-      OffsetTime ot = TemporalCodecs.decodeOffsetTimeText(data, ctx);
+      OffsetTime ot = TemporalCodecs.decodeOffsetTimeText(text, ctx);
       return ot == null ? null : targetClass.cast(ot.atDate(LocalDate.ofEpochDay(0)));
     }
     if (targetClass == Timestamp.class) {
-      Time t = TemporalCodecs.decodeTimeText(data, ctx);
+      Time t = TemporalCodecs.decodeTimeText(text, ctx);
       if (t == null) {
         return null;
       }
       Timestamp r = new Timestamp(t.getTime());
-      r.setNanos(TemporalCodecs.decodeTimestampText(data, ctx).getNanos());
+      r.setNanos(TemporalCodecs.decodeTimestampText(text, ctx).getNanos());
       return targetClass.cast(r);
     }
     // LocalTime / LocalDateTime / LocalDate are rejected — they drop the
     // time zone information that this column carries.
     if (targetClass == java.util.Date.class) {
-      return targetClass.cast(TemporalCodecs.decodeTimeText(data, ctx));
+      return targetClass.cast(TemporalCodecs.decodeTimeText(text, ctx));
     }
     if (targetClass == Long.class) {
-      Time t = TemporalCodecs.decodeTimeText(data, ctx);
+      Time t = TemporalCodecs.decodeTimeText(text, ctx);
       return t == null ? null : targetClass.cast(t.getTime());
     }
     if (targetClass == String.class) {
-      return targetClass.cast(data);
+      return targetClass.cast(text);
     }
     throw Exceptions.cannotDecode("timetz", targetClass.getName());
   }
@@ -181,8 +178,9 @@ public final class TimetzCodec implements StreamingBinaryCodec, TextCodec {
   }
 
   @Override
-  public @Nullable String decodeAsString(String data, TypeDescriptor type, CodecContext ctx) throws SQLException {
-    return data;
+  public @Nullable String decodeAsString(CharSequence data, TypeDescriptor type, CodecContext ctx)
+      throws SQLException {
+    return data.toString();
   }
 
 }

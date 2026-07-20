@@ -9,10 +9,10 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import org.postgresql.api.codec.TypeName;
 import org.postgresql.core.Oid;
 import org.postgresql.geometric.PGpath;
 import org.postgresql.geometric.PGpoint;
-import org.postgresql.jdbc.ObjectName;
 import org.postgresql.jdbc.PgType;
 import org.postgresql.util.ByteConverter;
 import org.postgresql.util.PSQLException;
@@ -31,7 +31,7 @@ class PathCodecTest {
   void setUp() {
     codec = PathCodec.INSTANCE;
     pathType = new PgType(
-        new ObjectName("pg_catalog", "path"),
+        TypeName.of("pg_catalog", "path"),
         "path",
         Oid.PATH,
         'b', 'G', -1, 0, 0, 0
@@ -120,11 +120,6 @@ class PathCodecTest {
     String encoded = codec.encodeText(original, pathType, null);
     Object decoded = codec.decodeText(encoded, pathType, null);
     assertEquals(original, decoded);
-  }
-
-  @Test
-  void getPrimaryTypeName() {
-    assertEquals("path", codec.getPrimaryTypeName());
   }
 
   @Test

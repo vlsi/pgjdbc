@@ -30,7 +30,7 @@ public final class CoercionWriteSupport {
     PgType comp = FuzzComposites.singleField(oid);
     PgCodecContext ctx = (PgCodecContext) OfflineCodecContexts.offlineBuilder()
         .type(comp)
-        .timeZone(TimeZone.getDefault())
+        .clientTimeZone(TimeZone.getDefault())
         .build();
 
     @Nullable CoercionOutcome expected = WriteOracle.expected(oid, c.writer, c.value);

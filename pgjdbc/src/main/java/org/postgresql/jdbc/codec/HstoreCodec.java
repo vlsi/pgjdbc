@@ -9,7 +9,7 @@ import org.postgresql.api.codec.BinaryCodec;
 import org.postgresql.api.codec.CodecContext;
 import org.postgresql.api.codec.TextCodec;
 import org.postgresql.api.codec.TypeDescriptor;
-import org.postgresql.jdbc.PgCodecContext;
+import org.postgresql.core.Encoding;
 import org.postgresql.util.HStoreConverter;
 
 import org.checkerframework.checker.nullness.qual.Nullable;
@@ -37,18 +37,6 @@ public final class HstoreCodec implements BinaryCodec, TextCodec {
     // Singleton
   }
 
-  // Wire-encoding access (not child-resolve): hstore reaches the connection Encoding through the
-  // implementation for HStoreConverter. Exposing the wire encoding on the CodecContext interface is
-  // a separate slice-2 follow-up; slice 2c moved only child-type resolution onto the interface.
-  private static PgCodecContext impl(CodecContext ctx) {
-    return (PgCodecContext) ctx;
-  }
-
-  @Override
-  public String getPrimaryTypeName() {
-    return "hstore";
-  }
-
   @Override
   public Class<?> getDefaultJavaType() {
     return Map.class;
@@ -62,23 +50,24 @@ public final class HstoreCodec implements BinaryCodec, TextCodec {
     }
     // HStoreConverter.fromBytes reads a whole array; copy only for a genuine sub-slice.
     byte[] data = offset == 0 && length == buf.length ? buf : Arrays.copyOfRange(buf, offset, offset + length);
-    return HStoreConverter.fromBytes(data, impl(ctx).getEncoding());
+    return HStoreConverter.fromBytes(data, Encoding.fromCharset(ctx.getCharset()));
   }
 
   @Override
   public byte[] encodeBinary(Object value, TypeDescriptor type, CodecContext ctx) throws SQLException {
     if (value instanceof Map) {
-      return HStoreConverter.toBytes((Map<?, ?>) value, impl(ctx).getEncoding());
+      return HStoreConverter.toBytes((Map<?, ?>) value, Encoding.fromCharset(ctx.getCharset()));
     }
     throw Exceptions.cannotEncodeAs(value, "hstore");
   }
 
   @Override
-  public @Nullable Object decodeText(String data, TypeDescriptor type, CodecContext ctx) throws SQLException {
-    if (data == null || data.isEmpty()) {
+  public @Nullable Object decodeText(CharSequence data, TypeDescriptor type, CodecContext ctx) throws SQLException {
+    String text = data.toString();
+    if (text == null || text.isEmpty()) {
       return null;
     }
-    return HStoreConverter.fromString(data);
+    return HStoreConverter.fromString(text);
   }
 
   @Override
@@ -101,7 +90,7 @@ public final class HstoreCodec implements BinaryCodec, TextCodec {
 
   @Override
   @SuppressWarnings("unchecked")
-  public <T> @Nullable T decodeTextAs(String data, TypeDescriptor type, Class<T> targetClass, CodecContext ctx)
+  public <T> @Nullable T decodeTextAs(CharSequence data, TypeDescriptor type, Class<T> targetClass, CodecContext ctx)
       throws SQLException {
     if (targetClass == Map.class || targetClass == Object.class) {
       return (T) decodeText(data, type, ctx);
@@ -117,7 +106,8 @@ public final class HstoreCodec implements BinaryCodec, TextCodec {
   }
 
   @Override
-  public @Nullable String decodeAsString(String data, TypeDescriptor type, CodecContext ctx) throws SQLException {
-    return data;
+  public @Nullable String decodeAsString(CharSequence data, TypeDescriptor type, CodecContext ctx) throws SQLException {
+    String text = data.toString();
+    return text;
   }
 }

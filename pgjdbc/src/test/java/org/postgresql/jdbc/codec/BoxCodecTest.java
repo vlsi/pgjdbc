@@ -8,10 +8,10 @@ package org.postgresql.jdbc.codec;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 
+import org.postgresql.api.codec.TypeName;
 import org.postgresql.core.Oid;
 import org.postgresql.geometric.PGbox;
 import org.postgresql.geometric.PGpoint;
-import org.postgresql.jdbc.ObjectName;
 import org.postgresql.jdbc.PgType;
 import org.postgresql.util.ByteConverter;
 import org.postgresql.util.PSQLException;
@@ -30,7 +30,7 @@ class BoxCodecTest {
   void setUp() {
     codec = BoxCodec.INSTANCE;
     boxType = new PgType(
-        new ObjectName("pg_catalog", "box"),
+        TypeName.of("pg_catalog", "box"),
         "box",
         Oid.BOX,
         'b', 'G', -1, 0, 0, 0
@@ -105,11 +105,6 @@ class BoxCodecTest {
     byte[] encoded = codec.encodeBinary(original, boxType, null);
     Object decoded = codec.decodeBinary(encoded, 0, encoded.length, boxType, null);
     assertEquals(original, decoded);
-  }
-
-  @Test
-  void getPrimaryTypeName() {
-    assertEquals("box", codec.getPrimaryTypeName());
   }
 
   @Test

@@ -46,11 +46,6 @@ public final class BitCodec implements PrimitiveBinaryDecoder, PrimitiveTextDeco
   }
 
   @Override
-  public String getPrimaryTypeName() {
-    return "bit";
-  }
-
-  @Override
   public Class<?> getDefaultJavaType() {
     return PGobject.class;
   }
@@ -80,9 +75,10 @@ public final class BitCodec implements PrimitiveBinaryDecoder, PrimitiveTextDeco
   }
 
   @Override
-  public @Nullable Object decodeText(String data, TypeDescriptor type, CodecContext ctx) throws SQLException {
-    requireBitString(data, type.getTypeName().getName());
-    return toPGobject(type, data);
+  public @Nullable Object decodeText(CharSequence data, TypeDescriptor type, CodecContext ctx) throws SQLException {
+    String text = data.toString();
+    requireBitString(text, type.getName().getLocalName());
+    return toPGobject(type, text);
   }
 
   @Override
@@ -93,15 +89,16 @@ public final class BitCodec implements PrimitiveBinaryDecoder, PrimitiveTextDeco
 
   private static PGobject toPGobject(TypeDescriptor type, String bits) throws SQLException {
     PGobject obj = new PGobject();
-    obj.setType(type.getTypeName().getName());
+    obj.setType(type.getName().getLocalName());
     obj.setValue(bits);
     return obj;
   }
 
   @Override
-  public String decodeAsString(String data, TypeDescriptor type, CodecContext ctx) throws SQLException {
-    requireBitString(data, type.getTypeName().getName());
-    return data;
+  public String decodeAsString(CharSequence data, TypeDescriptor type, CodecContext ctx) throws SQLException {
+    String text = data.toString();
+    requireBitString(text, type.getName().getLocalName());
+    return text;
   }
 
   @Override
@@ -112,7 +109,7 @@ public final class BitCodec implements PrimitiveBinaryDecoder, PrimitiveTextDeco
 
   @Override
   public boolean decodeAsBoolean(CharSequence data, TypeDescriptor type, CodecContext ctx) throws SQLException {
-    requireBitString(data, type.getTypeName().getName());
+    requireBitString(data, type.getName().getLocalName());
     return BooleanTypeUtil.fromString(data);
   }
 
@@ -124,19 +121,20 @@ public final class BitCodec implements PrimitiveBinaryDecoder, PrimitiveTextDeco
 
   @Override
   @SuppressWarnings("unchecked")
-  public <T> @Nullable T decodeTextAs(String data, TypeDescriptor type, Class<T> targetClass, CodecContext ctx)
+  public <T> @Nullable T decodeTextAs(CharSequence data, TypeDescriptor type, Class<T> targetClass, CodecContext ctx)
       throws SQLException {
-    requireBitString(data, type.getTypeName().getName());
+    String text = data.toString();
+    requireBitString(text, type.getName().getLocalName());
     if (targetClass == String.class) {
-      return (T) data;
+      return (T) text;
     }
     if (targetClass == Boolean.class) {
-      return (T) Boolean.valueOf(BooleanTypeUtil.fromString(data));
+      return (T) Boolean.valueOf(BooleanTypeUtil.fromString(text));
     }
     if (targetClass == PGobject.class || targetClass == Object.class) {
-      return (T) toPGobject(type, data);
+      return (T) toPGobject(type, text);
     }
-    throw Exceptions.cannotDecode(type.getTypeName().getName(), targetClass.getName());
+    throw Exceptions.cannotDecode(type.getName().getLocalName(), targetClass.getName());
   }
 
   @Override
@@ -153,7 +151,7 @@ public final class BitCodec implements PrimitiveBinaryDecoder, PrimitiveTextDeco
     if (targetClass == PGobject.class || targetClass == Object.class) {
       return (T) toPGobject(type, bits);
     }
-    throw Exceptions.cannotDecode(type.getTypeName().getName(), targetClass.getName());
+    throw Exceptions.cannotDecode(type.getName().getLocalName(), targetClass.getName());
   }
 
   // ----------------------------- encode -----------------------------
@@ -181,7 +179,7 @@ public final class BitCodec implements PrimitiveBinaryDecoder, PrimitiveTextDeco
     } else {
       throw Exceptions.cannotEncode(value, "bit");
     }
-    requireBitString(bits, type.getTypeName().getName());
+    requireBitString(bits, type.getName().getLocalName());
     return bits;
   }
 

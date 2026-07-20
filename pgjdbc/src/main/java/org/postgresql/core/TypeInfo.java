@@ -53,6 +53,23 @@ public interface TypeInfo {
   PgType getPgTypeByOid(int oid) throws SQLException;
 
   /**
+   * Gets the type by OID with the lazily-cached structure its kind requires already loaded:
+   * composite attributes ({@code pg_attribute}), a range's subtype ({@code pg_range.rngsubtype}),
+   * or a multirange's range type ({@code pg_range.rngtypid}). Other kinds resolve to the plain
+   * {@link #getPgTypeByOid(int)} lookup.
+   *
+   * <p>This is the invariant the codec layer relies on: a descriptor handed to a codec is resolved
+   * for its own kind, so a {@code 0} OID or a null attribute list means "does not apply to this
+   * type" and never "not loaded yet". Nested children are resolved the same way when a container
+   * codec descends into them.</p>
+   *
+   * @param oid the type's OID
+   * @return the fully resolved type
+   * @throws SQLException if the type or its structure cannot be loaded
+   */
+  PgType resolveFully(int oid) throws SQLException;
+
+  /**
    * Gets the PostgreSQL type information by type name.
    *
    * @param pgTypeName the PostgreSQL type name (can be qualified with schema)
@@ -326,11 +343,11 @@ public interface TypeInfo {
    * @param oid the type's OID
    * @return the server type name for that OID or null if unknown
    * @throws SQLException if an error occurs when retrieving PG type
-   * @deprecated Use {@link #getPgTypeByOid(int)} and {@link PgType#getFullName()} instead.
+   * @deprecated Use {@link #getPgTypeByOid(int)} and {@link PgType#getFormattedName()} instead.
    */
   @Deprecated
   default @Nullable String getPGType(int oid) throws SQLException {
-    return getPgTypeByOid(oid).getFullName();
+    return getPgTypeByOid(oid).getFormattedName();
   }
 
   /**

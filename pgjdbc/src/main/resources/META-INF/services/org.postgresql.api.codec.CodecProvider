@@ -1,0 +1,4 @@
+# Custom codecs are contributed by listing CodecProvider implementations here
+# (one fully-qualified class name per line). Each provider names the codecs it
+# contributes; a Codec itself carries no type name.
+# Built-in codecs are registered programmatically in CodecRegistry.

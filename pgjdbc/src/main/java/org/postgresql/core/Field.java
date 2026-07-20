@@ -192,14 +192,18 @@ public class Field {
   }
 
   public String getPGType() {
-    return getPgType().getFullName();
+    return getPgType().getFormattedName();
   }
 
   public void initializePgType(TypeInfo typeInfo) throws SQLException {
     if (pgType != null) {
       return;
     }
-    PgType resolved = typeInfo.getPgTypeByOid(oid);
+    // resolveFully, not getPgTypeByOid: a codec must receive a descriptor already resolved for its
+    // kind, so a composite column carries its attributes and a range column its subtype. Without it
+    // the container codecs would have to re-resolve, unable to tell "does not apply" from "not
+    // loaded yet".
+    PgType resolved = typeInfo.resolveFully(oid);
     pgType = resolved;
     // Warm the binary-receive capability memos at this safe point (a result set is
     // materializing, no protocol message is being composed), so a later bind can

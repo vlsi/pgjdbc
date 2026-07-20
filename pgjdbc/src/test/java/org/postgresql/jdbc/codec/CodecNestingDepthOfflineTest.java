@@ -13,10 +13,10 @@ import org.postgresql.api.codec.CodecContext;
 import org.postgresql.api.codec.CodecContextBuilder;
 import org.postgresql.api.codec.Codecs;
 import org.postgresql.api.codec.Format;
-import org.postgresql.api.codec.RawValue;
+import org.postgresql.api.codec.TypeName;
+import org.postgresql.api.codec.WireValueSlice;
 import org.postgresql.core.Oid;
 import org.postgresql.jdbc.CodecDepth;
-import org.postgresql.jdbc.ObjectName;
 import org.postgresql.jdbc.OfflineCodecs;
 import org.postgresql.jdbc.PgField;
 import org.postgresql.jdbc.PgStruct;
@@ -96,9 +96,9 @@ class CodecNestingDepthOfflineTest {
 
     // A record nested exactly BUDGET deep decodes; one deeper trips the guard.
     withDepthBudget(BUDGET, false,
-        () -> Codecs.decode(RawValue.binary(nestedRecordBinary(BUDGET)), recordType, ctx, Struct.class));
+        () -> Codecs.decode(WireValueSlice.binary(nestedRecordBinary(BUDGET)), recordType, ctx, Struct.class));
     withDepthBudget(BUDGET, true,
-        () -> Codecs.decode(RawValue.binary(nestedRecordBinary(BUDGET + 1)), recordType, ctx, Struct.class));
+        () -> Codecs.decode(WireValueSlice.binary(nestedRecordBinary(BUDGET + 1)), recordType, ctx, Struct.class));
   }
 
   /** Encodes a record nested exactly {@code BUDGET} deep (passes) and one deeper (throws). */
@@ -150,7 +150,7 @@ class CodecNestingDepthOfflineTest {
     PgType outerDomain = outer;
 
     withDepthBudget(BUDGET, true,
-        () -> Codecs.decode(RawValue.binary(intBytes), outerDomain, ctx, Object.class));
+        () -> Codecs.decode(WireValueSlice.binary(intBytes), outerDomain, ctx, Object.class));
   }
 
   // --- depth-budget harness --------------------------------------------------------------------
@@ -237,7 +237,7 @@ class CodecNestingDepthOfflineTest {
   /** A composite whose only field is an array of that same composite: {@code rec(rec[])}. */
   private static Cycle arrayCompositeCycle() {
     PgType recordType = composite("cyc", CYCLE_RECORD_OID, field("f1", CYCLE_ARRAY_OID, 1));
-    PgType arrayType = new PgType(new ObjectName("public", "_cyc"), "public._cyc", CYCLE_ARRAY_OID,
+    PgType arrayType = new PgType(TypeName.of("public", "_cyc"), "public._cyc", CYCLE_ARRAY_OID,
         'b', 'A', -1, CYCLE_RECORD_OID, 0, 0);
     CodecContext ctx = OfflineCodecs.builder().type(recordType).type(arrayType).build();
     return new Cycle(recordType, ctx);
@@ -265,17 +265,17 @@ class CodecNestingDepthOfflineTest {
   }
 
   private static PgType composite(String simpleName, int oid, PgField... fields) {
-    return new PgType(new ObjectName("public", simpleName), "public." + simpleName, oid, 'c', 'C',
+    return new PgType(TypeName.of("public", simpleName), "public." + simpleName, oid, 'c', 'C',
         -1, 0, 0, 0, ',', Arrays.asList(fields));
   }
 
   private static PgType anonymousRecord(PgField... fields) {
-    return new PgType(new ObjectName("pg_catalog", "record"), "record", Oid.RECORD, 'c', 'C',
+    return new PgType(TypeName.of("pg_catalog", "record"), "record", Oid.RECORD, 'c', 'C',
         -1, 0, 0, 0, ',', Arrays.asList(fields));
   }
 
   private static PgType domain(String simpleName, int oid, int baseOid) {
-    return new PgType(new ObjectName("public", simpleName), "public." + simpleName, oid, 'd', 'N',
+    return new PgType(TypeName.of("public", simpleName), "public." + simpleName, oid, 'd', 'N',
         -1, 0, 0, baseOid, null);
   }
 }

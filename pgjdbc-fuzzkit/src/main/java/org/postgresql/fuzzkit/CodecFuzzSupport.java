@@ -12,8 +12,8 @@ import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import org.postgresql.api.codec.BackpatchingByteArrayOutputStream;
 import org.postgresql.api.codec.BinaryCodec;
-import org.postgresql.api.codec.CharArraySequence;
 import org.postgresql.api.codec.Codec;
 import org.postgresql.api.codec.CodecContext;
 import org.postgresql.api.codec.CodecContextBuilder;
@@ -24,11 +24,12 @@ import org.postgresql.api.codec.PrimitiveBinaryDecoder;
 import org.postgresql.api.codec.PrimitiveBinaryEncoder;
 import org.postgresql.api.codec.PrimitiveTextDecoder;
 import org.postgresql.api.codec.PrimitiveTextEncoder;
-import org.postgresql.api.codec.RawValue;
 import org.postgresql.api.codec.StreamingBinaryCodec;
 import org.postgresql.api.codec.StreamingTextCodec;
 import org.postgresql.api.codec.TextCodec;
 import org.postgresql.api.codec.TypeDescriptor;
+import org.postgresql.api.codec.TypeName;
+import org.postgresql.api.codec.WireValueSlice;
 import org.postgresql.core.Oid;
 import org.postgresql.fuzzkit.coercion.ArrayDescriptor;
 import org.postgresql.fuzzkit.coercion.Fidelity;
@@ -36,12 +37,11 @@ import org.postgresql.fuzzkit.coercion.LeafRepr;
 import org.postgresql.fuzzkit.coercion.NumericTypmod;
 import org.postgresql.fuzzkit.coercion.PgTypeDescriptors;
 import org.postgresql.fuzzkit.coercion.ScalarDescriptor;
-import org.postgresql.jdbc.ObjectName;
+import org.postgresql.jdbc.CodecRegistry;
 import org.postgresql.jdbc.OfflineCodecs;
 import org.postgresql.jdbc.PgField;
 import org.postgresql.jdbc.PgStruct;
 import org.postgresql.jdbc.PgType;
-import org.postgresql.jdbc.codec.BackpatchByteArrayOutputStream;
 import org.postgresql.jdbc.codec.FallbackCodec;
 import org.postgresql.util.PGRange;
 import org.postgresql.util.PGmultirange;
@@ -52,13 +52,12 @@ import org.checkerframework.checker.nullness.qual.Nullable;
 import java.io.IOException;
 import java.math.BigDecimal;
 import java.math.RoundingMode;
-import java.nio.charset.Charset;
+import java.nio.CharBuffer;
 import java.nio.charset.StandardCharsets;
 import java.sql.SQLException;
 import java.sql.Struct;
 import java.util.ArrayList;
 import java.util.Arrays;
-import java.util.Calendar;
 import java.util.Collections;
 import java.util.LinkedHashSet;
 import java.util.List;
@@ -104,7 +103,7 @@ public final class CodecFuzzSupport {
    * @return the offline scalar type
    */
   public static PgType scalar(int oid, String name, char typcategory) {
-    return new PgType(new ObjectName("pg_catalog", name), name, oid, 'b', typcategory, -1, 0, 0, 0);
+    return new PgType(TypeName.of("pg_catalog", name), name, oid, 'b', typcategory, -1, 0, 0, 0);
   }
 
   // The SQLData composite's field OIDs, in wire order (f1..f12). The membership is derived: exactly
@@ -179,7 +178,7 @@ public final class CodecFuzzSupport {
   /**
    * Asserts the streaming encode form agrees with the materialising one for whichever paths the
    * resolved codec opts into. A {@link StreamingBinaryCodec} must write the same bytes into a
-   * {@link BackpatchingBinarySink} as its {@code byte[]} {@link BinaryCodec#encodeBinary} returns; a
+   * {@link BackpatchingByteArrayOutputStream} as its {@code byte[]} {@link BinaryCodec#encodeBinary} returns; a
    * {@link StreamingTextCodec} must append the same characters as its {@code String}
    * {@link TextCodec#encodeText} returns.
    *
@@ -202,15 +201,15 @@ public final class CodecFuzzSupport {
     Codec codec = ctx.resolveCodec(type.getOid());
     if (codec instanceof StreamingBinaryCodec) {
       byte[] materialised = ((BinaryCodec) codec).encodeBinary(value, type, ctx);
-      BackpatchByteArrayOutputStream sink = new BackpatchByteArrayOutputStream();
+      BackpatchingByteArrayOutputStream sink = new BackpatchingByteArrayOutputStream();
       try {
         ((StreamingBinaryCodec) codec).encodeBinary(value, type, ctx, sink);
       } catch (IOException e) {
-        // BackpatchByteArrayOutputStream never performs I/O; a throw here is a codec contract breach.
-        throw new AssertionError(type.getTypeName() + " streaming-binary threw IOException", e);
+        // BackpatchingByteArrayOutputStream never performs I/O; a throw here is a codec contract breach.
+        throw new AssertionError(type.getName() + " streaming-binary threw IOException", e);
       }
       assertArrayEquals(materialised, sink.toByteArray(),
-          type.getTypeName() + " streaming-binary vs byte[]");
+          type.getName() + " streaming-binary vs byte[]");
     }
     if (codec instanceof StreamingTextCodec) {
       String materialised = ((TextCodec) codec).encodeText(value, type, ctx);
@@ -219,10 +218,10 @@ public final class CodecFuzzSupport {
         ((StreamingTextCodec) codec).encodeText(value, type, ctx, sink);
       } catch (IOException e) {
         // StringBuilder.append never throws IOException; a throw here is a codec contract breach.
-        throw new AssertionError(type.getTypeName() + " streaming-text threw IOException", e);
+        throw new AssertionError(type.getName() + " streaming-text threw IOException", e);
       }
       assertEquals(materialised, sink.toString(),
-          () -> type.getTypeName() + " streaming-text vs String");
+          () -> type.getName() + " streaming-text vs String");
     }
   }
 
@@ -245,10 +244,11 @@ public final class CodecFuzzSupport {
    * @param value the value to encode both ways
    * @param type the delegating backend type
    * @param ctx the offline codec context, which must resolve {@code type} and its children
+   * @param materialising the same context built over a {@link NonStreamingCodecRegistry}, so every
+   *     resolved codec hides its streaming faces; build it with {@link #deStreamedBuilder()}
    */
-  public static void streamVsMaterializeParity(Object value, PgType type, CodecContext ctx)
-      throws SQLException {
-    CodecContext materialising = new NonStreamingContext(ctx);
+  public static void streamVsMaterializeParity(Object value, PgType type, CodecContext ctx,
+      CodecContext materialising) throws SQLException {
     // Non-vacuity guard: if the delegate streams, the de-streamed view must hide its streaming faces,
     // or the two runs would encode through the same branch and the property would prove nothing. The
     // same wrapping drives the children, so hiding it on the top type witnesses the mechanism works.
@@ -257,13 +257,13 @@ public final class CodecFuzzSupport {
       Codec deStreamed = materialising.resolveCodec(type.getOid());
       assertFalse(deStreamed instanceof StreamingBinaryCodec
               || deStreamed instanceof StreamingTextCodec,
-          () -> type.getTypeName() + " de-streamed codec still advertises a streaming face");
+          () -> type.getName() + " de-streamed codec still advertises a streaming face");
     }
     for (Format format : Format.values()) {
       byte[] streamed = Codecs.encode(value, type, ctx, format).toByteArray();
       byte[] materialised = Codecs.encode(value, type, materialising, format).toByteArray();
       assertArrayEquals(streamed, materialised,
-          type.getTypeName() + " " + format + " streamed vs materialised child path");
+          type.getName() + " " + format + " streamed vs materialised child path");
     }
   }
 
@@ -300,7 +300,7 @@ public final class CodecFuzzSupport {
   public static void intPrimitiveParity(int value, PgType type, CodecContext ctx) throws SQLException {
     Codec codec = ctx.resolveCodec(type.getOid());
     Integer boxed = value;
-    String name = type.getTypeName().toString();
+    String name = type.getName().toString();
     if (codec instanceof PrimitiveBinaryEncoder) {
       PrimitiveBinaryEncoder enc = (PrimitiveBinaryEncoder) codec;
       assertSameOutcome(name + " encodeInt(binary) vs encodeBinary",
@@ -339,9 +339,9 @@ public final class CodecFuzzSupport {
       assertSameOutcome(name + " decodeAsInt(String) vs decodeText", viaText,
           Outcome.capture(() -> dec.decodeAsInt(text, type, ctx)));
       assertSameOutcome(name + " decodeAsInt(char[]) vs decodeText", viaText,
-          Outcome.capture(() -> dec.decodeAsInt(new CharArraySequence(chars, 0, chars.length), type, ctx)));
+          Outcome.capture(() -> dec.decodeAsInt(CharBuffer.wrap(chars, 0, chars.length), type, ctx)));
       assertSameOutcome(name + " decodeAsInt(char[]) at offset vs decodeText", viaText,
-          Outcome.capture(() -> dec.decodeAsInt(new CharArraySequence(pad(chars), 3, chars.length), type, ctx)));
+          Outcome.capture(() -> dec.decodeAsInt(CharBuffer.wrap(pad(chars), 3, chars.length), type, ctx)));
       assertSameOutcome(name + " decodeTextBytesAsInt vs decodeText", viaText,
           Outcome.capture(() -> dec.decodeTextBytesAsInt(text.getBytes(ctx.getCharset()), type, ctx)));
     }
@@ -362,7 +362,7 @@ public final class CodecFuzzSupport {
   public static void longPrimitiveParity(long value, PgType type, CodecContext ctx) throws SQLException {
     Codec codec = ctx.resolveCodec(type.getOid());
     Long boxed = value;
-    String name = type.getTypeName().toString();
+    String name = type.getName().toString();
     if (codec instanceof PrimitiveBinaryEncoder) {
       PrimitiveBinaryEncoder enc = (PrimitiveBinaryEncoder) codec;
       assertSameOutcome(name + " encodeLong(binary) vs encodeBinary",
@@ -401,9 +401,9 @@ public final class CodecFuzzSupport {
       assertSameOutcome(name + " decodeAsLong(String) vs decodeText", viaText,
           Outcome.capture(() -> dec.decodeAsLong(text, type, ctx)));
       assertSameOutcome(name + " decodeAsLong(char[]) vs decodeText", viaText,
-          Outcome.capture(() -> dec.decodeAsLong(new CharArraySequence(chars, 0, chars.length), type, ctx)));
+          Outcome.capture(() -> dec.decodeAsLong(CharBuffer.wrap(chars, 0, chars.length), type, ctx)));
       assertSameOutcome(name + " decodeAsLong(char[]) at offset vs decodeText", viaText,
-          Outcome.capture(() -> dec.decodeAsLong(new CharArraySequence(pad(chars), 3, chars.length), type, ctx)));
+          Outcome.capture(() -> dec.decodeAsLong(CharBuffer.wrap(pad(chars), 3, chars.length), type, ctx)));
       assertSameOutcome(name + " decodeTextBytesAsLong vs decodeText", viaText,
           Outcome.capture(() -> dec.decodeTextBytesAsLong(text.getBytes(ctx.getCharset()), type, ctx)));
     }
@@ -420,7 +420,7 @@ public final class CodecFuzzSupport {
   public static void unsignedLongPrimitiveParity(long value, PgType type, CodecContext ctx) throws SQLException {
     Codec codec = ctx.resolveCodec(type.getOid());
     Long boxed = value;
-    String name = type.getTypeName().toString();
+    String name = type.getName().toString();
     if (codec instanceof PrimitiveBinaryEncoder) {
       PrimitiveBinaryEncoder enc = (PrimitiveBinaryEncoder) codec;
       assertSameOutcome(name + " encodeLong(binary) vs encodeBinary",
@@ -459,9 +459,9 @@ public final class CodecFuzzSupport {
       assertSameOutcome(name + " decodeAsLong(String) vs decodeText", viaText,
           Outcome.capture(() -> dec.decodeAsLong(text, type, ctx)));
       assertSameOutcome(name + " decodeAsLong(char[]) vs decodeText", viaText,
-          Outcome.capture(() -> dec.decodeAsLong(new CharArraySequence(chars, 0, chars.length), type, ctx)));
+          Outcome.capture(() -> dec.decodeAsLong(CharBuffer.wrap(chars, 0, chars.length), type, ctx)));
       assertSameOutcome(name + " decodeAsLong(char[]) at offset vs decodeText", viaText,
-          Outcome.capture(() -> dec.decodeAsLong(new CharArraySequence(pad(chars), 3, chars.length), type, ctx)));
+          Outcome.capture(() -> dec.decodeAsLong(CharBuffer.wrap(pad(chars), 3, chars.length), type, ctx)));
       assertSameOutcome(name + " decodeTextBytesAsLong vs decodeText", viaText,
           Outcome.capture(() -> dec.decodeTextBytesAsLong(text.getBytes(ctx.getCharset()), type, ctx)));
     }
@@ -482,7 +482,7 @@ public final class CodecFuzzSupport {
   public static void floatPrimitiveParity(float value, PgType type, CodecContext ctx) throws SQLException {
     Codec codec = ctx.resolveCodec(type.getOid());
     Float boxed = value;
-    String name = type.getTypeName().toString();
+    String name = type.getName().toString();
     if (codec instanceof PrimitiveBinaryEncoder) {
       PrimitiveBinaryEncoder enc = (PrimitiveBinaryEncoder) codec;
       assertSameOutcome(name + " encodeFloat(binary) vs encodeBinary",
@@ -521,9 +521,9 @@ public final class CodecFuzzSupport {
       assertSameOutcome(name + " decodeAsFloat(String) vs decodeText", viaText,
           Outcome.capture(() -> dec.decodeAsFloat(text, type, ctx)));
       assertSameOutcome(name + " decodeAsFloat(char[]) vs decodeText", viaText,
-          Outcome.capture(() -> dec.decodeAsFloat(new CharArraySequence(chars, 0, chars.length), type, ctx)));
+          Outcome.capture(() -> dec.decodeAsFloat(CharBuffer.wrap(chars, 0, chars.length), type, ctx)));
       assertSameOutcome(name + " decodeAsFloat(char[]) at offset vs decodeText", viaText,
-          Outcome.capture(() -> dec.decodeAsFloat(new CharArraySequence(pad(chars), 3, chars.length), type, ctx)));
+          Outcome.capture(() -> dec.decodeAsFloat(CharBuffer.wrap(pad(chars), 3, chars.length), type, ctx)));
     }
   }
 
@@ -542,7 +542,7 @@ public final class CodecFuzzSupport {
   public static void doublePrimitiveParity(double value, PgType type, CodecContext ctx) throws SQLException {
     Codec codec = ctx.resolveCodec(type.getOid());
     Double boxed = value;
-    String name = type.getTypeName().toString();
+    String name = type.getName().toString();
     if (codec instanceof PrimitiveBinaryEncoder) {
       PrimitiveBinaryEncoder enc = (PrimitiveBinaryEncoder) codec;
       assertSameOutcome(name + " encodeDouble(binary) vs encodeBinary",
@@ -581,9 +581,9 @@ public final class CodecFuzzSupport {
       assertSameOutcome(name + " decodeAsDouble(String) vs decodeText", viaText,
           Outcome.capture(() -> dec.decodeAsDouble(text, type, ctx)));
       assertSameOutcome(name + " decodeAsDouble(char[]) vs decodeText", viaText,
-          Outcome.capture(() -> dec.decodeAsDouble(new CharArraySequence(chars, 0, chars.length), type, ctx)));
+          Outcome.capture(() -> dec.decodeAsDouble(CharBuffer.wrap(chars, 0, chars.length), type, ctx)));
       assertSameOutcome(name + " decodeAsDouble(char[]) at offset vs decodeText", viaText,
-          Outcome.capture(() -> dec.decodeAsDouble(new CharArraySequence(pad(chars), 3, chars.length), type, ctx)));
+          Outcome.capture(() -> dec.decodeAsDouble(CharBuffer.wrap(pad(chars), 3, chars.length), type, ctx)));
     }
   }
 
@@ -605,7 +605,7 @@ public final class CodecFuzzSupport {
   public static void booleanPrimitiveParity(boolean value, PgType type, CodecContext ctx) throws SQLException {
     Codec codec = ctx.resolveCodec(type.getOid());
     Boolean boxed = value;
-    String name = type.getTypeName().toString();
+    String name = type.getName().toString();
     if (codec instanceof PrimitiveBinaryDecoder) {
       PrimitiveBinaryDecoder dec = (PrimitiveBinaryDecoder) codec;
       byte[] wire = ((BinaryCodec) codec).encodeBinary(boxed, type, ctx);
@@ -624,7 +624,7 @@ public final class CodecFuzzSupport {
       assertSameOutcome(name + " decodeAsBoolean(String) vs decodeText", viaText,
           Outcome.capture(() -> dec.decodeAsBoolean(text, type, ctx)));
       assertSameOutcome(name + " decodeAsBoolean(char[]) vs decodeText", viaText,
-          Outcome.capture(() -> dec.decodeAsBoolean(new CharArraySequence(chars, 0, chars.length), type, ctx)));
+          Outcome.capture(() -> dec.decodeAsBoolean(CharBuffer.wrap(chars, 0, chars.length), type, ctx)));
     }
   }
 
@@ -661,7 +661,7 @@ public final class CodecFuzzSupport {
   }
 
   private static PgType domainOver(int baseOid, String baseName, char baseCat) {
-    return new PgType(new ObjectName("public", "dom_" + baseName), "public.dom_" + baseName,
+    return new PgType(TypeName.of("public", "dom_" + baseName), "public.dom_" + baseName,
         DOMAIN_OID, 'd', baseCat, -1, 0, 0, baseOid);
   }
 
@@ -778,7 +778,7 @@ public final class CodecFuzzSupport {
     for (Map.Entry<Integer, Codec> entry : OfflineCodecs.defaultRegistry().builtinCodecsByOid().entrySet()) {
       Codec codec = entry.getValue();
       if (codec instanceof PrimitiveBinaryDecoder || codec instanceof PrimitiveTextDecoder) {
-        types.add(scalar(entry.getKey(), codec.getPrimaryTypeName(), 'X'));
+        types.add(scalar(entry.getKey(), Oid.toString(entry.getKey()), 'X'));
       }
     }
     // The synthetic unknown type must resolve to the unpinned FallbackCodec (not TextLikeCodec or a
@@ -812,7 +812,7 @@ public final class CodecFuzzSupport {
       return;
     }
     PrimitiveBinaryDecoder dec = (PrimitiveBinaryDecoder) codec;
-    String name = codec.getPrimaryTypeName();
+    String name = type.getFormattedName();
     int len = wire.length;
     Outcome oi = Outcome.capture(() -> dec.decodeAsInt(wire, 0, len, type, ctx));
     Outcome ol = Outcome.capture(() -> dec.decodeAsLong(wire, 0, len, type, ctx));
@@ -837,7 +837,7 @@ public final class CodecFuzzSupport {
     // Layer 2 + getObject cross-check.
     numericLattice(name + " binary", familyOf(type.getOid(), codec.getDefaultJavaType()), oi, ol, of, od,
         obd);
-    getObjectConsistency(name + " getObject(binary)", type, RawValue.binary(wire), ctx, oi, ol, of, od);
+    getObjectConsistency(name + " getObject(binary)", type, WireValueSlice.binary(wire), ctx, oi, ol, of, od);
   }
 
   /**
@@ -855,7 +855,7 @@ public final class CodecFuzzSupport {
       return;
     }
     PrimitiveTextDecoder dec = (PrimitiveTextDecoder) codec;
-    String name = codec.getPrimaryTypeName();
+    String name = type.getFormattedName();
     char[] chars = text.toCharArray();
     char[] pad = pad(chars);
     int clen = chars.length;
@@ -870,27 +870,27 @@ public final class CodecFuzzSupport {
     // Layer 1: the String, char[], char[]@offset and (int/long) ASCII-bytes forms agree with the String
     // form whenever both succeed.
     assertValueAgrees(name + " decodeAsInt(char[])", oi,
-        Outcome.capture(() -> dec.decodeAsInt(new CharArraySequence(chars, 0, clen), type, ctx)));
+        Outcome.capture(() -> dec.decodeAsInt(CharBuffer.wrap(chars, 0, clen), type, ctx)));
     assertValueAgrees(name + " decodeAsInt(char[]) offset", oi,
-        Outcome.capture(() -> dec.decodeAsInt(new CharArraySequence(pad, 3, clen), type, ctx)));
+        Outcome.capture(() -> dec.decodeAsInt(CharBuffer.wrap(pad, 3, clen), type, ctx)));
     assertValueAgrees(name + " decodeTextBytesAsInt", oi,
         Outcome.capture(() -> dec.decodeTextBytesAsInt(textBytes, type, ctx)));
     assertValueAgrees(name + " decodeAsLong(char[])", ol,
-        Outcome.capture(() -> dec.decodeAsLong(new CharArraySequence(chars, 0, clen), type, ctx)));
+        Outcome.capture(() -> dec.decodeAsLong(CharBuffer.wrap(chars, 0, clen), type, ctx)));
     assertValueAgrees(name + " decodeAsLong(char[]) offset", ol,
-        Outcome.capture(() -> dec.decodeAsLong(new CharArraySequence(pad, 3, clen), type, ctx)));
+        Outcome.capture(() -> dec.decodeAsLong(CharBuffer.wrap(pad, 3, clen), type, ctx)));
     assertValueAgrees(name + " decodeTextBytesAsLong", ol,
         Outcome.capture(() -> dec.decodeTextBytesAsLong(textBytes, type, ctx)));
     assertValueAgrees(name + " decodeAsFloat(char[])", of,
-        Outcome.capture(() -> dec.decodeAsFloat(new CharArraySequence(chars, 0, clen), type, ctx)));
+        Outcome.capture(() -> dec.decodeAsFloat(CharBuffer.wrap(chars, 0, clen), type, ctx)));
     assertValueAgrees(name + " decodeAsFloat(char[]) offset", of,
-        Outcome.capture(() -> dec.decodeAsFloat(new CharArraySequence(pad, 3, clen), type, ctx)));
+        Outcome.capture(() -> dec.decodeAsFloat(CharBuffer.wrap(pad, 3, clen), type, ctx)));
     assertValueAgrees(name + " decodeAsDouble(char[])", od,
-        Outcome.capture(() -> dec.decodeAsDouble(new CharArraySequence(chars, 0, clen), type, ctx)));
+        Outcome.capture(() -> dec.decodeAsDouble(CharBuffer.wrap(chars, 0, clen), type, ctx)));
     assertValueAgrees(name + " decodeAsDouble(char[]) offset", od,
-        Outcome.capture(() -> dec.decodeAsDouble(new CharArraySequence(pad, 3, clen), type, ctx)));
+        Outcome.capture(() -> dec.decodeAsDouble(CharBuffer.wrap(pad, 3, clen), type, ctx)));
     assertValueAgrees(name + " decodeAsBoolean(char[])", ob,
-        Outcome.capture(() -> dec.decodeAsBoolean(new CharArraySequence(chars, 0, clen), type, ctx)));
+        Outcome.capture(() -> dec.decodeAsBoolean(CharBuffer.wrap(chars, 0, clen), type, ctx)));
 
     numericLattice(name + " text", familyOf(type.getOid(), codec.getDefaultJavaType()), oi, ol, of, od,
         obd);
@@ -1126,7 +1126,7 @@ public final class CodecFuzzSupport {
    * boxing path ({@code decodeBinaryAs}) and the primitive path may validate a malformed-length wire
    * with different strictness, which is not the value consistency this checks.
    */
-  private static void getObjectConsistency(String label, PgType type, RawValue raw, CodecContext ctx,
+  private static void getObjectConsistency(String label, PgType type, WireValueSlice raw, CodecContext ctx,
       Outcome oi, Outcome ol, Outcome of, Outcome od) {
     assertGetObject(label + " Integer", type, raw, ctx, Integer.class, oi);
     assertGetObject(label + " Long", type, raw, ctx, Long.class, ol);
@@ -1134,7 +1134,7 @@ public final class CodecFuzzSupport {
     assertGetObject(label + " Double", type, raw, ctx, Double.class, od);
   }
 
-  private static void assertGetObject(String label, PgType type, RawValue raw, CodecContext ctx,
+  private static void assertGetObject(String label, PgType type, WireValueSlice raw, CodecContext ctx,
       Class<?> target, Outcome primitive) {
     @Nullable Object decoded;
     try {
@@ -1245,7 +1245,7 @@ public final class CodecFuzzSupport {
 
   /** A primitive binary encode driven into a fresh sink, as the raw value bytes. */
   private interface BinaryEncode {
-    void writeTo(BackpatchByteArrayOutputStream sink) throws SQLException, IOException;
+    void writeTo(BackpatchingByteArrayOutputStream sink) throws SQLException, IOException;
   }
 
   /** A primitive text encode driven into a fresh buffer. */
@@ -1254,11 +1254,11 @@ public final class CodecFuzzSupport {
   }
 
   private static byte[] encodeToBytes(BinaryEncode encode, PgType type) throws SQLException {
-    BackpatchByteArrayOutputStream sink = new BackpatchByteArrayOutputStream();
+    BackpatchingByteArrayOutputStream sink = new BackpatchingByteArrayOutputStream();
     try {
       encode.writeTo(sink);
     } catch (IOException e) {
-      throw new AssertionError(type.getTypeName() + " primitive binary encode threw IOException", e);
+      throw new AssertionError(type.getName() + " primitive binary encode threw IOException", e);
     }
     return sink.toByteArray();
   }
@@ -1268,7 +1268,7 @@ public final class CodecFuzzSupport {
     try {
       encode.writeTo(out);
     } catch (IOException e) {
-      throw new AssertionError(type.getTypeName() + " primitive text encode threw IOException", e);
+      throw new AssertionError(type.getName() + " primitive text encode threw IOException", e);
     }
     return out.toString();
   }
@@ -1289,96 +1289,35 @@ public final class CodecFuzzSupport {
   }
 
   /**
-   * A {@link CodecContext} that resolves every codec through {@link NonStreamingCodec}, so a
-   * delegating codec sees no child that opts into the streaming interfaces and takes its
-   * materialising fallback branch. Every other setting is delegated unchanged.
+   * An offline builder whose registry hands out de-streamed codecs, for the second run of
+   * {@link #streamVsMaterializeParity}. Register the same types on it as on the streaming builder.
+   *
+   * @return a builder over a {@link NonStreamingCodecRegistry}
    */
-  private static final class NonStreamingContext implements CodecContext {
-    private final CodecContext delegate;
+  public static CodecContextBuilder deStreamedBuilder() {
+    return OfflineCodecContexts.offlineBuilder().registry(new NonStreamingCodecRegistry());
+  }
 
-    NonStreamingContext(CodecContext delegate) {
-      this.delegate = delegate;
+  /**
+   * A {@link CodecRegistry} that hands out every codec through {@link NonStreamingCodec}, so a
+   * delegating codec sees no child that opts into the streaming interfaces and takes its
+   * materialising fallback branch.
+   *
+   * <p>This subclasses the driver's registry rather than decorating the {@link CodecContext},
+   * because de-streaming is a registry concern: the context only forwards what the registry
+   * resolved. Subclassing also keeps the context a genuine driver context, which is what the codecs
+   * under test are handed in production.</p>
+   */
+  private static final class NonStreamingCodecRegistry extends CodecRegistry {
+    @Override
+    public Codec getByOid(int oid, @Nullable TypeDescriptor pgType) {
+      return NonStreamingCodec.wrap(super.getByOid(oid, pgType));
     }
 
     @Override
-    public Codec resolveCodec(int oid) throws SQLException {
-      return NonStreamingCodec.wrap(delegate.resolveCodec(oid));
-    }
-
-    @Override
-    public TypeDescriptor resolveType(int oid) throws SQLException {
-      return delegate.resolveType(oid);
-    }
-
-    @Override
-    public CodecContext withoutJavaTimePreferences() {
-      CodecContext inner = delegate.withoutJavaTimePreferences();
-      return inner == delegate ? this : new NonStreamingContext(inner);
-    }
-
-    @Override
-    public Charset getCharset() {
-      return delegate.getCharset();
-    }
-
-    @Override
-    public boolean usesDoubleDateTime() {
-      return delegate.usesDoubleDateTime();
-    }
-
-    @Override
-    public TimeZone getClientTimeZone() {
-      return delegate.getClientTimeZone();
-    }
-
-    @Override
-    public TimeZone getDefaultTimeZone() {
-      return delegate.getDefaultTimeZone();
-    }
-
-    @Override
-    public @Nullable Calendar getCalendar() {
-      return delegate.getCalendar();
-    }
-
-    @Override
-    public boolean prefersJavaTimeForDate() {
-      return delegate.prefersJavaTimeForDate();
-    }
-
-    @Override
-    public boolean prefersJavaTimeForTime() {
-      return delegate.prefersJavaTimeForTime();
-    }
-
-    @Override
-    public boolean prefersJavaTimeForTimetz() {
-      return delegate.prefersJavaTimeForTimetz();
-    }
-
-    @Override
-    public boolean prefersJavaTimeForTimestamp() {
-      return delegate.prefersJavaTimeForTimestamp();
-    }
-
-    @Override
-    public boolean prefersJavaTimeForTimestamptz() {
-      return delegate.prefersJavaTimeForTimestamptz();
-    }
-
-    @Override
-    public boolean getConvertBooleanToNumeric() {
-      return delegate.getConvertBooleanToNumeric();
-    }
-
-    @Override
-    public Map<String, Class<?>> getTypeMap() {
-      return delegate.getTypeMap();
-    }
-
-    @Override
-    public @Nullable Class<?> getMappedClass(String typeName) {
-      return delegate.getMappedClass(typeName);
+    public @Nullable Codec getByLocalName(String localTypeName) {
+      Codec codec = super.getByLocalName(localTypeName);
+      return codec == null ? null : NonStreamingCodec.wrap(codec);
     }
   }
 
@@ -1409,11 +1348,6 @@ public final class CodecFuzzSupport {
         return new NonStreamingCodec((BinaryCodec) codec, (TextCodec) codec);
       }
       return codec;
-    }
-
-    @Override
-    public String getPrimaryTypeName() {
-      return bin.getPrimaryTypeName();
     }
 
     @Override
@@ -1453,14 +1387,8 @@ public final class CodecFuzzSupport {
     }
 
     @Override
-    public @Nullable Object decodeText(String data, TypeDescriptor type, CodecContext ctx) throws SQLException {
+    public @Nullable Object decodeText(CharSequence data, TypeDescriptor type, CodecContext ctx) throws SQLException {
       return txt.decodeText(data, type, ctx);
-    }
-
-    @Override
-    public @Nullable Object decodeText(char[] data, int offset, int length, TypeDescriptor type,
-        CodecContext ctx) throws SQLException {
-      return txt.decodeText(data, offset, length, type, ctx);
     }
 
     @Override
@@ -1485,9 +1413,9 @@ public final class CodecFuzzSupport {
     encodeParity(value, type, ctx);
     formatEnforcementParity(value, type, ctx);
     for (Format format : Format.values()) {
-      RawValue raw = Codecs.encode(value, type, ctx, format);
+      WireValueSlice raw = Codecs.encode(value, type, ctx, format);
       @Nullable T back = Codecs.decode(raw, type, ctx, target);
-      assertEquals(value, back, () -> type.getTypeName() + " " + format + " round-trip");
+      assertEquals(value, back, () -> type.getName() + " " + format + " round-trip");
     }
     crossFormatString(value, type, ctx);
   }
@@ -1506,9 +1434,9 @@ public final class CodecFuzzSupport {
   public static <T> void roundTripText(Object value, PgType type, Class<T> target, CodecContext ctx)
       throws SQLException {
     encodeParity(value, type, ctx);
-    RawValue raw = Codecs.encode(value, type, ctx, Format.TEXT);
+    WireValueSlice raw = Codecs.encode(value, type, ctx, Format.TEXT);
     @Nullable T back = Codecs.decode(raw, type, ctx, target);
-    assertEquals(value, back, () -> type.getTypeName() + " text round-trip");
+    assertEquals(value, back, () -> type.getName() + " text round-trip");
   }
 
   /**
@@ -1532,8 +1460,8 @@ public final class CodecFuzzSupport {
     assertEncodeEnforced(CodecFormatSupport.canWriteText(codec), value, type, ctx, Format.TEXT);
     if (!CodecFormatSupport.canReadBinary(codec)) {
       assertThrows(SQLException.class,
-          () -> Codecs.decode(RawValue.binary(new byte[0]), type, ctx, Object.class),
-          () -> type.getTypeName() + " cannot read binary, so Codecs.decode(BINARY) must refuse");
+          () -> Codecs.decode(WireValueSlice.binary(new byte[0]), type, ctx, Object.class),
+          () -> type.getName() + " cannot read binary, so Codecs.decode(BINARY) must refuse");
     }
   }
 
@@ -1541,10 +1469,10 @@ public final class CodecFuzzSupport {
       CodecContext ctx, Format format) throws SQLException {
     if (writable) {
       assertEquals(format, Codecs.encode(value, type, ctx, format).getFormat(),
-          () -> type.getTypeName() + " encode " + format + " must keep the requested format");
+          () -> type.getName() + " encode " + format + " must keep the requested format");
     } else {
       assertThrows(SQLException.class, () -> Codecs.encode(value, type, ctx, format),
-          () -> type.getTypeName() + " cannot write " + format + ", so encode must refuse");
+          () -> type.getName() + " cannot write " + format + ", so encode must refuse");
     }
   }
 
@@ -1552,7 +1480,7 @@ public final class CodecFuzzSupport {
   public static void numericRoundTrip(BigDecimal value, CodecContext ctx) throws SQLException {
     PgType numeric = PgTypeDescriptors.scalar(Oid.NUMERIC).pgType();
     for (Format format : Format.values()) {
-      RawValue raw = Codecs.encode(value, numeric, ctx, format);
+      WireValueSlice raw = Codecs.encode(value, numeric, ctx, format);
       BigDecimal back = Nullness.castNonNull(Codecs.decode(raw, numeric, ctx, BigDecimal.class),
           "numeric round-trip decoded null for a non-null written value");
       assertEquals(0, value.compareTo(back),
@@ -1580,7 +1508,7 @@ public final class CodecFuzzSupport {
     PgType numeric = PgTypeDescriptors.scalar(Oid.NUMERIC).withTypmod(typmod).pgType();
     BigDecimal expected = value.setScale(NumericTypmod.scaleOf(typmod), RoundingMode.HALF_EVEN);
     for (Format format : Format.values()) {
-      RawValue raw = Codecs.encode(value, numeric, ctx, format);
+      WireValueSlice raw = Codecs.encode(value, numeric, ctx, format);
       BigDecimal back = Nullness.castNonNull(Codecs.decode(raw, numeric, ctx, BigDecimal.class),
           "numeric(p,s) round-trip decoded null for a non-null written value");
       assertEquals(expected, back,
@@ -1606,10 +1534,10 @@ public final class CodecFuzzSupport {
       int scale, CodecContext ctx) throws SQLException {
     int typmod = NumericTypmod.of(precision, scale);
     int declaredScale = NumericTypmod.scaleOf(typmod);
-    PgType numericArray = new PgType(new ObjectName("pg_catalog", "_numeric"), "numeric[]",
+    PgType numericArray = new PgType(TypeName.of("pg_catalog", "_numeric"), "numeric[]",
         Oid.NUMERIC_ARRAY, 'b', 'A', -1, Oid.NUMERIC, 0, 0).withTypmod(typmod);
     for (Format format : Format.values()) {
-      RawValue raw = Codecs.encode(values, numericArray, ctx, format);
+      WireValueSlice raw = Codecs.encode(values, numericArray, ctx, format);
       BigDecimal[] back = Nullness.castNonNull(Codecs.decode(raw, numericArray, ctx, BigDecimal[].class),
           "numeric(p,s)[] decoded null for a non-null written array");
       assertEquals(values.length, back.length,
@@ -1629,7 +1557,7 @@ public final class CodecFuzzSupport {
   public static void byteaRoundTrip(byte[] value, CodecContext ctx) throws SQLException {
     PgType bytea = PgTypeDescriptors.scalar(Oid.BYTEA).pgType();
     for (Format format : Format.values()) {
-      RawValue raw = Codecs.encode(value, bytea, ctx, format);
+      WireValueSlice raw = Codecs.encode(value, bytea, ctx, format);
       byte @Nullable [] back = Codecs.decode(raw, bytea, ctx, byte[].class);
       assertArrayEquals(value, back, "bytea " + format + " round-trip");
     }
@@ -1654,10 +1582,10 @@ public final class CodecFuzzSupport {
     PgType arrayType = descriptor.pgType();
     Class<?> target = descriptor.targetClass(leafRepr, ndim);
     for (Format format : Format.values()) {
-      RawValue raw = Codecs.encode(value, arrayType, ctx, format);
+      WireValueSlice raw = Codecs.encode(value, arrayType, ctx, format);
       @Nullable Object back = Codecs.decode(raw, arrayType, ctx, target);
       if (!descriptor.fidelity().equal(value, back)) {
-        throw new AssertionError(arrayType.getTypeName() + " " + format + " round-trip: " + leafRepr
+        throw new AssertionError(arrayType.getName() + " " + format + " round-trip: " + leafRepr
             + " " + ndim + "D mismatch");
       }
     }
@@ -1667,11 +1595,11 @@ public final class CodecFuzzSupport {
   public static void structRoundTrip(PgType type, Object[] attributes, CodecContext ctx)
       throws SQLException {
     for (Format format : Format.values()) {
-      RawValue raw = Codecs.encode(new PgStruct(type, attributes, null), type, ctx, format);
+      WireValueSlice raw = Codecs.encode(new PgStruct(type, attributes, null), type, ctx, format);
       Struct back = Nullness.castNonNull(Codecs.decode(raw, type, ctx, Struct.class),
           "struct round-trip decoded null for a non-null written struct");
       assertArrayEquals(attributes, back.getAttributes(),
-          type.getTypeName() + " " + format + " struct round-trip");
+          type.getName() + " " + format + " struct round-trip");
     }
   }
 
@@ -1687,11 +1615,11 @@ public final class CodecFuzzSupport {
     }
     // OID is RECORD so decode synthesizes fields from the wire; typtype 'c' steers codec
     // resolution to CompositeCodec. The descriptor already carries the fields encode needs.
-    PgType recordType = new PgType(new ObjectName("pg_catalog", "record"), "record", Oid.RECORD,
+    PgType recordType = new PgType(TypeName.of("pg_catalog", "record"), "record", Oid.RECORD,
         'c', 'C', -1, 0, 0, 0, ',', fields);
     CodecContext ctx = with(recordType);
 
-    RawValue raw = Codecs.encode(new PgStruct(recordType, values, null), recordType, ctx,
+    WireValueSlice raw = Codecs.encode(new PgStruct(recordType, values, null), recordType, ctx,
         Format.BINARY);
     Struct back = Nullness.castNonNull(Codecs.decode(raw, recordType, ctx, Struct.class),
         "record round-trip decoded null for a non-null written record");
@@ -1711,7 +1639,7 @@ public final class CodecFuzzSupport {
     @Nullable T viaText = Codecs.decode(Codecs.encode(value, type, ctx, Format.TEXT), type, ctx, target);
     @Nullable T viaBinary =
         Codecs.decode(Codecs.encode(value, type, ctx, Format.BINARY), type, ctx, target);
-    assertEquals(viaText, viaBinary, () -> type.getTypeName() + " text vs binary");
+    assertEquals(viaText, viaBinary, () -> type.getName() + " text vs binary");
   }
 
   /**
@@ -1755,7 +1683,7 @@ public final class CodecFuzzSupport {
     @Nullable String viaText = txt.decodeAsString(textForm, type, ctx);
     @Nullable String viaBinary = bin.decodeAsString(binForm, 0, binForm.length, type, ctx);
     assertEquals(viaText, viaBinary,
-        () -> type.getTypeName() + " getString text vs binary: '" + viaText + "' != '" + viaBinary
+        () -> type.getName() + " getString text vs binary: '" + viaText + "' != '" + viaBinary
             + "'");
   }
 
@@ -1800,7 +1728,7 @@ public final class CodecFuzzSupport {
     @Nullable Object viaBinary = Codecs.decode(
         Codecs.encode(value, arrayType, ctx, Format.BINARY), arrayType, ctx, target);
     if (!descriptor.fidelity().equal(viaText, viaBinary)) {
-      throw new AssertionError(arrayType.getTypeName() + " text vs binary: " + leafRepr + " " + ndim
+      throw new AssertionError(arrayType.getName() + " text vs binary: " + leafRepr + " " + ndim
           + "D mismatch");
     }
   }
@@ -1814,7 +1742,7 @@ public final class CodecFuzzSupport {
         Codecs.encode(new PgStruct(type, attributes, null), type, ctx, Format.BINARY),
         type, ctx, Struct.class), "struct cross-format decoded null for a non-null written struct");
     assertArrayEquals(viaText.getAttributes(), viaBinary.getAttributes(),
-        type.getTypeName() + " text vs binary");
+        type.getName() + " text vs binary");
   }
 
   // --- Recursive nested composites -----------------------------------------------------------
@@ -1853,11 +1781,11 @@ public final class CodecFuzzSupport {
       // An anonymous RECORD is not resolvable by OID; the PgStruct carries its own type so the
       // encoder can read the fields (CompositeCodec.fieldTypeFor prefers the carried type for a
       // RECORD field).
-      type = new PgType(new ObjectName("pg_catalog", "record"), "record", Oid.RECORD, 'c', 'C', -1,
+      type = new PgType(TypeName.of("pg_catalog", "record"), "record", Oid.RECORD, 'c', 'C', -1,
           0, 0, 0, ',', pgFields);
     } else {
       int oid = counter[0]++;
-      type = new PgType(new ObjectName("public", "fuzz_c" + oid), "public.fuzz_c" + oid, oid, 'c',
+      type = new PgType(TypeName.of("public", "fuzz_c" + oid), "public.fuzz_c" + oid, oid, 'c',
           'C', -1, 0, 0, 0, ',', pgFields);
       registry.add(type);
     }
@@ -1882,7 +1810,7 @@ public final class CodecFuzzSupport {
 
     Format[] formats = root.anonymous ? new Format[]{Format.BINARY} : Format.values();
     for (Format format : formats) {
-      RawValue raw = Codecs.encode(built.struct, built.type, ctx, format);
+      WireValueSlice raw = Codecs.encode(built.struct, built.type, ctx, format);
       Struct decoded = Nullness.castNonNull(Codecs.decode(raw, built.type, ctx, Struct.class),
           "nested composite round-trip decoded null for a non-null written struct");
       assertNodeEquals(root, decoded);
@@ -1912,7 +1840,7 @@ public final class CodecFuzzSupport {
     // array, so it stays a local RECORD[]-shaped PgType (typelem = the composite OID) rather than a
     // registered ArrayDescriptor.
     PgType element = PgTypeDescriptors.composite(PgTypeDescriptors.POINT_OID).pgType();
-    PgType arrayType = new PgType(new ObjectName("public", "_fuzz_point"), "public.fuzz_point[]",
+    PgType arrayType = new PgType(TypeName.of("public", "_fuzz_point"), "public.fuzz_point[]",
         90_010, 'b', 'A', -1, PgTypeDescriptors.POINT_OID, 0, 0);
     CodecContext ctx = OfflineCodecContexts.offlineBuilder().type(element).type(arrayType).build();
 
@@ -1920,7 +1848,7 @@ public final class CodecFuzzSupport {
     for (int i = 0; i < rows.length; i++) {
       structs[i] = rows[i] == null ? null : new PgStruct(element, rows[i], null);
     }
-    RawValue raw = Codecs.encode(structs, arrayType, ctx, Format.BINARY);
+    WireValueSlice raw = Codecs.encode(structs, arrayType, ctx, Format.BINARY);
     Object[] decoded = (Object[]) Nullness.castNonNull(Codecs.decode(raw, arrayType, ctx, Object.class),
         "record[] round-trip decoded null for a non-null written array");
 
@@ -1958,7 +1886,7 @@ public final class CodecFuzzSupport {
    */
   public static void domainRoundTrip(int baseOid, String baseTypeName, char baseCategory,
       Object value, Class<?> target) throws SQLException {
-    PgType domain = new PgType(new ObjectName("public", "dom_" + baseTypeName),
+    PgType domain = new PgType(TypeName.of("public", "dom_" + baseTypeName),
         "public.dom_" + baseTypeName, DOMAIN_OID, 'd', baseCategory, -1, 0, 0, baseOid);
     CodecContext ctx = OfflineCodecContexts.offlineBuilder().type(domain).build();
     roundTrip(value, domain, target, ctx);
@@ -1977,10 +1905,11 @@ public final class CodecFuzzSupport {
    */
   public static void rangeStreamParity(int rangeOid, String rangeTypeName, int subtypeOid,
       PGRange<?> value) throws SQLException {
-    PgType rangeType = new PgType(new ObjectName("pg_catalog", rangeTypeName), rangeTypeName,
+    PgType rangeType = new PgType(TypeName.of("pg_catalog", rangeTypeName), rangeTypeName,
         rangeOid, 'r', 'R', -1, 0, 0, 0).withRangeSubtype(subtypeOid);
     CodecContext ctx = OfflineCodecContexts.offlineBuilder().type(rangeType).build();
-    streamVsMaterializeParity(value, rangeType, ctx);
+    CodecContext materialising = deStreamedBuilder().type(rangeType).build();
+    streamVsMaterializeParity(value, rangeType, ctx, materialising);
   }
 
   /**
@@ -1998,12 +1927,14 @@ public final class CodecFuzzSupport {
    */
   public static void multirangeStreamParity(int multirangeOid, String multirangeTypeName,
       int rangeOid, String rangeTypeName, int subtypeOid, PGmultirange<?> value) throws SQLException {
-    PgType rangeType = new PgType(new ObjectName("pg_catalog", rangeTypeName), rangeTypeName,
+    PgType rangeType = new PgType(TypeName.of("pg_catalog", rangeTypeName), rangeTypeName,
         rangeOid, 'r', 'R', -1, 0, 0, 0).withRangeSubtype(subtypeOid);
-    PgType multirangeType = new PgType(new ObjectName("pg_catalog", multirangeTypeName),
+    PgType multirangeType = new PgType(TypeName.of("pg_catalog", multirangeTypeName),
         multirangeTypeName, multirangeOid, 'm', 'R', -1, 0, 0, 0).withMultirangeRange(rangeOid);
     CodecContext ctx = OfflineCodecContexts.offlineBuilder().type(rangeType).type(multirangeType).build();
-    streamVsMaterializeParity(value, multirangeType, ctx);
+    CodecContext materialising =
+        deStreamedBuilder().type(rangeType).type(multirangeType).build();
+    streamVsMaterializeParity(value, multirangeType, ctx, materialising);
   }
 
   // --- SQLData (PgSQLInput / PgSQLOutput) ----------------------------------------------------
@@ -2016,13 +1947,13 @@ public final class CodecFuzzSupport {
    * JVM time zone so the {@code java.sql} temporal values agree with the codec on the wall clock.
    */
   public static void sqlDataRoundTrip(FuzzSqlData value) throws SQLException {
-    PgType type = new PgType(new ObjectName("public", "fuzz_sqldata"), "public.fuzz_sqldata",
+    PgType type = new PgType(TypeName.of("public", "fuzz_sqldata"), "public.fuzz_sqldata",
         90_020, 'c', 'C', -1, 0, 0, 0, ',', SQL_DATA_FIELDS);
     CodecContext ctx = OfflineCodecContexts.offlineBuilder().type(type)
-        .timeZone(TimeZone.getDefault()).build();
+        .clientTimeZone(TimeZone.getDefault()).build();
 
     for (Format format : Format.values()) {
-      RawValue raw = Codecs.encode(value, type, ctx, format);
+      WireValueSlice raw = Codecs.encode(value, type, ctx, format);
       @Nullable FuzzSqlData back = Codecs.decode(raw, type, ctx, FuzzSqlData.class);
       assertEquals(value, back, () -> "SQLData " + format + " round-trip");
     }
@@ -2055,7 +1986,7 @@ public final class CodecFuzzSupport {
    * @param ctx the offline codec context, which must resolve {@code type}
    */
   public static void decodeTextExpectingNoLeak(String literal, PgType type, CodecContext ctx) {
-    RawValue raw = RawValue.text(literal.getBytes(StandardCharsets.UTF_8));
+    WireValueSlice raw = WireValueSlice.text(literal.getBytes(StandardCharsets.UTF_8));
     @Nullable Object decoded;
     try {
       decoded = Codecs.decode(raw, type, ctx, Object.class);
@@ -2086,7 +2017,7 @@ public final class CodecFuzzSupport {
    * @param ctx the offline codec context, which must resolve {@code type}
    */
   public static void decodeTextExpectingRefusal(String literal, PgType type, CodecContext ctx) {
-    RawValue raw = RawValue.text(literal.getBytes(StandardCharsets.UTF_8));
+    WireValueSlice raw = WireValueSlice.text(literal.getBytes(StandardCharsets.UTF_8));
     @Nullable Object decoded;
     try {
       decoded = Codecs.decode(raw, type, ctx, Object.class);
@@ -2102,7 +2033,7 @@ public final class CodecFuzzSupport {
   }
 
   // Leading canary chars prepended to the value in assertDecodeTextSliceOffsetInvariant so one decode of
-  // the char[] slice overload runs from a non-zero offset; U+FFFF (a noncharacter no scalar text value
+  // the decode runs off a view with a non-zero offset; U+FFFF (a noncharacter no scalar text value
   // begins with) so a decoder that ignores the offset and reads from index 0 sees a foreign char rather
   // than the value.
   private static final char[] TEXT_CANARY = {'\uFFFF', '\uFFFF', '\uFFFF'};
@@ -2111,7 +2042,7 @@ public final class CodecFuzzSupport {
   // bound, or field -- to offset-invariance: decoding the same literal from a char[] at offset 0 and at the
   // canary offset must refuse together or return equal values. Skips a codec that cannot read text. The
   // String-form text decode is exercised by decodeTextExpectingNoLeak itself; this adds the offset
-  // arithmetic of the slice overload, which the top-level String path never reaches.
+  // arithmetic of a non-zero-offset CharSequence view, which the top-level String path never reaches.
   private static void assertDecodeTextSliceOffsetInvariant(String literal, PgType type, CodecContext ctx) {
     Codec codec;
     try {
@@ -2149,12 +2080,12 @@ public final class CodecFuzzSupport {
     }
   }
 
-  // Decodes the char[] slice at (offset, length) via the decodeText slice overload, returning the value
+  // Decodes the char[] slice at (offset, length) as a CharBuffer view, returning the value
   // (possibly null) or REFUSED on a clean SQLException; an unchecked leak becomes an AssertionError.
   private static @Nullable Object decodeTextSliceCapturing(TextCodec text, char[] buffer, int offset,
       int length, PgType type, CodecContext ctx, String literal, String where) {
     try {
-      return text.decodeText(buffer, offset, length, type, ctx);
+      return text.decodeText(CharBuffer.wrap(buffer, offset, length), type, ctx);
     } catch (SQLException refused) {
       return REFUSED;
     } catch (RuntimeException leak) {
@@ -2245,7 +2176,7 @@ public final class CodecFuzzSupport {
   private static @Nullable Object decodeBinaryCapturing(byte[] buffer, int offset, int length, PgType type,
       CodecContext ctx, String where) {
     try {
-      return Codecs.decode(RawValue.of(Format.BINARY, buffer, offset, length), type, ctx, Object.class);
+      return Codecs.decode(WireValueSlice.of(Format.BINARY, buffer, offset, length), type, ctx, Object.class);
     } catch (SQLException refused) {
       return REFUSED;
     } catch (RuntimeException leak) {
@@ -2391,7 +2322,7 @@ public final class CodecFuzzSupport {
     if (decoded == null) {
       return;
     }
-    RawValue reencoded;
+    WireValueSlice reencoded;
     try {
       reencoded = Codecs.encode(decoded, type, ctx, format);
     } catch (SQLException cannotReencode) {
@@ -2485,7 +2416,7 @@ public final class CodecFuzzSupport {
     CodecContext ctx = builtins();
     @Nullable Object decoded;
     try {
-      decoded = Codecs.decode(RawValue.text(textBytes), type, ctx, Object.class);
+      decoded = Codecs.decode(WireValueSlice.text(textBytes), type, ctx, Object.class);
     } catch (SQLException refused) {
       // Expected: malformed bytes refuse per value.
       return;
@@ -2550,15 +2481,15 @@ public final class CodecFuzzSupport {
    * @param oid the pinned single-byte built-in scalar OID ({@code Oid.CHAR})
    */
   public static void decodeSingleByteBinaryOffsetInvariant(byte[] data, int oid) {
-    assertSingleByteDecode(RawValue.binary(data), data, oid, "");
+    assertSingleByteDecode(WireValueSlice.binary(data), data, oid, "");
     byte[] buffer = new byte[BINARY_CANARY.length + data.length];
     System.arraycopy(BINARY_CANARY, 0, buffer, 0, BINARY_CANARY.length);
     System.arraycopy(data, 0, buffer, BINARY_CANARY.length, data.length);
-    assertSingleByteDecode(RawValue.of(Format.BINARY, buffer, BINARY_CANARY.length, data.length),
+    assertSingleByteDecode(WireValueSlice.of(Format.BINARY, buffer, BINARY_CANARY.length, data.length),
         data, oid, "offset ");
   }
 
-  private static void assertSingleByteDecode(RawValue raw, byte[] wire, int oid, String pathLabel) {
+  private static void assertSingleByteDecode(WireValueSlice raw, byte[] wire, int oid, String pathLabel) {
     PgType type = scalar(oid, "t" + oid, 'X');
     CodecContext ctx = builtins();
     @Nullable Object decoded;

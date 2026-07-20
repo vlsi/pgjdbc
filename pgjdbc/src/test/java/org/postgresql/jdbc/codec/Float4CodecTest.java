@@ -8,16 +8,16 @@ package org.postgresql.jdbc.codec;
 import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 
-import org.postgresql.api.codec.CharArraySequence;
 import org.postgresql.api.codec.PrimitiveDecoders;
+import org.postgresql.api.codec.TypeName;
 import org.postgresql.core.Oid;
-import org.postgresql.jdbc.ObjectName;
 import org.postgresql.jdbc.PgType;
 import org.postgresql.util.ByteConverter;
 
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
+import java.nio.CharBuffer;
 import java.sql.SQLException;
 
 class Float4CodecTest {
@@ -29,7 +29,7 @@ class Float4CodecTest {
   void setUp() {
     codec = Float4Codec.INSTANCE;
     float4Type = new PgType(
-        new ObjectName("pg_catalog", "float4"),
+        TypeName.of("pg_catalog", "float4"),
         "real",
         Oid.FLOAT4,
         'b', 'N', -1, 0, 0, 0
@@ -108,7 +108,7 @@ class Float4CodecTest {
   void decodeAsFloat_binary() throws SQLException {
     byte[] data = new byte[4];
     ByteConverter.float4(data, 0, 3.14f);
-    float result = PrimitiveDecoders.asFloat(codec, data, float4Type, null);
+    float result = PrimitiveDecoders.asFloat(codec, data, 0, data.length, float4Type, null);
     assertEquals(3.14f, result);
   }
 
@@ -116,7 +116,7 @@ class Float4CodecTest {
   void decodeAsDouble_binary() throws SQLException {
     byte[] data = new byte[4];
     ByteConverter.float4(data, 0, 3.14f);
-    double result = PrimitiveDecoders.asDouble(codec, data, float4Type, null);
+    double result = PrimitiveDecoders.asDouble(codec, data, 0, data.length, float4Type, null);
     assertEquals(3.14f, (float) result);
   }
 
@@ -124,7 +124,7 @@ class Float4CodecTest {
   void binaryRoundtrip() throws SQLException {
     float original = 42.5f;
     byte[] encoded = codec.encodeBinary(original, float4Type, null);
-    float decoded = PrimitiveDecoders.asFloat(codec, encoded, float4Type, null);
+    float decoded = PrimitiveDecoders.asFloat(codec, encoded, 0, encoded.length, float4Type, null);
     assertEquals(original, decoded);
   }
 
@@ -137,11 +137,6 @@ class Float4CodecTest {
   }
 
   @Test
-  void getPrimaryTypeName() {
-    assertEquals("float4", codec.getPrimaryTypeName());
-  }
-
-  @Test
   void getDefaultJavaType() {
     assertEquals(Float.class, codec.getDefaultJavaType());
   }
@@ -151,16 +146,16 @@ class Float4CodecTest {
   @Test
   void decodeAsInt_charArray_roundsLikeString() throws SQLException {
     char[] chars = "0.6".toCharArray();
-    assertEquals(1, codec.decodeAsInt(new CharArraySequence(chars, 0, chars.length), float4Type, null));
+    assertEquals(1, codec.decodeAsInt(CharBuffer.wrap(chars, 0, chars.length), float4Type, null));
     assertEquals(codec.decodeAsInt("0.6", float4Type, null),
-        codec.decodeAsInt(new CharArraySequence(chars, 0, chars.length), float4Type, null));
+        codec.decodeAsInt(CharBuffer.wrap(chars, 0, chars.length), float4Type, null));
   }
 
   @Test
   void decodeAsLong_charArray_roundsLikeString() throws SQLException {
     char[] chars = "1.5".toCharArray();
-    assertEquals(2L, codec.decodeAsLong(new CharArraySequence(chars, 0, chars.length), float4Type, null));
+    assertEquals(2L, codec.decodeAsLong(CharBuffer.wrap(chars, 0, chars.length), float4Type, null));
     assertEquals(codec.decodeAsLong("1.5", float4Type, null),
-        codec.decodeAsLong(new CharArraySequence(chars, 0, chars.length), float4Type, null));
+        codec.decodeAsLong(CharBuffer.wrap(chars, 0, chars.length), float4Type, null));
   }
 }

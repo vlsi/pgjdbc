@@ -9,11 +9,10 @@ import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 
-import org.postgresql.api.codec.CharArraySequence;
 import org.postgresql.api.codec.CodecContext;
 import org.postgresql.api.codec.PrimitiveDecoders;
+import org.postgresql.api.codec.TypeName;
 import org.postgresql.core.Oid;
-import org.postgresql.jdbc.ObjectName;
 import org.postgresql.jdbc.PgType;
 import org.postgresql.jdbc.TestCodecContext;
 import org.postgresql.util.ByteConverter;
@@ -22,6 +21,7 @@ import org.postgresql.util.PSQLException;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
+import java.nio.CharBuffer;
 import java.nio.charset.StandardCharsets;
 import java.sql.SQLException;
 
@@ -34,7 +34,7 @@ class Int2CodecTest {
   void setUp() {
     codec = Int2Codec.INSTANCE;
     int2Type = new PgType(
-        new ObjectName("pg_catalog", "int2"),
+        TypeName.of("pg_catalog", "int2"),
         "smallint",
         Oid.INT2,
         'b', 'N', -1, 0, 0, 0
@@ -91,14 +91,14 @@ class Int2CodecTest {
   void decodeAsInt_charSlice() throws SQLException {
     // The fast path reads the digits off the slice with no String and no box.
     char[] buf = "x-42y".toCharArray();
-    assertEquals(-42, codec.decodeAsInt(new CharArraySequence(buf, 1, 3), int2Type, null));
+    assertEquals(-42, codec.decodeAsInt(CharBuffer.wrap(buf, 1, 3), int2Type, null));
     // A leading '+' is rejected by the fast path and handled by the String fallback.
     char[] plus = "+7".toCharArray();
-    assertEquals(7, codec.decodeAsInt(new CharArraySequence(plus, 0, plus.length), int2Type, null));
+    assertEquals(7, codec.decodeAsInt(CharBuffer.wrap(plus, 0, plus.length), int2Type, null));
     // Out of int2 range surfaces the same error as the String form.
     char[] overflow = "40000".toCharArray();
     assertThrows(PSQLException.class,
-        () -> codec.decodeAsInt(new CharArraySequence(overflow, 0, overflow.length), int2Type, null));
+        () -> codec.decodeAsInt(CharBuffer.wrap(overflow, 0, overflow.length), int2Type, null));
   }
 
   @Test
@@ -164,7 +164,7 @@ class Int2CodecTest {
   void decodeAsInt_binary() throws SQLException {
     byte[] data = new byte[2];
     ByteConverter.int2(data, 0, 42);
-    int result = PrimitiveDecoders.asInt(codec, data, int2Type, null);
+    int result = PrimitiveDecoders.asInt(codec, data, 0, data.length, int2Type, null);
     assertEquals(42, result);
   }
 
@@ -172,7 +172,7 @@ class Int2CodecTest {
   void decodeAsLong_binary() throws SQLException {
     byte[] data = new byte[2];
     ByteConverter.int2(data, 0, 42);
-    long result = PrimitiveDecoders.asLong(codec, data, int2Type, null);
+    long result = PrimitiveDecoders.asLong(codec, data, 0, data.length, int2Type, null);
     assertEquals(42L, result);
   }
 
@@ -188,7 +188,7 @@ class Int2CodecTest {
   void binaryRoundtrip() throws SQLException {
     short original = 12345;
     byte[] encoded = codec.encodeBinary((int) original, int2Type, null);
-    int decoded = PrimitiveDecoders.asInt(codec, encoded, int2Type, null);
+    int decoded = PrimitiveDecoders.asInt(codec, encoded, 0, encoded.length, int2Type, null);
     assertEquals(original, decoded);
   }
 
@@ -198,11 +198,6 @@ class Int2CodecTest {
     String encoded = codec.encodeText(original, int2Type, null);
     Object decoded = codec.decodeText(encoded, int2Type, null);
     assertEquals(original, decoded);
-  }
-
-  @Test
-  void getPrimaryTypeName() {
-    assertEquals("int2", codec.getPrimaryTypeName());
   }
 
   @Test

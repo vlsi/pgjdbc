@@ -8,8 +8,8 @@ package org.postgresql.jdbc.codec;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 
+import org.postgresql.api.codec.TypeName;
 import org.postgresql.core.Oid;
-import org.postgresql.jdbc.ObjectName;
 import org.postgresql.jdbc.PgType;
 import org.postgresql.util.PSQLException;
 
@@ -45,7 +45,7 @@ import java.sql.SQLException;
 class MoneyCodecTest {
 
   private static final PgType MONEY = new PgType(
-      new ObjectName("pg_catalog", "money"), "money", Oid.MONEY, 'b', 'N', -1, 0, 0, 0);
+      TypeName.of("pg_catalog", "money"), "money", Oid.MONEY, 'b', 'N', -1, 0, 0, 0);
 
   private static BigDecimal parse(String literal) throws SQLException {
     return MoneyCodec.INSTANCE.decodeAsBigDecimal(literal, MONEY, null);

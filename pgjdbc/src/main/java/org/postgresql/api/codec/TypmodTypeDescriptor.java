@@ -5,12 +5,10 @@
 
 package org.postgresql.api.codec;
 
-import org.checkerframework.checker.nullness.qual.Nullable;
-
 import java.util.List;
 
 /**
- * A {@link TypeDescriptor} that reports a supplied {@link #getTypmod() typmod} and delegates every
+ * A {@link TypeDescriptor} that reports a supplied {@link #getAppliedTypmod() typmod} and delegates every
  * other property to a wrapped descriptor.
  *
  * <p>This is the fallback the default {@link TypeDescriptor#withTypmod(int)} returns for a descriptor
@@ -29,7 +27,7 @@ final class TypmodTypeDescriptor implements TypeDescriptor {
   }
 
   @Override
-  public int getTypmod() {
+  public int getAppliedTypmod() {
     return typmod;
   }
 
@@ -45,18 +43,18 @@ final class TypmodTypeDescriptor implements TypeDescriptor {
   }
 
   @Override
-  public ObjectName getTypeName() {
-    return delegate.getTypeName();
+  public TypeName getName() {
+    return delegate.getName();
   }
 
   @Override
-  public String getFullName() {
-    return delegate.getFullName();
+  public String getFormattedName() {
+    return delegate.getFormattedName();
   }
 
   @Override
-  public int getTyptypmod() {
-    return delegate.getTyptypmod();
+  public int getCatalogTypmod() {
+    return delegate.getCatalogTypmod();
   }
 
   @Override
@@ -100,8 +98,14 @@ final class TypmodTypeDescriptor implements TypeDescriptor {
   }
 
   @Override
-  public @Nullable List<? extends CompositeField> getFields() {
-    return delegate.getFields();
+  public List<? extends CompositeAttribute> getAttributes() {
+    return delegate.getAttributes();
+  }
+
+  @Override
+  public TypeDescriptor withAttributes(List<? extends CompositeAttribute> attributes) {
+    // Restamp the typmod onto the re-attributed delegate, so both views survive.
+    return delegate.withAttributes(attributes).withTypmod(typmod);
   }
 
   @Override

@@ -8,8 +8,8 @@ package org.postgresql.jdbc.codec;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 
 import org.postgresql.api.codec.CodecContext;
+import org.postgresql.api.codec.TypeName;
 import org.postgresql.core.Oid;
-import org.postgresql.jdbc.ObjectName;
 import org.postgresql.jdbc.OfflineCodecs;
 import org.postgresql.jdbc.PgType;
 import org.postgresql.util.ByteConverter;
@@ -33,7 +33,7 @@ import java.sql.SQLException;
 class DomainCodecOffsetTest {
 
   private static final PgType INT4_DOMAIN =
-      new PgType(new ObjectName("public", "int4_domain"), "public.int4_domain",
+      new PgType(TypeName.of("public", "int4_domain"), "public.int4_domain",
           90_301, 'd', 'N', -1, 0, 0, Oid.INT4);
 
   @Test

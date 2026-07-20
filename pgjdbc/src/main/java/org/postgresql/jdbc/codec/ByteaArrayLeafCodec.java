@@ -5,7 +5,7 @@
 
 package org.postgresql.jdbc.codec;
 
-import org.postgresql.api.codec.BackpatchingBinarySink;
+import org.postgresql.api.codec.BackpatchingByteArrayOutputStream;
 import org.postgresql.api.codec.CodecContext;
 import org.postgresql.core.Oid;
 import org.postgresql.util.ByteConverter;
@@ -53,7 +53,7 @@ final class ByteaArrayLeafCodec implements ArrayLeafCodec {
   }
 
   @Override
-  public boolean writeLeaf(Object leaf, BackpatchingBinarySink out, CodecContext ctx)
+  public boolean writeLeaf(Object leaf, BackpatchingByteArrayOutputStream out, CodecContext ctx)
       throws IOException, SQLException {
     if (leaf instanceof Object[]) {
       Object[] arr = (Object[]) leaf;
@@ -108,7 +108,9 @@ final class ByteaArrayLeafCodec implements ArrayLeafCodec {
         if (element == null) {
           out.append("NULL");
         } else {
-          appendEscapedBytea(out, ByteaCodec.toBytes(element));
+          // The \x hex form always contains a backslash, so it is always quoted and escaped.
+          ContainerTextEscaper.appendQuotedArrayStyle(out,
+              PGbytea.toPGString(ByteaCodec.toBytes(element)));
         }
       }
       return;
@@ -129,7 +131,7 @@ final class ByteaArrayLeafCodec implements ArrayLeafCodec {
         if (!cur.tokenWasQuoted() && cur.tokenEquals("NULL")) {
           arr[i] = null;
         } else {
-          String hex = new String(cur.tokenChars(), cur.tokenOffset(), cur.tokenLength());
+          String hex = cur.getToken().toString();
           arr[i] = PGbytea.toBytes(hex.getBytes(ctx.getCharset()));
         }
       }
@@ -138,21 +140,4 @@ final class ByteaArrayLeafCodec implements ArrayLeafCodec {
     throw unsupportedLeaf(leaf, ctx);
   }
 
-  /**
-   * Appends one element's bytes as a quoted, array-escaped {@code \x}-hex literal.
-   * The hex form always contains a backslash, so the value is quoted and its
-   * {@code "} / {@code \\} escaped, matching {@code array_out}.
-   */
-  private static void appendEscapedBytea(Appendable out, byte[] bytes) throws IOException {
-    String text = PGbytea.toPGString(bytes);
-    out.append('"');
-    for (int i = 0; i < text.length(); i++) {
-      char c = text.charAt(i);
-      if (c == '"' || c == '\\') {
-        out.append('\\');
-      }
-      out.append(c);
-    }
-    out.append('"');
-  }
 }

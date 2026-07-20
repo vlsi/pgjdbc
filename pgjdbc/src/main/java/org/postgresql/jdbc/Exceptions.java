@@ -5,7 +5,6 @@
 
 package org.postgresql.jdbc;
 
-import org.postgresql.api.codec.Codecs;
 import org.postgresql.util.GT;
 import org.postgresql.util.PSQLException;
 import org.postgresql.util.PSQLState;
@@ -25,29 +24,8 @@ class Exceptions {
   private Exceptions() {
   }
 
-  // Composite binary wire format: delegates to Codecs (public), which is also where
-  // org.postgresql.jdbc.codec.CompositeCodec's own package-private Exceptions delegates. Both
-  // parse the same wire format from different entry points and must report identical errors.
-
-  static SQLException invalidCompositeTooShort() {
-    return Codecs.invalidCompositeTooShort();
-  }
-
-  static SQLException invalidCompositeNegativeFieldCount(int fieldCount) {
-    return Codecs.invalidCompositeNegativeFieldCount(fieldCount);
-  }
-
-  static SQLException invalidCompositeUnexpectedEnd(int fieldIndex) {
-    return Codecs.invalidCompositeUnexpectedEnd(fieldIndex);
-  }
-
-  static SQLException invalidCompositeFieldLength(int length, int fieldIndex) {
-    return Codecs.invalidCompositeFieldLength(length, fieldIndex);
-  }
-
-  static SQLException invalidCompositeNotEnoughData(int fieldIndex) {
-    return Codecs.invalidCompositeNotEnoughData(fieldIndex);
-  }
+  // Errors from parsing the binary composite wire format are not here: PgSQLInputBinary shares them
+  // with the composite codec in another package, so they live in util.internal.CompositeWireErrors.
 
   // SQLData composite read/write (PgSQLInput/PgSQLOutput).
 

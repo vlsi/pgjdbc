@@ -62,7 +62,7 @@ public final class PgSQLOutputText extends PgSQLOutput {
     try {
       out.append('(');
     } catch (IOException e) {
-      throw new AssertionError(e); // the in-memory sink never throws
+      throw sinkFailure(e);
     }
   }
 
@@ -96,102 +96,70 @@ public final class PgSQLOutputText extends PgSQLOutput {
   }
 
   @Override
-  protected void writeFieldNull() {
+  protected void writeFieldNull() throws IOException {
     // A SQL NULL attribute is an empty, unquoted field.
-    try {
-      separator();
-    } catch (IOException e) {
-      throw new AssertionError(e); // the in-memory sink never throws
-    }
+    separator();
   }
 
   @Override
-  protected void writeFieldInt(int value) throws SQLException {
+  protected void writeFieldInt(int value) throws SQLException, IOException {
     TextCodec codec = getCodec();
-    try {
-      separator();
-      if (codec instanceof PrimitiveTextEncoder && !codec.mayRequireQuoting()) {
-        ((PrimitiveTextEncoder) codec).encodeInt(value, getCurrentType(), ctx, out);
-      } else {
-        CompositeCodec.writeTextFieldValue(out, value, getCurrentType(), codec, ctx);
-      }
-    } catch (IOException e) {
-      throw new AssertionError(e); // the in-memory sink never throws
-    }
-  }
-
-  @Override
-  protected void writeFieldLong(long value) throws SQLException {
-    TextCodec codec = getCodec();
-    try {
-      separator();
-      if (codec instanceof PrimitiveTextEncoder && !codec.mayRequireQuoting()) {
-        ((PrimitiveTextEncoder) codec).encodeLong(value, getCurrentType(), ctx, out);
-      } else {
-        CompositeCodec.writeTextFieldValue(out, value, getCurrentType(), codec, ctx);
-      }
-    } catch (IOException e) {
-      throw new AssertionError(e);
-    }
-  }
-
-  @Override
-  protected void writeFieldFloat(float value) throws SQLException {
-    TextCodec codec = getCodec();
-    try {
-      separator();
-      if (codec instanceof PrimitiveTextEncoder && !codec.mayRequireQuoting()) {
-        ((PrimitiveTextEncoder) codec).encodeFloat(value, getCurrentType(), ctx, out);
-      } else {
-        CompositeCodec.writeTextFieldValue(out, value, getCurrentType(), codec, ctx);
-      }
-    } catch (IOException e) {
-      throw new AssertionError(e);
-    }
-  }
-
-  @Override
-  protected void writeFieldDouble(double value) throws SQLException {
-    TextCodec codec = getCodec();
-    try {
-      separator();
-      if (codec instanceof PrimitiveTextEncoder && !codec.mayRequireQuoting()) {
-        ((PrimitiveTextEncoder) codec).encodeDouble(value, getCurrentType(), ctx, out);
-      } else {
-        CompositeCodec.writeTextFieldValue(out, value, getCurrentType(), codec, ctx);
-      }
-    } catch (IOException e) {
-      throw new AssertionError(e);
-    }
-  }
-
-  @Override
-  protected void writeFieldBoolean(boolean value) throws SQLException {
-    TextCodec codec = getCodec();
-    try {
-      separator();
+    separator();
+    if (codec instanceof PrimitiveTextEncoder && !codec.mayRequireQuoting()) {
+      ((PrimitiveTextEncoder) codec).encodeInt(value, getCurrentType(), ctx, out);
+    } else {
       CompositeCodec.writeTextFieldValue(out, value, getCurrentType(), codec, ctx);
-    } catch (IOException e) {
-      throw new AssertionError(e);
     }
   }
 
   @Override
-  protected void writeFieldObject(Object value) throws SQLException {
-    try {
-      separator();
-      CompositeCodec.writeTextFieldValue(out, value, getCurrentType(), getCodec(), ctx);
-    } catch (IOException e) {
-      throw new AssertionError(e); // the in-memory sink never throws
+  protected void writeFieldLong(long value) throws SQLException, IOException {
+    TextCodec codec = getCodec();
+    separator();
+    if (codec instanceof PrimitiveTextEncoder && !codec.mayRequireQuoting()) {
+      ((PrimitiveTextEncoder) codec).encodeLong(value, getCurrentType(), ctx, out);
+    } else {
+      CompositeCodec.writeTextFieldValue(out, value, getCurrentType(), codec, ctx);
     }
   }
 
   @Override
-  protected void finish() {
-    try {
-      out.append(')');
-    } catch (IOException e) {
-      throw new AssertionError(e); // the in-memory sink never throws
+  protected void writeFieldFloat(float value) throws SQLException, IOException {
+    TextCodec codec = getCodec();
+    separator();
+    if (codec instanceof PrimitiveTextEncoder && !codec.mayRequireQuoting()) {
+      ((PrimitiveTextEncoder) codec).encodeFloat(value, getCurrentType(), ctx, out);
+    } else {
+      CompositeCodec.writeTextFieldValue(out, value, getCurrentType(), codec, ctx);
     }
+  }
+
+  @Override
+  protected void writeFieldDouble(double value) throws SQLException, IOException {
+    TextCodec codec = getCodec();
+    separator();
+    if (codec instanceof PrimitiveTextEncoder && !codec.mayRequireQuoting()) {
+      ((PrimitiveTextEncoder) codec).encodeDouble(value, getCurrentType(), ctx, out);
+    } else {
+      CompositeCodec.writeTextFieldValue(out, value, getCurrentType(), codec, ctx);
+    }
+  }
+
+  @Override
+  protected void writeFieldBoolean(boolean value) throws SQLException, IOException {
+    // Boxing a boolean hands back a cached Boolean, so there is nothing for a primitive encoder
+    // capability to save here.
+    writeFieldObject(value);
+  }
+
+  @Override
+  protected void writeFieldObject(Object value) throws SQLException, IOException {
+    separator();
+    CompositeCodec.writeTextFieldValue(out, value, getCurrentType(), getCodec(), ctx);
+  }
+
+  @Override
+  protected void finish() throws IOException {
+    out.append(')');
   }
 }

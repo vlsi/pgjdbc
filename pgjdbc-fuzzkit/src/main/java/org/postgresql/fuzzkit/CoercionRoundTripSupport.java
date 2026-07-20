@@ -6,7 +6,7 @@
 package org.postgresql.fuzzkit;
 
 import org.postgresql.api.codec.Format;
-import org.postgresql.api.codec.RawValue;
+import org.postgresql.api.codec.WireValueSlice;
 import org.postgresql.fuzzkit.coercion.CoercionOutcome;
 import org.postgresql.fuzzkit.coercion.Fidelity;
 import org.postgresql.fuzzkit.coercion.PgTypeDescriptors;
@@ -129,7 +129,7 @@ public final class CoercionRoundTripSupport {
     PgType comp = FuzzComposites.singleField(oid);
     PgCodecContext ctx = (PgCodecContext) OfflineCodecContexts.offlineBuilder()
         .type(comp)
-        .timeZone(TimeZone.getDefault())
+        .clientTimeZone(TimeZone.getDefault())
         .build();
 
     IdentityPair pair = identityPair(c.attr, c.writer, c.reader, c.writeValue);
@@ -154,7 +154,7 @@ public final class CoercionRoundTripSupport {
     boolean poison = c.attr.poison(c.writeValue);
 
     for (Format format : Format.values()) {
-      RawValue wire = WriteOracle.verify(comp, ctx, format, c.writer, c.writeValue, writeExpected, c);
+      WireValueSlice wire = WriteOracle.verify(comp, ctx, format, c.writer, c.writeValue, writeExpected, c);
       if (wire == null) {
         // The writer refused (outcome already checked); there is nothing to read back.
         continue;

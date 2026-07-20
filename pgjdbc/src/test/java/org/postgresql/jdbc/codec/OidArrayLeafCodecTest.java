@@ -120,6 +120,6 @@ class OidArrayLeafCodecTest {
   @Test
   void registry_oid_isArrayElementCodec() {
     CodecRegistry registry = new CodecRegistry();
-    assertInstanceOf(ArrayElementCodec.class, registry.getByName("oid"));
+    assertInstanceOf(ArrayElementCodec.class, registry.getByLocalName("oid"));
   }
 }

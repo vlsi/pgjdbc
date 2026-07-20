@@ -11,7 +11,7 @@ import java.io.IOException;
 import java.sql.SQLException;
 
 /**
- * Extends {@link BinaryCodec} with a {@link BackpatchingBinarySink}-targeted
+ * Extends {@link BinaryCodec} with a {@link BackpatchingByteArrayOutputStream}-targeted
  * encode method so callers can stream output directly into a shared buffer
  * without allocating an intermediate {@code byte[]} per element.
  *
@@ -19,7 +19,7 @@ import java.sql.SQLException;
  * length slot in the sink, lets the element codec stream its body straight into
  * the same buffer, and back-patches the slot once the length is known — instead
  * of asking the element codec for a per-element {@code byte[]} that is copied
- * into the container buffer and then discarded. See {@link BackpatchingBinarySink}
+ * into the container buffer and then discarded. See {@link BackpatchingByteArrayOutputStream}
  * for the reserve/patch protocol.</p>
  *
  * <p>A codec opting into this interface implements <em>both</em> the streaming
@@ -42,6 +42,6 @@ public interface StreamingBinaryCodec extends BinaryCodec {
    * @throws SQLException if encoding fails
    * @throws IOException if {@code out} throws
    */
-  void encodeBinary(Object value, TypeDescriptor type, CodecContext ctx, BackpatchingBinarySink out)
+  void encodeBinary(Object value, TypeDescriptor type, CodecContext ctx, BackpatchingByteArrayOutputStream out)
       throws SQLException, IOException;
 }

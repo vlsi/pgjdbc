@@ -19,27 +19,27 @@ import java.util.Arrays;
  *
  * <h2>Buffer ownership</h2>
  *
- * <p>A {@code RawValue} is a <em>borrowed view</em> over its backing array: the factory methods do
+ * <p>A {@code WireValueSlice} is a <em>borrowed view</em> over its backing array: the factory methods do
  * not copy, so the value stays valid only while that array is unchanged. When the backing array is a
  * slice of a larger receive buffer (a {@code COPY} row, a network frame), the view is valid only for
  * the duration of the call it is handed to; keep the bytes beyond that with {@link #toByteArray()}.
  * The array a {@link Codecs#encode} result wraps is freshly allocated and unshared, so that result
  * is safe to retain.</p>
  *
- * <p>A {@code RawValue} always represents a present (non-NULL) value. SQL NULL has no wire bytes and
- * is modelled by the absence of a {@code RawValue}, never by an empty one.</p>
+ * <p>A {@code WireValueSlice} always represents a present (non-NULL) value. SQL NULL has no wire bytes and
+ * is modelled by the absence of a {@code WireValueSlice}, never by an empty one.</p>
  *
  * @since 42.8.0
  */
 @Experimental("Codec API is experimental and may change in future releases")
-public final class RawValue {
+public final class WireValueSlice {
 
   private final Format format;
   private final byte[] bytes;
   private final int offset;
   private final int length;
 
-  private RawValue(Format format, byte[] bytes, int offset, int length) {
+  private WireValueSlice(Format format, byte[] bytes, int offset, int length) {
     if (offset < 0 || length < 0 || offset > bytes.length - length) {
       throw new IndexOutOfBoundsException(
           "offset=" + offset + ", length=" + length + ", array length=" + bytes.length);
@@ -57,8 +57,8 @@ public final class RawValue {
    * @param bytes the encoded value
    * @return the wrapped value
    */
-  public static RawValue of(Format format, byte[] bytes) {
-    return new RawValue(format, bytes, 0, bytes.length);
+  public static WireValueSlice of(Format format, byte[] bytes) {
+    return new WireValueSlice(format, bytes, 0, bytes.length);
   }
 
   /**
@@ -71,8 +71,8 @@ public final class RawValue {
    * @param length number of bytes for this value
    * @return the wrapped value
    */
-  public static RawValue of(Format format, byte[] bytes, int offset, int length) {
-    return new RawValue(format, bytes, offset, length);
+  public static WireValueSlice of(Format format, byte[] bytes, int offset, int length) {
+    return new WireValueSlice(format, bytes, offset, length);
   }
 
   /**
@@ -81,7 +81,7 @@ public final class RawValue {
    * @param bytes the binary representation
    * @return the wrapped value
    */
-  public static RawValue binary(byte[] bytes) {
+  public static WireValueSlice binary(byte[] bytes) {
     return of(Format.BINARY, bytes);
   }
 
@@ -92,7 +92,7 @@ public final class RawValue {
    * @param bytes the text representation, charset-encoded
    * @return the wrapped value
    */
-  public static RawValue text(byte[] bytes) {
+  public static WireValueSlice text(byte[] bytes) {
     return of(Format.TEXT, bytes);
   }
 
@@ -157,10 +157,10 @@ public final class RawValue {
     if (this == o) {
       return true;
     }
-    if (!(o instanceof RawValue)) {
+    if (!(o instanceof WireValueSlice)) {
       return false;
     }
-    RawValue that = (RawValue) o;
+    WireValueSlice that = (WireValueSlice) o;
     if (format != that.format || length != that.length) {
       return false;
     }
@@ -183,6 +183,6 @@ public final class RawValue {
 
   @Override
   public String toString() {
-    return "RawValue[" + format + ", " + length + " bytes]";
+    return "WireValueSlice[" + format + ", " + length + " bytes]";
   }
 }

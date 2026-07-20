@@ -5,7 +5,7 @@
 
 package org.postgresql.jdbc.codec;
 
-import org.postgresql.api.codec.BackpatchingBinarySink;
+import org.postgresql.api.codec.BackpatchingByteArrayOutputStream;
 import org.postgresql.api.codec.CodecContext;
 import org.postgresql.api.codec.PrimitiveBinaryDecoder;
 import org.postgresql.api.codec.PrimitiveTextDecoder;
@@ -46,11 +46,6 @@ public final class Xid8Codec implements StreamingBinaryCodec, PrimitiveBinaryDec
   }
 
   @Override
-  public String getPrimaryTypeName() {
-    return "xid8";
-  }
-
-  @Override
   public boolean mayRequireQuoting() {
     // Output is digits — never needs composite/array quoting.
     return false;
@@ -85,19 +80,13 @@ public final class Xid8Codec implements StreamingBinaryCodec, PrimitiveBinaryDec
 
   @Override
   public void encodeBinary(Object value, TypeDescriptor type, CodecContext ctx,
-      BackpatchingBinarySink out) throws SQLException, IOException {
+      BackpatchingByteArrayOutputStream out) throws SQLException, IOException {
     out.writeInt64(toLong(value));
   }
 
   @Override
-  public @Nullable Object decodeText(String data, TypeDescriptor type, CodecContext ctx) throws SQLException {
+  public @Nullable Object decodeText(CharSequence data, TypeDescriptor type, CodecContext ctx) throws SQLException {
     return decodeAsLong(data, type, ctx);
-  }
-
-  @Override
-  public @Nullable Object decodeText(char[] data, int offset, int length, TypeDescriptor type,
-      CodecContext ctx) throws SQLException {
-    return decodeAsLong(new String(data, offset, length), type, ctx);
   }
 
   @Override
@@ -175,7 +164,7 @@ public final class Xid8Codec implements StreamingBinaryCodec, PrimitiveBinaryDec
   }
 
   @Override
-  public <T> @Nullable T decodeTextAs(String data, TypeDescriptor type, Class<T> targetClass, CodecContext ctx)
+  public <T> @Nullable T decodeTextAs(CharSequence data, TypeDescriptor type, Class<T> targetClass, CodecContext ctx)
       throws SQLException {
     long value = decodeAsLong(data, type, ctx);
     return decodeXid8As(value, targetClass);

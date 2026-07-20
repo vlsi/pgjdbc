@@ -17,11 +17,7 @@ import java.util.Locale;
  * never drift.
  *
  * <p>A name is the PostgreSQL type name of the OID (for example {@code int4}, {@code numeric}) plus a
- * format suffix: {@code _binary} or {@code _text}. The type name comes from {@link Oid#toString(int)},
- * which is keyed by OID, so the two OIDs
- * that share {@code BitCodec} still get distinct names ({@code bit} for 1560, {@code varbit} for 1562) --
- * unlike {@link org.postgresql.api.codec.Codec#getPrimaryTypeName()}, whose value is a single name-resolution key
- * both OIDs report as {@code bit}. An OID with no {@code Oid} constant falls back to {@code oid<n>}.
+ * format suffix: {@code _binary} or {@code _text}. An OID with no {@code Oid} constant falls back to {@code oid<n>}.
  */
 public final class ScalarDecodeRobustnessNaming {
 

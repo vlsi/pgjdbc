@@ -38,13 +38,16 @@ public interface CodecContextBuilder {
   CodecContextBuilder charset(Charset charset);
 
   /**
-   * Sets the session time zone temporal codecs render {@code timetz}/{@code timestamptz} against.
-   * Defaults to UTC.
+   * Sets the client/session time zone temporal codecs render {@code timetz}/{@code timestamptz}
+   * against — what {@link CodecContext#getClientTimeZone()} reports. Defaults to UTC.
    *
-   * @param timeZone the session time zone
+   * <p>There is no setter for {@link CodecContext#getDefaultTimeZone()}: that one is the JVM default
+   * rather than context state, so it is read from the JVM and not configured here.</p>
+   *
+   * @param clientTimeZone the session time zone
    * @return this builder
    */
-  CodecContextBuilder timeZone(TimeZone timeZone);
+  CodecContextBuilder clientTimeZone(TimeZone clientTimeZone);
 
   /**
    * Sets whether the backend encodes binary {@code time}/{@code timestamp} payloads as 64-bit
@@ -89,6 +92,20 @@ public interface CodecContextBuilder {
    * @return this builder
    */
   CodecContextBuilder prefersJavaTime(PrefersJavaTime prefers);
+
+  /**
+   * Sets the {@code IntervalStyle} the interval codec renders a binary {@code interval} with, so
+   * {@code getString} matches what the server would print in text mode. Defaults to
+   * {@link IntervalStyle#POSTGRES}, the server default.
+   *
+   * <p>A connection-bound context reads this from the reported server parameter; offline there is no
+   * server to ask, so a caller decoding intervals produced under a different setting supplies it
+   * here.</p>
+   *
+   * @param intervalStyle the interval style
+   * @return this builder
+   */
+  CodecContextBuilder intervalStyle(IntervalStyle intervalStyle);
 
   /**
    * Sets whether numeric getters on a {@code bool} value coerce it to {@code 1}/{@code 0} instead of

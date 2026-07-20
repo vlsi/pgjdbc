@@ -5,7 +5,7 @@
 
 package org.postgresql.fuzzkit;
 
-import org.postgresql.jdbc.ObjectName;
+import org.postgresql.api.codec.TypeName;
 import org.postgresql.jdbc.PgField;
 import org.postgresql.jdbc.PgType;
 
@@ -35,7 +35,7 @@ public final class FuzzComposites {
    * declared scale; {@code -1} means no modifier.
    */
   static PgType singleField(int fieldOid, int fieldTypmod) {
-    return new PgType(new ObjectName("public", "ct"), "public.ct", SINGLE_FIELD_COMPOSITE_OID, 'c',
+    return new PgType(TypeName.of("public", "ct"), "public.ct", SINGLE_FIELD_COMPOSITE_OID, 'c',
         'C', -1, 0, 0, 0, ',', Collections.singletonList(new PgField("f", fieldOid, 1, fieldTypmod)));
   }
 }

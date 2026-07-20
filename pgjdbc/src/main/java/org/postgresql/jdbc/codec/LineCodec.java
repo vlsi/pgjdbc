@@ -5,7 +5,7 @@
 
 package org.postgresql.jdbc.codec;
 
-import org.postgresql.api.codec.BackpatchingBinarySink;
+import org.postgresql.api.codec.BackpatchingByteArrayOutputStream;
 import org.postgresql.api.codec.CodecContext;
 import org.postgresql.api.codec.StreamingBinaryCodec;
 import org.postgresql.api.codec.TextCodec;
@@ -38,11 +38,6 @@ public final class LineCodec implements StreamingBinaryCodec, TextCodec {
   }
 
   @Override
-  public String getPrimaryTypeName() {
-    return "line";
-  }
-
-  @Override
   public Class<?> getDefaultJavaType() {
     return PGline.class;
   }
@@ -71,11 +66,11 @@ public final class LineCodec implements StreamingBinaryCodec, TextCodec {
 
   @Override
   public void encodeBinary(Object value, TypeDescriptor type, CodecContext ctx,
-      BackpatchingBinarySink out) throws SQLException, IOException {
+      BackpatchingByteArrayOutputStream out) throws SQLException, IOException {
     PGline line = toLine(value);
-    out.writeDouble(line.a);
-    out.writeDouble(line.b);
-    out.writeDouble(line.c);
+    out.writeFloat8(line.a);
+    out.writeFloat8(line.b);
+    out.writeFloat8(line.c);
   }
 
   @Override
@@ -94,8 +89,9 @@ public final class LineCodec implements StreamingBinaryCodec, TextCodec {
   }
 
   @Override
-  public @Nullable Object decodeText(String data, TypeDescriptor type, CodecContext ctx) throws SQLException {
-    PGtokenizer t = new PGtokenizer(PGtokenizer.removeCurlyBrace(data), ',');
+  public @Nullable Object decodeText(CharSequence data, TypeDescriptor type, CodecContext ctx) throws SQLException {
+    String text = data.toString();
+    PGtokenizer t = new PGtokenizer(PGtokenizer.removeCurlyBrace(text), ',');
     try {
       if (t.getSize() != 3) {
         throw new NumberFormatException("expected 3 coefficients, got " + t.getSize());
@@ -105,7 +101,7 @@ public final class LineCodec implements StreamingBinaryCodec, TextCodec {
       double c = Double.parseDouble(t.getToken(2));
       return new PGline(a, b, c);
     } catch (NumberFormatException e) {
-      throw Exceptions.cannotConvertValue("line", data, PSQLState.DATA_TYPE_MISMATCH, e);
+      throw Exceptions.cannotConvertValue("line", text, PSQLState.DATA_TYPE_MISMATCH, e);
     }
   }
 

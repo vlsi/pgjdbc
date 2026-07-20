@@ -8,9 +8,9 @@ package org.postgresql.jdbc.codec;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 
+import org.postgresql.api.codec.TypeName;
 import org.postgresql.core.Oid;
 import org.postgresql.geometric.PGline;
-import org.postgresql.jdbc.ObjectName;
 import org.postgresql.jdbc.PgType;
 import org.postgresql.util.ByteConverter;
 import org.postgresql.util.PSQLException;
@@ -29,7 +29,7 @@ class LineCodecTest {
   void setUp() {
     codec = LineCodec.INSTANCE;
     lineType = new PgType(
-        new ObjectName("pg_catalog", "line"),
+        TypeName.of("pg_catalog", "line"),
         "line",
         Oid.LINE,
         'b', 'G', -1, 0, 0, 0
@@ -94,11 +94,6 @@ class LineCodecTest {
     String encoded = codec.encodeText(original, lineType, null);
     Object decoded = codec.decodeText(encoded, lineType, null);
     assertEquals(original, decoded);
-  }
-
-  @Test
-  void getPrimaryTypeName() {
-    assertEquals("line", codec.getPrimaryTypeName());
   }
 
   @Test

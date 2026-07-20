@@ -5,10 +5,11 @@
 
 package org.postgresql.jdbc.codec;
 
-import org.postgresql.api.codec.BackpatchingBinarySink;
+import org.postgresql.api.codec.BackpatchingByteArrayOutputStream;
 import org.postgresql.api.codec.BinaryCodec;
 import org.postgresql.api.codec.Codec;
 import org.postgresql.api.codec.CodecContext;
+import org.postgresql.api.codec.CodecFormatSupport;
 import org.postgresql.api.codec.StreamingTextCodec;
 import org.postgresql.api.codec.TextCodec;
 import org.postgresql.api.codec.TypeDescriptor;
@@ -78,7 +79,7 @@ final class GenericArrayLeafCodec implements ArrayLeafCodec {
   }
 
   @Override
-  public boolean writeLeaf(Object leaf, BackpatchingBinarySink out, CodecContext ctx)
+  public boolean writeLeaf(Object leaf, BackpatchingByteArrayOutputStream out, CodecContext ctx)
       throws IOException, SQLException {
     BinaryCodec codec = binaryCodec;
     if (codec == null) {
@@ -93,7 +94,7 @@ final class GenericArrayLeafCodec implements ArrayLeafCodec {
             out.writeInt32(-1);
             hasNulls = true;
           } else {
-            BinaryCodec.writeElement(out, element, codec, elementType, ctx);
+            CodecFormatSupport.writeBinaryElement(out, element, codec, elementType, ctx);
           }
         }
         return hasNulls;
@@ -104,7 +105,7 @@ final class GenericArrayLeafCodec implements ArrayLeafCodec {
         int len = Array.getLength(leaf);
         for (int i = 0; i < len; i++) {
           Object element = Array.get(leaf, i);
-          BinaryCodec.writeElement(out, element, codec, elementType, ctx);
+          CodecFormatSupport.writeBinaryElement(out, element, codec, elementType, ctx);
         }
         return false;
       }
@@ -197,11 +198,11 @@ final class GenericArrayLeafCodec implements ArrayLeafCodec {
         streamingCodec.encodeText(element, elementType, ctx, out);
       } else {
         out.append('"');
-        streamingCodec.encodeText(element, elementType, ctx, new EscapingAppendable(out));
+        streamingCodec.encodeText(element, elementType, ctx, new ContainerTextEscaper(out, ContainerTextEscaper.EscapeStyle.ARRAY));
         out.append('"');
       }
     } else {
-      appendQuotedArrayElement(out, codec.encodeText(element, elementType, ctx));
+      ContainerTextEscaper.appendQuotedArrayStyle(out, codec.encodeText(element, elementType, ctx));
     }
   }
 
@@ -229,12 +230,9 @@ final class GenericArrayLeafCodec implements ArrayLeafCodec {
         if (!cur.tokenWasQuoted() && cur.tokenEquals("NULL")) {
           arr[i] = null;
         } else if (target != null) {
-          arr[i] = codec.decodeTextAs(
-              new String(cur.tokenChars(), cur.tokenOffset(), cur.tokenLength()), elementType, target,
-              ctx);
+          arr[i] = codec.decodeTextAs(cur.getToken(), elementType, target, ctx);
         } else {
-          arr[i] = codec.decodeText(cur.tokenChars(), cur.tokenOffset(), cur.tokenLength(),
-              elementType, ctx);
+          arr[i] = codec.decodeText(cur.getToken(), elementType, ctx);
         }
       }
     } finally {
@@ -242,24 +240,12 @@ final class GenericArrayLeafCodec implements ArrayLeafCodec {
     }
   }
 
-  private static void appendQuotedArrayElement(Appendable out, String value) throws IOException {
-    out.append('"');
-    for (int i = 0; i < value.length(); i++) {
-      char c = value.charAt(i);
-      if (c == '"' || c == '\\') {
-        out.append('\\');
-      }
-      out.append(c);
-    }
-    out.append('"');
-  }
-
   private SQLException noBinaryCodec() {
-    return Exceptions.noBinaryCodecForArrayElement(elementType.getFullName());
+    return Exceptions.noBinaryCodecForArrayElement(elementType.getFormattedName());
   }
 
   private SQLException noTextCodec() {
-    return Exceptions.noTextCodecForArrayElement(elementType.getFullName());
+    return Exceptions.noTextCodecForArrayElement(elementType.getFormattedName());
   }
 
   private Class<?> getDefaultJavaType() {

@@ -5,6 +5,7 @@
 
 package org.postgresql.jdbc;
 
+import org.postgresql.api.codec.TypeName;
 import org.postgresql.core.Oid;
 
 /**
@@ -21,7 +22,7 @@ public class PgArrayType extends PgType {
    * @param oid the OID of the type
    * @param elementType the element type
    */
-  public PgArrayType(ObjectName typeName, String fullName, int oid, PgType elementType) {
+  public PgArrayType(TypeName typeName, String fullName, int oid, PgType elementType) {
     super(typeName, fullName, oid, 'b', 'A', -1, elementType.getOid(), Oid.UNSPECIFIED, Oid.UNSPECIFIED);
     this.elementType = elementType;
   }
@@ -43,8 +44,8 @@ public class PgArrayType extends PgType {
    * @return a new PgArrayType
    */
   public static PgArrayType fromBaseType(PgType baseType, int arrayOid) {
-    ObjectName arrayTypeName = new ObjectName(baseType.getTypeName().getNamespace(), "_" + baseType.getTypeName().getName());
-    String arrayFullName = baseType.getFullName() + "[]";
+    TypeName arrayTypeName = TypeName.of(baseType.getName().getNamespace(), "_" + baseType.getName().getLocalName());
+    String arrayFullName = baseType.getFormattedName() + "[]";
     return new PgArrayType(arrayTypeName, arrayFullName, arrayOid, baseType);
   }
 }

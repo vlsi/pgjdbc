@@ -5,7 +5,7 @@
 
 package org.postgresql.jdbc.codec;
 
-import org.postgresql.api.codec.BackpatchingBinarySink;
+import org.postgresql.api.codec.BackpatchingByteArrayOutputStream;
 import org.postgresql.api.codec.CodecContext;
 import org.postgresql.core.Oid;
 import org.postgresql.util.ByteConverter;
@@ -51,7 +51,7 @@ final class OidArrayLeafCodec implements ArrayLeafCodec {
   }
 
   @Override
-  public boolean writeLeaf(Object leaf, BackpatchingBinarySink out,
+  public boolean writeLeaf(Object leaf, BackpatchingByteArrayOutputStream out,
                            CodecContext ctx)
       throws IOException, SQLException {
     if (leaf instanceof long[]) {
@@ -180,15 +180,13 @@ final class OidArrayLeafCodec implements ArrayLeafCodec {
   }
 
   private static long parseOid(LiteralCursor cur) throws SQLException {
-    char[] chars = cur.tokenChars();
-    int off = cur.tokenOffset();
-    int len = cur.tokenLength();
+    CharSequence token = cur.getToken();
     try {
-      return NumberParser.getFastLong(chars, off, len, 0L, UINT32_MASK);
+      return NumberParser.getFastLong(token, 0, token.length(), 0L, UINT32_MASK);
     } catch (NumberFormatException fast) {
       // Screened on the fallback only: the fast path is ASCII-strict already, so a well-formed
       // element never pays for the scan.
-      String text = new String(chars, off, len);
+      String text = token.toString();
       try {
         NumberDecoders.requireAsciiLiteral(text);
         return Long.parseLong(text);

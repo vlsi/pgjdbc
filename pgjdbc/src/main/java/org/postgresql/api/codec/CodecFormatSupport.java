@@ -7,6 +7,7 @@ package org.postgresql.api.codec;
 
 import org.postgresql.api.Experimental;
 
+import java.io.IOException;
 import java.sql.SQLException;
 
 /**
@@ -118,5 +119,56 @@ public final class CodecFormatSupport {
       throw Exceptions.noCodecForFormat(type, "text");
     }
     return (TextCodec) codec;
+  }
+
+  /**
+   * Writes {@code value}'s binary body into {@code out}, taking the streaming path when the codec
+   * offers one.
+   *
+   * <p>A {@link StreamingBinaryCodec} encodes straight into the sink; any other
+   * {@link BinaryCodec} encodes into a {@code byte[]} first, which is then copied in. The body
+   * carries no length prefix — {@link #writeBinaryElement} adds one where the format needs it.</p>
+   *
+   * @param out the sink the body is written to
+   * @param value the value to encode
+   * @param codec the codec that encodes {@code value}
+   * @param type the type to encode {@code value} as
+   * @param ctx the codec context supplying connection settings
+   * @throws SQLException if encoding fails
+   * @throws IOException if {@code out} throws
+   */
+  public static void writeBinary(BackpatchingByteArrayOutputStream out, Object value, BinaryCodec codec,
+      TypeDescriptor type, CodecContext ctx) throws SQLException, IOException {
+    if (codec instanceof StreamingBinaryCodec) {
+      ((StreamingBinaryCodec) codec).encodeBinary(value, type, ctx, out);
+    } else {
+      out.write(codec.encodeBinary(value, type, ctx));
+    }
+  }
+
+  /**
+   * Writes {@code value} into {@code out} as one length-prefixed container element.
+   *
+   * <p>Reserves the four-byte length slot, delegates the body to
+   * {@link #writeBinary(BackpatchingByteArrayOutputStream, Object, BinaryCodec, TypeDescriptor,
+   * CodecContext)}, then back-patches the slot with the number of bytes the body took. A streaming
+   * codec therefore needs no intermediate {@code byte[]} even though the length precedes the body
+   * on the wire.</p>
+   *
+   * @param out the sink the element is written to
+   * @param value the value to encode
+   * @param codec the codec that encodes {@code value}
+   * @param type the type to encode {@code value} as
+   * @param ctx the codec context supplying connection settings
+   * @throws SQLException if encoding fails
+   * @throws IOException if {@code out} throws
+   */
+  public static void writeBinaryElement(BackpatchingByteArrayOutputStream out, Object value,
+      BinaryCodec codec, TypeDescriptor type,
+      CodecContext ctx) throws IOException, SQLException {
+    int lengthSlot = out.reserveInt32();
+    int start = out.position();
+    writeBinary(out, value, codec, type, ctx);
+    out.setInt32At(lengthSlot, out.position() - start);
   }
 }

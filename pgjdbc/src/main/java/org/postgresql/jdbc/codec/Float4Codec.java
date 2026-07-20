@@ -5,13 +5,13 @@
 
 package org.postgresql.jdbc.codec;
 
-import org.postgresql.api.codec.BackpatchingBinarySink;
+import org.postgresql.api.codec.BackpatchingByteArrayOutputStream;
 import org.postgresql.api.codec.CodecContext;
 import org.postgresql.api.codec.PrimitiveBinaryDecoder;
 import org.postgresql.api.codec.PrimitiveBinaryEncoder;
 import org.postgresql.api.codec.PrimitiveTextDecoder;
 import org.postgresql.api.codec.PrimitiveTextEncoder;
-import org.postgresql.api.codec.TextSink;
+import org.postgresql.api.codec.PrimitiveTextSink;
 import org.postgresql.api.codec.TypeDescriptor;
 import org.postgresql.util.ByteConverter;
 
@@ -31,11 +31,6 @@ public final class Float4Codec implements PrimitiveBinaryEncoder, PrimitiveBinar
 
   private Float4Codec() {
     // Singleton
-  }
-
-  @Override
-  public String getPrimaryTypeName() {
-    return "float4";
   }
 
   @Override
@@ -73,18 +68,18 @@ public final class Float4Codec implements PrimitiveBinaryEncoder, PrimitiveBinar
 
   @Override
   public void encodeBinary(Object value, TypeDescriptor type, CodecContext ctx,
-      BackpatchingBinarySink out) throws SQLException, IOException {
-    out.writeFloat(toFloat(value));
+      BackpatchingByteArrayOutputStream out) throws SQLException, IOException {
+    out.writeFloat4(toFloat(value));
   }
 
   @Override
-  public void encodeFloat(float value, TypeDescriptor type, CodecContext ctx, BackpatchingBinarySink out)
+  public void encodeFloat(float value, TypeDescriptor type, CodecContext ctx, BackpatchingByteArrayOutputStream out)
       throws SQLException, IOException {
-    out.writeFloat(value);
+    out.writeFloat4(value);
   }
 
   @Override
-  public @Nullable Object decodeText(String data, TypeDescriptor type, CodecContext ctx) throws SQLException {
+  public @Nullable Object decodeText(CharSequence data, TypeDescriptor type, CodecContext ctx) throws SQLException {
     return decodeAsFloat(data, type, ctx);
   }
 
@@ -96,13 +91,13 @@ public final class Float4Codec implements PrimitiveBinaryEncoder, PrimitiveBinar
   @Override
   public void encodeText(Object value, TypeDescriptor type, CodecContext ctx, Appendable out)
       throws SQLException, IOException {
-    TextSink.appendFloat(out, toFloat(value));
+    PrimitiveTextSink.appendFloat(out, toFloat(value));
   }
 
   @Override
   public void encodeFloat(float value, TypeDescriptor type, CodecContext ctx, Appendable out)
       throws SQLException, IOException {
-    TextSink.appendFloat(out, value);
+    PrimitiveTextSink.appendFloat(out, value);
   }
 
   @Override
@@ -178,7 +173,7 @@ public final class Float4Codec implements PrimitiveBinaryEncoder, PrimitiveBinar
   }
 
   @Override
-  public <T> @Nullable T decodeTextAs(String data, TypeDescriptor type, Class<T> targetClass, CodecContext ctx)
+  public <T> @Nullable T decodeTextAs(CharSequence data, TypeDescriptor type, Class<T> targetClass, CodecContext ctx)
       throws SQLException {
     float value = decodeAsFloat(data, type, ctx);
     return decodeFloatAs(value, targetClass);

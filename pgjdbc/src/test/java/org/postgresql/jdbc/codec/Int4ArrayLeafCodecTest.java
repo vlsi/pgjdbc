@@ -12,9 +12,9 @@ import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 
+import org.postgresql.api.codec.TypeName;
 import org.postgresql.core.Oid;
 import org.postgresql.jdbc.CodecRegistry;
-import org.postgresql.jdbc.ObjectName;
 import org.postgresql.jdbc.PgType;
 import org.postgresql.util.ByteConverter;
 
@@ -400,7 +400,7 @@ class Int4ArrayLeafCodecTest {
   @Test
   void decodeText_genericLeaf_viaElementCodec() throws SQLException {
     PgType int4Type = new PgType(
-        new ObjectName("pg_catalog", "int4"),
+        TypeName.of("pg_catalog", "int4"),
         "integer", Oid.INT4, 'b', 'N', -1, 0, 0, 0);
     GenericArrayLeafCodec genericLeaf =
         new GenericArrayLeafCodec(int4Type, Int4Codec.INSTANCE);
@@ -415,7 +415,7 @@ class Int4ArrayLeafCodecTest {
   void registry_routes_int4Array_toSingleArrayCodec() {
     CodecRegistry registry = new CodecRegistry();
     PgType int4ArrayType = new PgType(
-        new ObjectName("pg_catalog", "_int4"),
+        TypeName.of("pg_catalog", "_int4"),
         "integer[]",
         Oid.INT4_ARRAY,
         'b', 'A', -1, Oid.INT4, 0, 0);
@@ -423,8 +423,8 @@ class Int4ArrayLeafCodecTest {
     // _int4 is no longer registered under a dedicated codec; the single
     // ArrayCodec handles every array type, picking the fast leaf from the
     // element codec at call time.
-    assertNull(registry.getByName("_int4"));
+    assertNull(registry.getByLocalName("_int4"));
     assertSame(ArrayCodec.INSTANCE, registry.getByOid(Oid.INT4_ARRAY, int4ArrayType));
-    assertInstanceOf(ArrayElementCodec.class, registry.getByName("int4"));
+    assertInstanceOf(ArrayElementCodec.class, registry.getByLocalName("int4"));
   }
 }

@@ -103,7 +103,7 @@ class Exceptions {
    */
   static SQLException noWritableFormat(TypeDescriptor type) {
     return new PSQLException(
-        GT.tr("No codec can encode a value of type {0} in binary or text format", type.getTypeName()),
+        GT.tr("No codec can encode a value of type {0} in binary or text format", type.getName()),
         PSQLState.INVALID_PARAMETER_TYPE);
   }
 
@@ -347,35 +347,9 @@ class Exceptions {
 
   // Composite (row) type binary/text decode and encode.
   //
-  // The wire-format checks below delegate to Codecs (public) because
-  // org.postgresql.jdbc.PgSQLInputBinary parses the same binary composite format and needs to
-  // report the identical errors, but cannot see this package-private class.
-
-  static SQLException invalidCompositeTooShort() {
-    return Codecs.invalidCompositeTooShort();
-  }
-
-  static SQLException invalidCompositeNegativeFieldCount(int fieldCount) {
-    return Codecs.invalidCompositeNegativeFieldCount(fieldCount);
-  }
-
-  static SQLException invalidCompositeFieldCountExceedsData(int fieldCount) {
-    return new PSQLException(
-        GT.tr("Invalid binary composite data: field count {0} exceeds remaining data", fieldCount),
-        PSQLState.DATA_ERROR);
-  }
-
-  static SQLException invalidCompositeUnexpectedEnd(int fieldIndex) {
-    return Codecs.invalidCompositeUnexpectedEnd(fieldIndex);
-  }
-
-  static SQLException invalidCompositeFieldLength(int length, int fieldIndex) {
-    return Codecs.invalidCompositeFieldLength(length, fieldIndex);
-  }
-
-  static SQLException invalidCompositeNotEnoughData(int fieldIndex) {
-    return Codecs.invalidCompositeNotEnoughData(fieldIndex);
-  }
+  // Errors from parsing the binary composite wire format are not here: PgSQLInputBinary in
+  // org.postgresql.jdbc parses the same format and must reject a value the same way, so those live
+  // in util.internal.CompositeWireErrors, which both packages can see.
 
   static SQLException cannotConvertToComposite(Object value) {
     return new PSQLException(
@@ -678,5 +652,15 @@ class Exceptions {
 
   static SQLException invalidBinaryNumericValue(Throwable cause) {
     return new PSQLException(GT.tr("Invalid binary numeric value"), PSQLState.DATA_ERROR, cause);
+  }
+
+  // offline (connectionless) decoding.
+
+  static SQLException cannotDecodeOffline(String typeFullName) {
+    return new PSQLException(
+        GT.tr("Cannot decode {0} without a database connection. Offline (connectionless) encoding "
+            + "and decoding currently supports scalar and temporal types; container types such as "
+            + "arrays and composites still require an active connection.", typeFullName),
+        PSQLState.NOT_IMPLEMENTED);
   }
 }

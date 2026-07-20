@@ -9,8 +9,8 @@ import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 
 import org.postgresql.api.codec.CodecContext;
+import org.postgresql.api.codec.TypeName;
 import org.postgresql.core.Oid;
-import org.postgresql.jdbc.ObjectName;
 import org.postgresql.jdbc.PgType;
 import org.postgresql.jdbc.TestCodecContext;
 import org.postgresql.util.PGInterval;
@@ -19,6 +19,7 @@ import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.Arguments;
 import org.junit.jupiter.params.provider.MethodSource;
 
+import java.nio.CharBuffer;
 import java.sql.SQLException;
 import java.util.ArrayList;
 import java.util.List;
@@ -57,15 +58,15 @@ class NonAsciiDigitRefusalTest {
   private static final PgType XID8 = numeric("xid8", "xid8", Oid.XID8);
   private static final PgType NUMERIC = numeric("numeric", "numeric", Oid.NUMERIC);
   private static final PgType TEXT =
-      new PgType(new ObjectName("pg_catalog", "text"), "text", Oid.TEXT, 'b', 'S', -1, 0, 0, 0);
+      new PgType(TypeName.of("pg_catalog", "text"), "text", Oid.TEXT, 'b', 'S', -1, 0, 0, 0);
   private static final PgType VARCHAR = new PgType(
-      new ObjectName("pg_catalog", "varchar"), "character varying", Oid.VARCHAR,
+      TypeName.of("pg_catalog", "varchar"), "character varying", Oid.VARCHAR,
       'b', 'S', -1, 0, 0, 0);
   private static final PgType UNKNOWN = new PgType(
-      new ObjectName("pg_catalog", "unknown_type"), "unknown_type", 99999, 'b', 'X', -1, 0, 0, 0);
+      TypeName.of("pg_catalog", "unknown_type"), "unknown_type", 99999, 'b', 'X', -1, 0, 0, 0);
 
   private static PgType numeric(String name, String fullName, int oid) {
-    return new PgType(new ObjectName("pg_catalog", name), fullName, oid, 'b', 'N', -1, 0, 0, 0);
+    return new PgType(TypeName.of("pg_catalog", name), fullName, oid, 'b', 'N', -1, 0, 0, 0);
   }
 
   /** One place a literal enters, driven with whichever digits the test supplies. */
@@ -86,11 +87,11 @@ class NonAsciiDigitRefusalTest {
     add(out, "xid8", d -> Xid8Codec.INSTANCE.decodeAsLong(d, XID8, CTX));
     add(out, "numeric", d -> NumericCodec.INSTANCE.decodeAsBigDecimal(d, NUMERIC, CTX));
 
-    // The char[] slice overload must agree with the String form.
-    add(out, "int2/chars", d -> Int2Codec.INSTANCE.decodeText(d.toCharArray(), 0, d.length(), INT2, CTX));
-    add(out, "int4/chars", d -> Int4Codec.INSTANCE.decodeText(d.toCharArray(), 0, d.length(), INT4, CTX));
-    add(out, "int8/chars", d -> Int8Codec.INSTANCE.decodeText(d.toCharArray(), 0, d.length(), INT8, CTX));
-    add(out, "oid/chars", d -> OidCodec.INSTANCE.decodeText(d.toCharArray(), 0, d.length(), OID, CTX));
+    // A char[]-backed view must agree with the String form.
+    add(out, "int2/chars", d -> Int2Codec.INSTANCE.decodeText(CharBuffer.wrap(d.toCharArray()), INT2, CTX));
+    add(out, "int4/chars", d -> Int4Codec.INSTANCE.decodeText(CharBuffer.wrap(d.toCharArray()), INT4, CTX));
+    add(out, "int8/chars", d -> Int8Codec.INSTANCE.decodeText(CharBuffer.wrap(d.toCharArray()), INT8, CTX));
+    add(out, "oid/chars", d -> OidCodec.INSTANCE.decodeText(CharBuffer.wrap(d.toCharArray()), OID, CTX));
 
     // Array text literals, decoded through the fast leaves.
     add(out, "_int2", d -> leaf(d, short.class, Int2ArrayLeafCodec.INSTANCE));

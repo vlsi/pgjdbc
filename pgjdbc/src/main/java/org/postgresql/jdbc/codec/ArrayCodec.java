@@ -5,7 +5,7 @@
 
 package org.postgresql.jdbc.codec;
 
-import org.postgresql.api.codec.BackpatchingBinarySink;
+import org.postgresql.api.codec.BackpatchingByteArrayOutputStream;
 import org.postgresql.api.codec.BinaryCodec;
 import org.postgresql.api.codec.Codec;
 import org.postgresql.api.codec.CodecContext;
@@ -13,7 +13,6 @@ import org.postgresql.api.codec.StreamingBinaryCodec;
 import org.postgresql.api.codec.StreamingTextCodec;
 import org.postgresql.api.codec.TypeDescriptor;
 import org.postgresql.jdbc.PgArray;
-import org.postgresql.jdbc.PgCodecContext;
 import org.postgresql.util.PGobject;
 
 import org.checkerframework.checker.nullness.qual.Nullable;
@@ -43,18 +42,16 @@ public final class ArrayCodec implements StreamingBinaryCodec, StreamingTextCode
     // Singleton
   }
 
-  // The array codec downcasts to PgCodecContext to branch on whether a connection backs a lazy
-  // PgArray. Offline (connectionless) it decodes eagerly to a Java array instead; only an explicit
-  // java.sql.Array/PgArray target, which needs connection-bound lazy ops (getResultSet), reports a
-  // clear error via requireConnection. Child-type resolution and the leaf-context derivation go
-  // through the CodecContext interface (slice 2c).
-  private static PgCodecContext impl(CodecContext ctx) {
-    return (PgCodecContext) ctx;
-  }
-
-  @Override
-  public String getPrimaryTypeName() {
-    return "array";
+  /**
+   * Returns {@code array}, or fails when the caller asked for a {@link Array} the context cannot
+   * back. A {@code java.sql.Array} is connection-bound (lazy {@code getResultSet}), so an offline
+   * context reports that instead of silently handing back a Java array of a different type.
+   */
+  private static Array requireArray(@Nullable Array array, TypeDescriptor type) throws SQLException {
+    if (array == null) {
+      throw Exceptions.cannotDecodeOffline(type.getFormattedName());
+    }
+    return array;
   }
 
   @Override
@@ -85,13 +82,13 @@ public final class ArrayCodec implements StreamingBinaryCodec, StreamingTextCode
   @Override
   public @Nullable Object decodeBinary(byte[] buf, int offset, int length, TypeDescriptor type,
       CodecContext ctx) throws SQLException {
-    // PgArray and the offline array decoder own a whole array payload; copy only for a genuine sub-slice.
-    PgCodecContext impl = impl(ctx);
-    if (impl.isConnectionBound()) {
-      byte[] data = offset == 0 && length == buf.length ? buf : Arrays.copyOfRange(buf, offset, offset + length);
-      // Lazy PgArray over the binary payload; elements decode on access through the connection. The
-      // array modifier travels with it so a numeric(p,s)[] element decodes to its declared scale.
-      return new PgArray(impl.getConnection(), type.getOid(), type.getTypmod(), data);
+    // The lazy array and the offline decoder both own a whole payload; copy only for a genuine
+    // sub-slice. Lazy elements decode on access through the connection, and the array modifier
+    // travels with it so a numeric(p,s)[] element decodes to its declared scale.
+    byte[] data = offset == 0 && length == buf.length ? buf : Arrays.copyOfRange(buf, offset, offset + length);
+    Array lazy = ctx.getValueFactory().createArray(type, data);
+    if (lazy != null) {
+      return lazy;
     }
     // Offline: no connection to back a lazy java.sql.Array, so decode eagerly to a Java array.
     return decodeBinaryArray(buf, offset, length, type, ctx);
@@ -109,11 +106,11 @@ public final class ArrayCodec implements StreamingBinaryCodec, StreamingTextCode
       }
     }
     // Reuse streaming encoder
-    BackpatchByteArrayOutputStream out = new BackpatchByteArrayOutputStream();
+    BackpatchingByteArrayOutputStream out = new BackpatchingByteArrayOutputStream();
     try {
       encodeBinary(value, type, ctx, out);
     } catch (IOException e) {
-      // BackpatchByteArrayOutputStream never throws.
+      // BackpatchingByteArrayOutputStream never throws.
       throw new AssertionError(e);
     }
     return out.toByteArray();
@@ -243,7 +240,7 @@ public final class ArrayCodec implements StreamingBinaryCodec, StreamingTextCode
     // Stamp the array modifier onto the element as the generic walker does, so the codec honours the
     // descriptor's typmod uniformly across every typed target (String[], CustomDto[], ...), not only
     // the default-component target that falls through to decodeBinaryArray.
-    TypeDescriptor elementType = ctx.resolveType(arrayType.getTypelem(), arrayType.getTypmod());
+    TypeDescriptor elementType = ctx.resolveType(arrayType.getTypelem(), arrayType.getAppliedTypmod());
     Codec elementCodec = ctx.resolveCodec(arrayType.getTypelem());
     Class<?> defaultComponent;
     if (fastLeaf != null) {
@@ -259,12 +256,15 @@ public final class ArrayCodec implements StreamingBinaryCodec, StreamingTextCode
   }
 
   @Override
-  public @Nullable Object decodeText(String data, TypeDescriptor type, CodecContext ctx) throws SQLException {
-    PgCodecContext impl = impl(ctx);
-    if (impl.isConnectionBound()) {
-      // Lazy PgArray over the text literal; elements decode on access through the connection. The
-      // array modifier travels with it so a numeric(p,s)[] element decodes to its declared scale.
-      return new PgArray(impl.getConnection(), type.getOid(), type.getTypmod(), data);
+  public @Nullable Object decodeText(CharSequence data, TypeDescriptor type, CodecContext ctx) throws SQLException {
+    // Lazy array over the text literal; elements decode on access through the connection. The array
+    // modifier travels with it so a numeric(p,s)[] element decodes to its declared scale. A lazy
+    // array decodes its elements long after this call returns, so createArray copies the characters
+    // it needs; when no connection backs one, nothing is copied and the eager path reads data in
+    // place, which is what a nested array decoding off its parent's borrowed buffer relies on.
+    Array lazy = ctx.getValueFactory().createArray(type, data);
+    if (lazy != null) {
+      return lazy;
     }
     // Offline: no connection to back a lazy java.sql.Array, so decode eagerly to a Java array.
     return decodeTextArray(data, type, ctx);
@@ -283,7 +283,7 @@ public final class ArrayCodec implements StreamingBinaryCodec, StreamingTextCode
 
   @Override
   public void encodeBinary(Object value, TypeDescriptor type, CodecContext ctx,
-      BackpatchingBinarySink out) throws SQLException, IOException {
+      BackpatchingByteArrayOutputStream out) throws SQLException, IOException {
     if (value instanceof PgArray) {
       PgArray pgArray = (PgArray) value;
       if (pgArray.isBinary()) {
@@ -323,7 +323,7 @@ public final class ArrayCodec implements StreamingBinaryCodec, StreamingTextCode
    * straight into {@code out} without an intermediate per-element {@code byte[]}.
    */
   private static void encodeBinaryJavaArray(Object javaArray, TypeDescriptor type, CodecContext ctx,
-      BackpatchingBinarySink out) throws SQLException, IOException {
+      BackpatchingByteArrayOutputStream out) throws SQLException, IOException {
     ArrayLeafCodec fastLeaf = fastLeafFor(type, ctx);
     if (fastLeaf != null) {
       MultiDimArrayBinary.encode(javaArray, out, ctx, fastLeaf);
@@ -384,6 +384,8 @@ public final class ArrayCodec implements StreamingBinaryCodec, StreamingTextCode
    *       array;</li>
    *   <li>{@code bit}/{@code varbit} → {@code PGobject[]} (decoded by {@link BitCodec}, which parses
    *       the binary int4+packed form the legacy {@code Boolean[]} decoder could not);</li>
+   *   <li>{@code json}/{@code jsonb} → {@code String[]} of each element's raw JSON text, even though a
+   *       scalar column of either type decodes to {@link PGobject};</li>
    *   <li>every other element type → {@code Object[]} of the scalar codec's value, the shape the
    *       legacy decoder produced via {@code MappedTypeObjectArrayDecoder} (xml, hstore, geometric,
    *       interval, domains — which report sqlType DISTINCT — and unknown user types).</li>
@@ -402,6 +404,12 @@ public final class ArrayCodec implements StreamingBinaryCodec, StreamingTextCode
       // form is parsed by BitCodec, which the legacy Boolean[] decoder could not handle).
       if (elementCodec instanceof BitCodec) {
         return PGobject.class;
+      }
+      // json/jsonb decode to PGobject as a scalar, but getArray() has always produced the raw JSON
+      // text of each element; keep that shape by decoding the leaf as String (which also strips the
+      // jsonb version byte in binary).
+      if (elementCodec instanceof JsonCodec || elementCodec instanceof JsonbCodec) {
+        return String.class;
       }
       // Allowlist of element Java types whose generic decode matches the legacy
       // getArray() shape. The temporal types decode as their java.sql form (see
@@ -484,7 +492,7 @@ public final class ArrayCodec implements StreamingBinaryCodec, StreamingTextCode
       return MultiDimArrayBinary.decode(data, offset, length, fast.getBoxedComponentType(), ctx, fast);
     }
     // The array modifier is the element modifier (numeric(p,s)[] pins the scale on each element).
-    TypeDescriptor elementType = ctx.resolveType(arrayType.getTypelem(), arrayType.getTypmod());
+    TypeDescriptor elementType = ctx.resolveType(arrayType.getTypelem(), arrayType.getAppliedTypmod());
     Codec elementCodec = ctx.resolveCodec(arrayType.getTypelem());
     Class<?> componentType = genericComponentType(elementType, elementCodec);
     Class<?> componentType1 = componentType != null ? componentType : Object.class;
@@ -493,7 +501,8 @@ public final class ArrayCodec implements StreamingBinaryCodec, StreamingTextCode
   }
 
   /**
-   * Text counterpart of {@link #decodeBinaryArray}.
+   * Text counterpart of {@link #decodeBinaryArray}. {@code data} may be a borrowed view over a
+   * parent literal's buffer; this decodes eagerly and retains nothing.
    *
    * @param data the array text literal
    * @param arrayType the array type metadata
@@ -501,7 +510,7 @@ public final class ArrayCodec implements StreamingBinaryCodec, StreamingTextCode
    * @return the decoded array
    * @throws SQLException if decoding fails
    */
-  public static Object decodeTextArray(String data, TypeDescriptor arrayType, CodecContext ctx)
+  public static Object decodeTextArray(CharSequence data, TypeDescriptor arrayType, CodecContext ctx)
       throws SQLException {
     ArrayLeafCodec fast = fastLeafFor(arrayType, ctx);
     if (fast != null) {
@@ -509,7 +518,7 @@ public final class ArrayCodec implements StreamingBinaryCodec, StreamingTextCode
           arrayType.getDelimiter(), ctx, fast);
     }
     // The array modifier is the element modifier (numeric(p,s)[] pins the scale on each element).
-    TypeDescriptor elementType = ctx.resolveType(arrayType.getTypelem(), arrayType.getTypmod());
+    TypeDescriptor elementType = ctx.resolveType(arrayType.getTypelem(), arrayType.getAppliedTypmod());
     Codec elementCodec = ctx.resolveCodec(arrayType.getTypelem());
     Class<?> componentType = genericComponentType(elementType, elementCodec);
     Class<?> componentType1 = componentType != null ? componentType : Object.class;
@@ -593,7 +602,7 @@ public final class ArrayCodec implements StreamingBinaryCodec, StreamingTextCode
           if (!cur.tokenWasQuoted() && cur.tokenEquals("NULL")) {
             elements.add(null);
           } else {
-            elements.add(new String(cur.tokenChars(), cur.tokenOffset(), cur.tokenLength()));
+            elements.add(cur.getToken().toString());
           }
         }
       } while (cur.tryConsume(delimiter));
@@ -618,7 +627,7 @@ public final class ArrayCodec implements StreamingBinaryCodec, StreamingTextCode
       // read the slice for the duration of this call — it needs its own copy whenever buf is a larger
       // shared buffer that may be reused or overwritten afterwards.
       byte[] data = offset == 0 && length == buf.length ? buf : Arrays.copyOfRange(buf, offset, offset + length);
-      return (T) new PgArray(impl(ctx).requireConnection(type), type.getOid(), type.getTypmod(), data);
+      return (T) requireArray(ctx.getValueFactory().createArray(type, data), type);
     }
     if (targetClass.isArray()) {
       Class<?> leafComponentType = MultiDimArraySupport.leafComponentType(targetClass);
@@ -659,7 +668,7 @@ public final class ArrayCodec implements StreamingBinaryCodec, StreamingTextCode
 
   @Override
   @SuppressWarnings("unchecked")
-  public <T> @Nullable T decodeTextAs(String data, TypeDescriptor type, Class<T> targetClass, CodecContext ctx)
+  public <T> @Nullable T decodeTextAs(CharSequence data, TypeDescriptor type, Class<T> targetClass, CodecContext ctx)
       throws SQLException {
     if (targetClass == Object.class) {
       // Connection-bound: a lazy PgArray; offline: an eagerly decoded Java array.
@@ -667,7 +676,7 @@ public final class ArrayCodec implements StreamingBinaryCodec, StreamingTextCode
     }
     if (targetClass == Array.class || targetClass == PgArray.class) {
       // A java.sql.Array is connection-bound (lazy getResultSet); offline cannot back one.
-      return (T) new PgArray(impl(ctx).requireConnection(type), type.getOid(), type.getTypmod(), data);
+      return (T) requireArray(ctx.getValueFactory().createArray(type, data), type);
     }
     if (targetClass.isArray()) {
       Class<?> leafComponentType = MultiDimArraySupport.leafComponentType(targetClass);
@@ -687,16 +696,17 @@ public final class ArrayCodec implements StreamingBinaryCodec, StreamingTextCode
       return castArrayTo(decoded, targetClass);
     }
     if (targetClass == String.class) {
-      return (T) data;
+      return (T) data.toString();
     }
     throw Exceptions.cannotConvertArrayTo(targetClass.getName());
   }
 
   @Override
-  public @Nullable String decodeAsString(String data, TypeDescriptor type, CodecContext ctx) throws SQLException {
+  public @Nullable String decodeAsString(CharSequence data, TypeDescriptor type, CodecContext ctx) throws SQLException {
+    String text = data.toString();
     // Preserve the PostgreSQL text representation (e.g. {{1,0},{0,1}});
     // PgArray.toString() would re-emit elements with quotes.
-    return data;
+    return text;
   }
 
 }

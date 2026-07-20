@@ -1346,7 +1346,7 @@ public class PgDatabaseMetaData implements DatabaseMetaData {
         // TODO: fix N+1
         PgType returnPgType = connection.getTypeInfo().getPgTypeByOid(returnType);
         tuple[5] = connection.encodeString(Integer.toString(returnPgType.getSqlType()));
-        tuple[6] = connection.encodeString(returnPgType.getTypeName().getName());
+        tuple[6] = connection.encodeString(returnPgType.getName().getLocalName());
         tuple[7] = null;
         tuple[8] = null;
         tuple[9] = null;
@@ -1396,7 +1396,7 @@ public class PgDatabaseMetaData implements DatabaseMetaData {
         PgType argPgType = connection.getTypeInfo().getPgTypeByOid(argOid);
 
         tuple[5] = connection.encodeString(Integer.toString(argPgType.getSqlType()));
-        tuple[6] = connection.encodeString(argPgType.getTypeName().getName());
+        tuple[6] = connection.encodeString(argPgType.getName().getLocalName());
         tuple[7] = null;
         tuple[8] = null;
         tuple[9] = null;
@@ -1431,7 +1431,7 @@ public class PgDatabaseMetaData implements DatabaseMetaData {
           // TODO: fix N+1
           PgType columnPgType = connection.getTypeInfo().getPgTypeByOid(columnTypeOid);
           tuple[5] = connection.encodeString(Integer.toString(columnPgType.getSqlType()));
-          tuple[6] = connection.encodeString(columnPgType.getTypeName().getName());
+          tuple[6] = connection.encodeString(columnPgType.getName().getLocalName());
           tuple[7] = null;
           tuple[8] = null;
           tuple[9] = null;
@@ -1840,8 +1840,8 @@ public class PgDatabaseMetaData implements DatabaseMetaData {
       // (off-path or shadowed by another type with the same name), emit a
       // fully qualified, quoted form so the result is unambiguous.
       boolean typeIsVisible = rs.getBoolean("type_is_visible");
-      String typName = attrPgType.getTypeName().getName();
-      String typNspname = attrPgType.getTypeName().getNamespace();
+      String typName = attrPgType.getName().getLocalName();
+      String typNspname = attrPgType.getName().getNamespace();
       tuple[5] = connection.encodeString(
           (typeIsVisible || typNspname == null)
               ? typName
@@ -1877,7 +1877,7 @@ public class PgDatabaseMetaData implements DatabaseMetaData {
       boolean isDomain = attrPgType.isDomain() || sqlType == Types.DISTINCT;
       if (isDomain) {
         // From the docs if typtypmod is -1
-        int typtypmod = attrPgType.getTyptypmod();
+        int typtypmod = attrPgType.getCatalogTypmod();
         decimalDigits = typeInfo.getScale(baseTypeOid, typeMod);
         // From the postgres docs:
         // Domains use typtypmod to record the typmod to be applied to their
@@ -1913,7 +1913,7 @@ public class PgDatabaseMetaData implements DatabaseMetaData {
       // Give null for an unset scale on Decimal and Numeric columns. For domain
       // types we resolved typtypmod above, so the scale is known even when the
       // column's own typmod is -1.
-      boolean hasDomainTypmod = isDomain && attrPgType.getTyptypmod() != -1;
+      boolean hasDomainTypmod = isDomain && attrPgType.getCatalogTypmod() != -1;
       if (((sqlType == Types.NUMERIC) || (sqlType == Types.DECIMAL)) && (typeMod == -1)
           && !hasDomainTypmod) {
         tuple[8] = null;
@@ -2387,7 +2387,7 @@ public class PgDatabaseMetaData implements DatabaseMetaData {
       tuple[1] = rs.getBytes("attname");
       tuple[2] =
           connection.encodeString(Integer.toString(sqlType));
-      tuple[3] = connection.encodeString(pgType.getTypeName().getName());
+      tuple[3] = connection.encodeString(pgType.getName().getLocalName());
       tuple[4] = connection.encodeString(Integer.toString(columnSize));
       tuple[5] = null; // unused
       tuple[6] = connection.encodeString(Integer.toString(decimalDigits));
@@ -3496,7 +3496,7 @@ public class PgDatabaseMetaData implements DatabaseMetaData {
             .encodeString(Integer.toString(DatabaseMetaData.functionReturn));
         tuple[5] = connection
             .encodeString(Integer.toString(returnPgType.getSqlType()));
-        tuple[6] = connection.encodeString(returnPgType.getTypeName().getName());
+        tuple[6] = connection.encodeString(returnPgType.getName().getLocalName());
         tuple[7] = null;
         tuple[8] = null;
         tuple[9] = null;
@@ -3547,7 +3547,7 @@ public class PgDatabaseMetaData implements DatabaseMetaData {
         PgType argPgType = connection.getTypeInfo().getPgTypeByOid(argOid);
 
         tuple[5] = connection.encodeString(Integer.toString(argPgType.getSqlType()));
-        tuple[6] = connection.encodeString(argPgType.getTypeName().getName());
+        tuple[6] = connection.encodeString(argPgType.getName().getLocalName());
         tuple[7] = null;
         tuple[8] = null;
         tuple[9] = null;
@@ -3584,7 +3584,7 @@ public class PgDatabaseMetaData implements DatabaseMetaData {
               .encodeString(Integer.toString(DatabaseMetaData.functionColumnResult));
           tuple[5] = connection
               .encodeString(Integer.toString(columnPgType.getSqlType()));
-          tuple[6] = connection.encodeString(columnPgType.getTypeName().getName());
+          tuple[6] = connection.encodeString(columnPgType.getName().getLocalName());
           tuple[7] = null;
           tuple[8] = null;
           tuple[9] = null;

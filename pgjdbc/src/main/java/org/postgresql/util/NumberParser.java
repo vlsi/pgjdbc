@@ -184,10 +184,9 @@ public class NumberParser {
   /**
    * Optimised {@link CharSequence} slice to number parser, mirroring
    * {@link #getFastLong(char[], int, int, long, long)} for a text value already decoded to
-   * characters and exposed as a {@link CharSequence} — a {@link String}, or a borrowed
-   * {@link org.postgresql.api.codec.CharArraySequence} view over one element of an array text
-   * literal, parsed in place without copying it out. This code does not handle null values, so the
-   * caller must handle them first. Fraction part is discarded.
+   * characters and exposed as a {@link CharSequence}, parsed in place without copying it out.
+   * This code does not handle null values, so the caller must handle them first.
+   * Fraction part is discarded.
    *
    * @param chars characters containing an integer represented as ASCII digits
    * @param offset start of the digits within {@code chars}

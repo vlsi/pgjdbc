@@ -86,6 +86,9 @@ import java.util.Set;
  */
 class ServerTruthOracleTest {
 
+  /** SQLState the container input functions report for a literal they cannot read. */
+  private static final String INVALID_TEXT_REPRESENTATION = "22P02";
+
   private static Connection con;
   private static Connection binaryCon;
   private static int addrOid;
@@ -491,6 +494,18 @@ class ServerTruthOracleTest {
     return t;
   }
 
+  /**
+   * Text-parse truth for the container grammars: the whitespace and segment rules of
+   * {@code array_in}, {@code record_in} and {@code range_parse_bound}, which the driver
+   * reimplements in {@link LiteralCursor} rather than delegating.
+   *
+   * <p>Every case is a literal a caller could write by hand; none can arrive from the server, whose
+   * output functions quote anything ambiguous. The accepted ones pin the value against the server's
+   * own parse. The refused ones pin the refusal itself, so a server that starts accepting one — the
+   * arrays below are refused only because {@code array_in} allows a single segment per element,
+   * which is not a law of nature — fails here and gets re-judged, instead of leaving the driver's
+   * reading of it frozen against whatever was true when the case was written.</p>
+   */
   private static DynamicTest decodeTruth(String name, int oid, String typeName, String literal) {
     return DynamicTest.dynamicTest(name, () ->
         ServerTruthOracle.assertDecodeTruth(binaryCon, oid, typeName, literal));

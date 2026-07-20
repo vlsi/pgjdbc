@@ -6,6 +6,7 @@
 package org.postgresql.api.codec;
 
 import org.postgresql.api.Experimental;
+import org.postgresql.jdbc.codec.ContainerTextEscaper;
 
 import java.io.IOException;
 import java.sql.SQLException;
@@ -17,7 +18,7 @@ import java.sql.SQLException;
  *
  * <p>Primary use case: composing nested encoders. For example, the array
  * codec for {@code composite[]} can wrap its output in an
- * {@link org.postgresql.jdbc.codec.EscapingAppendable} and let the composite
+ * {@link ContainerTextEscaper} and let the composite
  * codec stream into it directly — eliminating the per-element
  * {@code String} that the non-streaming path materializes only to walk it
  * once for escape characters.</p>
@@ -38,7 +39,10 @@ public interface StreamingTextCodec extends TextCodec {
    * @param value the Java object to encode (never null)
    * @param type the PostgreSQL type information
    * @param ctx the codec context providing connection settings
-   * @param out the sink to receive the textual representation
+   * @param out the sink to receive the textual representation. Declared as {@link Appendable} on
+   *     purpose, so that a plain {@link StringBuilder} needs no adapter; to write a number without
+   *     boxing it, pass {@code out} to {@link PrimitiveTextSink#appendInt} and its siblings rather
+   *     than narrowing this parameter
    * @throws SQLException if encoding fails
    * @throws IOException if {@code out} throws
    */

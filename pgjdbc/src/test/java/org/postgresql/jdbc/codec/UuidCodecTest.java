@@ -7,8 +7,8 @@ package org.postgresql.jdbc.codec;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 
+import org.postgresql.api.codec.TypeName;
 import org.postgresql.core.Oid;
-import org.postgresql.jdbc.ObjectName;
 import org.postgresql.jdbc.PgType;
 import org.postgresql.util.ByteConverter;
 
@@ -27,7 +27,7 @@ class UuidCodecTest {
   void setUp() {
     codec = UuidCodec.INSTANCE;
     uuidType = new PgType(
-        new ObjectName("pg_catalog", "uuid"),
+        TypeName.of("pg_catalog", "uuid"),
         "uuid",
         Oid.UUID,
         'b', 'U', -1, 0, 0, 0
@@ -104,11 +104,6 @@ class UuidCodecTest {
   void decodeAsString_text() throws SQLException {
     String result = codec.decodeAsString("550e8400-e29b-41d4-a716-446655440000", uuidType, null);
     assertEquals("550e8400-e29b-41d4-a716-446655440000", result);
-  }
-
-  @Test
-  void getPrimaryTypeName() {
-    assertEquals("uuid", codec.getPrimaryTypeName());
   }
 
   @Test

@@ -8,23 +8,28 @@ package org.postgresql.jdbc;
 import static org.postgresql.util.internal.Nullness.castNonNull;
 
 import org.postgresql.api.Experimental;
+import org.postgresql.api.codec.BackpatchingByteArrayOutputStream;
 import org.postgresql.api.codec.Codec;
 import org.postgresql.api.codec.CodecContext;
 import org.postgresql.api.codec.CodecContextBuilder;
 import org.postgresql.api.codec.CodecLookup;
+import org.postgresql.api.codec.CodecValueFactory;
 import org.postgresql.api.codec.IntervalStyle;
 import org.postgresql.api.codec.PrefersJavaTime;
 import org.postgresql.api.codec.TypeDescriptor;
 import org.postgresql.core.BaseConnection;
 import org.postgresql.core.Encoding;
-import org.postgresql.core.Oid;
 import org.postgresql.core.TypeInfo;
 
 import org.checkerframework.checker.nullness.qual.Nullable;
 
 import java.nio.charset.Charset;
 import java.nio.charset.StandardCharsets;
+import java.sql.Array;
+import java.sql.SQLData;
 import java.sql.SQLException;
+import java.sql.SQLInput;
+import java.sql.Struct;
 import java.util.Calendar;
 import java.util.Collections;
 import java.util.HashMap;
@@ -49,7 +54,7 @@ import java.util.TimeZone;
  * @since 42.8.0
  */
 @Experimental("Codec API is experimental and may change in future releases")
-public final class PgCodecContext implements CodecContext {
+public final class PgCodecContext extends CodecContext {
 
   /**
    * PostgreSQL's {@code FirstNormalObjectId}: OIDs below this are built-in catalog objects; at or
@@ -69,21 +74,22 @@ public final class PgCodecContext implements CodecContext {
   private final Charset charset;
   private final @Nullable TimestampUtils timestampUtils;
 
-  // Per-call Calendar threaded by getDate/getTime/getTimestamp(col, Calendar) via
-  // withCalendar(). Null means "use the connection default" (matching getObject,
-  // which supplies no Calendar). Consumed synchronously within a single decode.
-  private final @Nullable Calendar calendar;
+  // Zone of the Calendar threaded by getDate/getTime/getTimestamp(col, Calendar) via
+  // withCalendar(). Null means "use the connection default" (matching getObject, which supplies no
+  // Calendar). Only the zone is kept: it is all the temporal decoding reads, and it keeps a caller's
+  // mutable Calendar from being retained or published.
+  private final @Nullable TimeZone callerTimeZone;
 
   // Date/time type preferences (from connection properties)
-  private final boolean prefersJavaTimeForDate;
-  private final boolean prefersJavaTimeForTime;
-  private final boolean prefersJavaTimeForTimetz;
-  private final boolean prefersJavaTimeForTimestamp;
-  private final boolean prefersJavaTimeForTimestamptz;
+  private final PrefersJavaTime prefersJavaTime;
 
   // When true, getInt/Long/Float/Double/BigDecimal on a BOOL column converts
   // 't'/'f' (or binary 0/1) to 1/0 instead of throwing.
   private final boolean convertBooleanToNumeric;
+
+  // IntervalStyle for a connectionless context. A connection-bound one reads the reported server
+  // parameter instead, so this is unused there.
+  private final IntervalStyle offlineIntervalStyle;
 
   /**
    * Creates a new PgCodecContext from a connection with default preferences.
@@ -95,33 +101,7 @@ public final class PgCodecContext implements CodecContext {
    */
   public PgCodecContext(BaseConnection connection, CodecRegistry codecs,
       JavaTypeRegistry javaTypes) throws SQLException {
-    this(connection, codecs, javaTypes, Collections.emptyMap(),
-        false, false, false, false, false, false);
-  }
-
-  /**
-   * Creates a new PgCodecContext with date/time preferences.
-   *
-   * @param connection the database connection
-   * @param codecs the codec registry
-   * @param javaTypes the Java type registry
-   * @param prefersJavaTimeForDate true if getObject(DATE) should return LocalDate
-   * @param prefersJavaTimeForTime true if getObject(TIME) should return LocalTime
-   * @param prefersJavaTimeForTimetz true if getObject(TIMETZ) should return OffsetTime
-   * @param prefersJavaTimeForTimestamp true if getObject(TIMESTAMP) should return LocalDateTime
-   * @param prefersJavaTimeForTimestamptz true if getObject(TIMESTAMPTZ) should return OffsetDateTime
-   * @throws SQLException if the encoding cannot be retrieved
-   */
-  public PgCodecContext(BaseConnection connection, CodecRegistry codecs,
-      JavaTypeRegistry javaTypes,
-      boolean prefersJavaTimeForDate,
-      boolean prefersJavaTimeForTime,
-      boolean prefersJavaTimeForTimetz,
-      boolean prefersJavaTimeForTimestamp,
-      boolean prefersJavaTimeForTimestamptz) throws SQLException {
-    this(connection, codecs, javaTypes, Collections.emptyMap(),
-        prefersJavaTimeForDate, prefersJavaTimeForTime, prefersJavaTimeForTimetz,
-        prefersJavaTimeForTimestamp, prefersJavaTimeForTimestamptz, false);
+    this(connection, codecs, javaTypes, Collections.emptyMap(), PrefersJavaTime.NONE, false);
   }
 
   /**
@@ -131,21 +111,13 @@ public final class PgCodecContext implements CodecContext {
    * @param codecs the codec registry
    * @param javaTypes the Java type registry
    * @param typeMap the type map for custom mappings
-   * @param prefersJavaTimeForDate true if getObject(DATE) should return LocalDate
-   * @param prefersJavaTimeForTime true if getObject(TIME) should return LocalTime
-   * @param prefersJavaTimeForTimetz true if getObject(TIMETZ) should return OffsetTime
-   * @param prefersJavaTimeForTimestamp true if getObject(TIMESTAMP) should return LocalDateTime
-   * @param prefersJavaTimeForTimestamptz true if getObject(TIMESTAMPTZ) should return OffsetDateTime
+   * @param prefersJavaTime the per-type getObject java.time preferences
    * @param convertBooleanToNumeric true if numeric getters on a BOOL column convert 't'/'f' to 1/0
    * @throws SQLException if the encoding cannot be retrieved
    */
   public PgCodecContext(BaseConnection connection, CodecRegistry codecs,
       JavaTypeRegistry javaTypes, Map<String, Class<?>> typeMap,
-      boolean prefersJavaTimeForDate,
-      boolean prefersJavaTimeForTime,
-      boolean prefersJavaTimeForTimetz,
-      boolean prefersJavaTimeForTimestamp,
-      boolean prefersJavaTimeForTimestamptz,
+      PrefersJavaTime prefersJavaTime,
       boolean convertBooleanToNumeric) throws SQLException {
     this.connection = connection;
     this.typeInfo = connection.getTypeInfo();
@@ -159,13 +131,10 @@ public final class PgCodecContext implements CodecContext {
     this.encoding = connection.getEncoding();
     this.charset = Charset.forName(encoding.name());
     this.timestampUtils = null;
-    this.calendar = null;
-    this.prefersJavaTimeForDate = prefersJavaTimeForDate;
-    this.prefersJavaTimeForTime = prefersJavaTimeForTime;
-    this.prefersJavaTimeForTimetz = prefersJavaTimeForTimetz;
-    this.prefersJavaTimeForTimestamp = prefersJavaTimeForTimestamp;
-    this.prefersJavaTimeForTimestamptz = prefersJavaTimeForTimestamptz;
+    this.callerTimeZone = null;
+    this.prefersJavaTime = prefersJavaTime;
     this.convertBooleanToNumeric = convertBooleanToNumeric;
+    this.offlineIntervalStyle = IntervalStyle.POSTGRES;
   }
 
   /**
@@ -173,21 +142,11 @@ public final class PgCodecContext implements CodecContext {
    *
    * @param timestampUtils the timestamp utilities
    * @param charset the character set
-   * @param prefersJavaTimeForDate true if getObject(DATE) should return LocalDate
-   * @param prefersJavaTimeForTime true if getObject(TIME) should return LocalTime
-   * @param prefersJavaTimeForTimetz true if getObject(TIMETZ) should return OffsetTime
-   * @param prefersJavaTimeForTimestamp true if getObject(TIMESTAMP) should return LocalDateTime
-   * @param prefersJavaTimeForTimestamptz true if getObject(TIMESTAMPTZ) should return OffsetDateTime
+   * @param prefersJavaTime the per-type getObject java.time preferences
    */
   PgCodecContext(TimestampUtils timestampUtils, Charset charset,
-      boolean prefersJavaTimeForDate,
-      boolean prefersJavaTimeForTime,
-      boolean prefersJavaTimeForTimetz,
-      boolean prefersJavaTimeForTimestamp,
-      boolean prefersJavaTimeForTimestamptz) {
-    this(timestampUtils, charset,
-        prefersJavaTimeForDate, prefersJavaTimeForTime, prefersJavaTimeForTimetz,
-        prefersJavaTimeForTimestamp, prefersJavaTimeForTimestamptz, false);
+      PrefersJavaTime prefersJavaTime) {
+    this(timestampUtils, charset, prefersJavaTime, false);
   }
 
   /**
@@ -195,11 +154,7 @@ public final class PgCodecContext implements CodecContext {
    * allowing the {@code convertBooleanToNumeric} flag to be configured.
    */
   PgCodecContext(TimestampUtils timestampUtils, Charset charset,
-      boolean prefersJavaTimeForDate,
-      boolean prefersJavaTimeForTime,
-      boolean prefersJavaTimeForTimetz,
-      boolean prefersJavaTimeForTimestamp,
-      boolean prefersJavaTimeForTimestamptz,
+      PrefersJavaTime prefersJavaTime,
       boolean convertBooleanToNumeric) {
     this.connection = null;
     this.typeInfo = null;
@@ -210,13 +165,10 @@ public final class PgCodecContext implements CodecContext {
     this.encoding = null;
     this.charset = charset;
     this.timestampUtils = timestampUtils;
-    this.calendar = null;
-    this.prefersJavaTimeForDate = prefersJavaTimeForDate;
-    this.prefersJavaTimeForTime = prefersJavaTimeForTime;
-    this.prefersJavaTimeForTimetz = prefersJavaTimeForTimetz;
-    this.prefersJavaTimeForTimestamp = prefersJavaTimeForTimestamp;
-    this.prefersJavaTimeForTimestamptz = prefersJavaTimeForTimestamptz;
+    this.callerTimeZone = null;
+    this.prefersJavaTime = prefersJavaTime;
     this.convertBooleanToNumeric = convertBooleanToNumeric;
+    this.offlineIntervalStyle = IntervalStyle.POSTGRES;
   }
 
   /**
@@ -227,12 +179,9 @@ public final class PgCodecContext implements CodecContext {
    */
   private PgCodecContext(TimestampUtils timestampUtils, Charset charset,
       CodecRegistry codecs, Map<Integer, TypeDescriptor> typesByOid,
-      boolean prefersJavaTimeForDate,
-      boolean prefersJavaTimeForTime,
-      boolean prefersJavaTimeForTimetz,
-      boolean prefersJavaTimeForTimestamp,
-      boolean prefersJavaTimeForTimestamptz,
-      boolean convertBooleanToNumeric) {
+      PrefersJavaTime prefersJavaTime,
+      boolean convertBooleanToNumeric,
+      IntervalStyle offlineIntervalStyle) {
     this.connection = null;
     this.typeInfo = null;
     this.codecs = codecs;
@@ -244,13 +193,10 @@ public final class PgCodecContext implements CodecContext {
     this.encoding = Encoding.getJVMEncoding(charset.name());
     this.charset = charset;
     this.timestampUtils = timestampUtils;
-    this.calendar = null;
-    this.prefersJavaTimeForDate = prefersJavaTimeForDate;
-    this.prefersJavaTimeForTime = prefersJavaTimeForTime;
-    this.prefersJavaTimeForTimetz = prefersJavaTimeForTimetz;
-    this.prefersJavaTimeForTimestamp = prefersJavaTimeForTimestamp;
-    this.prefersJavaTimeForTimestamptz = prefersJavaTimeForTimestamptz;
+    this.callerTimeZone = null;
+    this.prefersJavaTime = prefersJavaTime;
     this.convertBooleanToNumeric = convertBooleanToNumeric;
+    this.offlineIntervalStyle = offlineIntervalStyle;
   }
 
   /**
@@ -307,8 +253,7 @@ public final class PgCodecContext implements CodecContext {
       throw Exceptions.withTypeMapNotSupportedConnectionless();
     }
     PgCodecContext copy = new PgCodecContext(conn, registries, javaTypeReg, typeMap,
-        prefersJavaTimeForDate, prefersJavaTimeForTime, prefersJavaTimeForTimetz,
-        prefersJavaTimeForTimestamp, prefersJavaTimeForTimestamptz, convertBooleanToNumeric);
+        prefersJavaTime, convertBooleanToNumeric);
     if (timestampUtils != null) {
       copy = copy.withTimestampUtils(timestampUtils);
     }
@@ -323,7 +268,7 @@ public final class PgCodecContext implements CodecContext {
    *
    * @param utils the TimestampUtils to use, or null to fall through to the
    *     connection-level default
-   * @return a new PgCodecContext bound to {@code utils} for {@code usesDoubleDateTime()} and
+   * @return a new PgCodecContext bound to {@code utils} for {@code usesIntegerDateTimes()} and
    *     {@code getClientTimeZone()}
    */
   @SuppressWarnings("ReferenceEquality")
@@ -347,13 +292,10 @@ public final class PgCodecContext implements CodecContext {
     this.encoding = source.encoding;
     this.charset = source.charset;
     this.timestampUtils = utils;
-    this.calendar = source.calendar;
-    this.prefersJavaTimeForDate = source.prefersJavaTimeForDate;
-    this.prefersJavaTimeForTime = source.prefersJavaTimeForTime;
-    this.prefersJavaTimeForTimetz = source.prefersJavaTimeForTimetz;
-    this.prefersJavaTimeForTimestamp = source.prefersJavaTimeForTimestamp;
-    this.prefersJavaTimeForTimestamptz = source.prefersJavaTimeForTimestamptz;
+    this.callerTimeZone = source.callerTimeZone;
+    this.prefersJavaTime = source.prefersJavaTime;
     this.convertBooleanToNumeric = source.convertBooleanToNumeric;
+    this.offlineIntervalStyle = source.offlineIntervalStyle;
   }
 
   /**
@@ -364,11 +306,11 @@ public final class PgCodecContext implements CodecContext {
    * within a single decode, so the codecs stay stateless.
    *
    * @param cal the Calendar to use, or null for the connection default
-   * @return a context that returns {@code cal} from {@link #getCalendar()}
+   * @return a context reporting {@code cal}'s zone from {@link #getCallerTimeZone()}
    */
-  @SuppressWarnings("ReferenceEquality")
   public PgCodecContext withCalendar(@Nullable Calendar cal) {
-    if (cal == this.calendar) {
+    TimeZone tz = cal == null ? null : cal.getTimeZone();
+    if (tz == null ? callerTimeZone == null : tz.equals(callerTimeZone)) {
       return this;
     }
     return new PgCodecContext(this, cal);
@@ -385,8 +327,7 @@ public final class PgCodecContext implements CodecContext {
    */
   @Override
   public PgCodecContext withoutJavaTimePreferences() {
-    if (!prefersJavaTimeForDate && !prefersJavaTimeForTime && !prefersJavaTimeForTimetz
-        && !prefersJavaTimeForTimestamp && !prefersJavaTimeForTimestamptz) {
+    if (PrefersJavaTime.NONE.equals(prefersJavaTime)) {
       return this;
     }
     return new PgCodecContext(this);
@@ -405,13 +346,10 @@ public final class PgCodecContext implements CodecContext {
     this.encoding = source.encoding;
     this.charset = source.charset;
     this.timestampUtils = source.timestampUtils;
-    this.calendar = source.calendar;
-    this.prefersJavaTimeForDate = false;
-    this.prefersJavaTimeForTime = false;
-    this.prefersJavaTimeForTimetz = false;
-    this.prefersJavaTimeForTimestamp = false;
-    this.prefersJavaTimeForTimestamptz = false;
+    this.callerTimeZone = source.callerTimeZone;
+    this.prefersJavaTime = PrefersJavaTime.NONE;
     this.convertBooleanToNumeric = source.convertBooleanToNumeric;
+    this.offlineIntervalStyle = source.offlineIntervalStyle;
   }
 
   /**
@@ -427,13 +365,10 @@ public final class PgCodecContext implements CodecContext {
     this.encoding = source.encoding;
     this.charset = source.charset;
     this.timestampUtils = source.timestampUtils;
-    this.calendar = cal;
-    this.prefersJavaTimeForDate = source.prefersJavaTimeForDate;
-    this.prefersJavaTimeForTime = source.prefersJavaTimeForTime;
-    this.prefersJavaTimeForTimetz = source.prefersJavaTimeForTimetz;
-    this.prefersJavaTimeForTimestamp = source.prefersJavaTimeForTimestamp;
-    this.prefersJavaTimeForTimestamptz = source.prefersJavaTimeForTimestamptz;
+    this.callerTimeZone = cal == null ? null : cal.getTimeZone();
+    this.prefersJavaTime = source.prefersJavaTime;
     this.convertBooleanToNumeric = source.convertBooleanToNumeric;
+    this.offlineIntervalStyle = source.offlineIntervalStyle;
   }
 
   /**
@@ -466,9 +401,99 @@ public final class PgCodecContext implements CodecContext {
   public BaseConnection requireConnection(TypeDescriptor type) throws SQLException {
     BaseConnection conn = connection;
     if (conn == null) {
-      throw Exceptions.cannotDecodeOffline(type.getFullName());
+      throw Exceptions.cannotDecodeOffline(type.getFormattedName());
     }
     return conn;
+  }
+
+  @Override
+  public CodecValueFactory getValueFactory() {
+    return new ValueFactory();
+  }
+
+  /**
+   * Builds the driver's {@link PgStruct}/{@link PgArray} and {@code SQLData} adapters for a codec,
+   * so the built-in codecs construct them without downcasting the descriptor to {@link PgType} or
+   * this context to {@link PgCodecContext}.
+   *
+   * <p>Every method narrows the descriptor here rather than at each codec: a {@code TypeDescriptor}
+   * reaching a built-in container codec is the driver's own {@link PgType}, and this class is the
+   * one place that may rely on it.</p>
+   */
+  private final class ValueFactory implements CodecValueFactory {
+
+    @Override
+    public Struct createStruct(TypeDescriptor type, @Nullable Object[] attributes,
+        @Nullable CharSequence literal) throws SQLException {
+      PgStruct struct = PgStruct.withCodecContext(pgType(type), attributes, PgCodecContext.this);
+      // PgStruct is also a PGobject; recording the literal keeps the legacy getValue() contract
+      // exact instead of rebuilding the text from the attributes. Only an existing String is kept:
+      // the struct outlives this call, so a borrowed slice would have to be copied, and paying that
+      // for a text view the caller may never read is not worth it.
+      if (literal instanceof String) {
+        struct.setValue((String) literal);
+      }
+      return struct;
+    }
+
+    @Override
+    public @Nullable Array createArray(TypeDescriptor type, byte[] data) throws SQLException {
+      // Null, not an error: an offline caller decodes the payload eagerly instead. Only an explicit
+      // java.sql.Array target needs the connection, and that path reports it through
+      // requireConnection.
+      return connection == null
+          ? null
+          : new PgArray(connection, type.getOid(), type.getAppliedTypmod(), data);
+    }
+
+    @Override
+    public @Nullable Array createArray(TypeDescriptor type, CharSequence literal)
+        throws SQLException {
+      // toString() only once a connection backs the array: PgArray decodes lazily and so must own
+      // its literal, while the connectionless case copies nothing and lets the caller decode the
+      // borrowed view in place.
+      return connection == null
+          ? null
+          : new PgArray(connection, type.getOid(), type.getAppliedTypmod(), literal.toString());
+    }
+
+    @Override
+    public SQLInput createSQLInput(TypeDescriptor type, byte[] data, int offset, int length)
+        throws SQLException {
+      return new PgSQLInputBinary(data, offset, length, pgType(type), PgCodecContext.this);
+    }
+
+    @Override
+    public SQLInput createSQLInput(TypeDescriptor type, CharSequence literal)
+        throws SQLException {
+      return new PgSQLInputText(literal, pgType(type), PgCodecContext.this);
+    }
+
+    @Override
+    public void writeSQLData(TypeDescriptor type, SQLData value, BackpatchingByteArrayOutputStream sink)
+        throws SQLException {
+      write(value, new PgSQLOutputBinary(pgType(type), PgCodecContext.this, sink));
+    }
+
+    @Override
+    public void writeSQLData(TypeDescriptor type, SQLData value, Appendable out)
+        throws SQLException {
+      write(value, new PgSQLOutputText(pgType(type), PgCodecContext.this, out));
+    }
+
+    /**
+     * Drives {@code writeSQL} and then closes the output, which finishes the composite framing:
+     * the length back-patch in binary, the closing parenthesis in text.
+     */
+    private void write(SQLData value, PgSQLOutput out) throws SQLException {
+      try (PgSQLOutput output = out) {
+        value.writeSQL(output);
+      }
+    }
+
+    private PgType pgType(TypeDescriptor type) {
+      return (PgType) type;
+    }
   }
 
   /**
@@ -524,19 +549,7 @@ public final class PgCodecContext implements CodecContext {
   public TypeDescriptor resolveType(int oid) throws SQLException {
     TypeInfo ti = typeInfo;
     if (ti != null) {
-      PgType type = ti.getPgTypeByOid(oid);
-      if (type.isComposite() && type.getFields() == null) {
-        // getFields caches the attributes on a new PgType; re-fetch so the descriptor carries them.
-        ti.getFields(oid);
-        type = ti.getPgTypeByOid(oid);
-      } else if (type.getTyptype() == 'r' && type.getRangeSubtype() == Oid.UNSPECIFIED) {
-        ti.getRangeSubtype(oid);
-        type = ti.getPgTypeByOid(oid);
-      } else if (type.getTyptype() == 'm' && type.getMultirangeRange() == Oid.UNSPECIFIED) {
-        ti.getMultirangeRange(oid);
-        type = ti.getPgTypeByOid(oid);
-      }
-      return type;
+      return ti.resolveFully(oid);
     }
     // Offline: consult the caller-supplied map first, then the driver's built-in type catalog (so
     // built-in scalar, temporal and array OIDs resolve without registration), then fail clearly.
@@ -576,19 +589,6 @@ public final class PgCodecContext implements CodecContext {
   }
 
   /**
-   * Returns the current type map for custom type mappings.
-   *
-   * <p>The type map associates PostgreSQL type names with Java classes
-   * (typically SQLData implementations).</p>
-   *
-   * @return the type map (never null, may be empty)
-   */
-  @Override
-  public Map<String, Class<?>> getTypeMap() {
-    return typeMap;
-  }
-
-  /**
    * Returns the connection's character encoding.
    *
    * @return the character encoding
@@ -609,9 +609,13 @@ public final class PgCodecContext implements CodecContext {
   }
 
   /**
-   * Returns the backend's {@code IntervalStyle} (reported as a GUC_REPORT parameter status), so the
-   * interval codec can render a binary {@code interval} the way the server would in text mode. An
-   * offline (connectionless) context reports {@link IntervalStyle#POSTGRES}, the server default.
+   * Returns the {@code IntervalStyle} the interval codec renders a binary {@code interval} with, so
+   * it matches what the server would print in text mode.
+   *
+   * <p>Connection-bound, this is the reported GUC_REPORT parameter status. Offline there is no
+   * server to ask, so it is the value given to
+   * {@link org.postgresql.api.codec.CodecContextBuilder#intervalStyle(IntervalStyle)}, which
+   * defaults to {@link IntervalStyle#POSTGRES}.</p>
    *
    * @return the current interval style, never null
    */
@@ -619,24 +623,24 @@ public final class PgCodecContext implements CodecContext {
   public IntervalStyle getIntervalStyle() {
     BaseConnection c = connection;
     if (c == null) {
-      return IntervalStyle.POSTGRES;
+      return offlineIntervalStyle;
     }
     return IntervalStyle.fromServerValue(c.getParameterStatus("IntervalStyle"));
   }
 
   /**
-   * Returns whether the backend uses doubles (rather than longs) for time values. Temporal codecs
-   * read this to decode binary {@code time}/{@code timestamp} payloads.
+   * Returns whether the backend uses 64-bit integers (rather than doubles) for time values. Temporal
+   * codecs read this to decode binary {@code time}/{@code timestamp} payloads.
    *
-   * @return true if the backend uses {@code float8} timestamps
+   * @return true if the backend uses integer datetimes
    */
   @Override
-  public boolean usesDoubleDateTime() {
+  public boolean usesIntegerDateTimes() {
     TimestampUtils tu = timestampUtils;
     if (tu != null) {
-      return tu.usesDouble();
+      return !tu.usesDouble();
     }
-    return !getConnection().getQueryExecutor().getIntegerDateTimes();
+    return getConnection().getQueryExecutor().getIntegerDateTimes();
   }
 
   /**
@@ -668,33 +672,15 @@ public final class PgCodecContext implements CodecContext {
   }
 
   /**
-   * Returns the per-call Calendar set via {@link #withCalendar(Calendar)}, or null when
-   * none was supplied (the connection default applies). Temporal codecs read this to honor the
+   * Returns the zone of the Calendar set via {@link #withCalendar(Calendar)}, or null when none was
+   * supplied (the connection default applies). Temporal codecs read this to honour the
    * {@code Calendar} passed to {@code getDate/getTime/getTimestamp(col, Calendar)}.
    *
-   * @return the per-call Calendar, or null
+   * @return the caller-supplied time zone, or null
    */
   @Override
-  public @Nullable Calendar getCalendar() {
-    return calendar;
-  }
-
-  /**
-   * Returns the mapped Java class for a PostgreSQL type name, if any.
-   *
-   * <p>Checks the current type map first, then falls back to any
-   * connection-level type mappings.</p>
-   *
-   * @param typeName the PostgreSQL type name
-   * @return the mapped Java class, or null if not mapped
-   */
-  @Override
-  public @Nullable Class<?> getMappedClass(String typeName) {
-    Class<?> clazz = typeMap.get(typeName);
-    if (clazz != null) {
-      return clazz;
-    }
-    return getRegisteredClass(typeName);
+  public @Nullable TimeZone getCallerTimeZone() {
+    return callerTimeZone;
   }
 
   /**
@@ -714,9 +700,9 @@ public final class PgCodecContext implements CodecContext {
     if (type.getOid() < FIRST_NORMAL_OBJECT_ID) {
       return null;
     }
-    Class<?> mapped = typeMap.get(type.getFullName());
+    Class<?> mapped = typeMap.get(type.getFormattedName());
     if (mapped == null) {
-      mapped = typeMap.get(type.getTypeName().getName());
+      mapped = typeMap.get(type.getName().getLocalName());
     }
     return mapped;
   }
@@ -735,53 +721,16 @@ public final class PgCodecContext implements CodecContext {
   }
 
   /**
-   * Returns whether getObject() for DATE columns should return java.time.LocalDate.
+   * Returns the per-type java.time preferences {@code getObject} decodes temporal values with.
    *
-   * @return true if java.time is preferred for DATE
+   * <p>Set by the {@code getObject*} connection properties, or by
+   * {@link CodecContextBuilder#prefersJavaTime(PrefersJavaTime)} offline.</p>
+   *
+   * @return the java.time preferences, never null
    */
   @Override
-  public boolean prefersJavaTimeForDate() {
-    return prefersJavaTimeForDate;
-  }
-
-  /**
-   * Returns whether getObject() for TIME columns should return java.time.LocalTime.
-   *
-   * @return true if java.time is preferred for TIME
-   */
-  @Override
-  public boolean prefersJavaTimeForTime() {
-    return prefersJavaTimeForTime;
-  }
-
-  /**
-   * Returns whether getObject() for TIMETZ columns should return java.time.OffsetTime.
-   *
-   * @return true if java.time is preferred for TIMETZ
-   */
-  @Override
-  public boolean prefersJavaTimeForTimetz() {
-    return prefersJavaTimeForTimetz;
-  }
-
-  /**
-   * Returns whether getObject() for TIMESTAMP columns should return java.time.LocalDateTime.
-   *
-   * @return true if java.time is preferred for TIMESTAMP
-   */
-  @Override
-  public boolean prefersJavaTimeForTimestamp() {
-    return prefersJavaTimeForTimestamp;
-  }
-
-  /**
-   * Returns whether getObject() for TIMESTAMPTZ columns should return java.time.OffsetDateTime.
-   *
-   * @return true if java.time is preferred for TIMESTAMPTZ
-   */
-  @Override
-  public boolean prefersJavaTimeForTimestamptz() {
-    return prefersJavaTimeForTimestamptz;
+  public PrefersJavaTime getJavaTimePreferences() {
+    return prefersJavaTime;
   }
 
   /**
@@ -793,7 +742,7 @@ public final class PgCodecContext implements CodecContext {
    * @return true if BOOL→numeric conversion is enabled
    */
   @Override
-  public boolean getConvertBooleanToNumeric() {
+  public boolean convertsBooleanToNumeric() {
     return convertBooleanToNumeric;
   }
 
@@ -811,12 +760,9 @@ public final class PgCodecContext implements CodecContext {
     private boolean integerDateTimes = true;
     private @Nullable CodecRegistry registry;
     private final Map<Integer, TypeDescriptor> typesByOid = new HashMap<>();
-    private boolean prefersJavaTimeForDate;
-    private boolean prefersJavaTimeForTime;
-    private boolean prefersJavaTimeForTimetz;
-    private boolean prefersJavaTimeForTimestamp;
-    private boolean prefersJavaTimeForTimestamptz;
+    private PrefersJavaTime prefersJavaTime = PrefersJavaTime.NONE;
     private boolean convertBooleanToNumeric;
+    private IntervalStyle intervalStyle = IntervalStyle.POSTGRES;
 
     private OfflineBuilder() {
     }
@@ -834,15 +780,15 @@ public final class PgCodecContext implements CodecContext {
     }
 
     /**
-     * Sets the session time zone temporal codecs render {@code timetz}/{@code timestamptz} against.
-     * Defaults to UTC.
+     * Sets the client/session time zone temporal codecs render {@code timetz}/{@code timestamptz}
+     * against. Defaults to UTC.
      *
-     * @param timeZone the session time zone
+     * @param clientTimeZone the session time zone
      * @return this builder
      */
     @Override
-    public OfflineBuilder timeZone(TimeZone timeZone) {
-      this.timeZone = timeZone;
+    public OfflineBuilder clientTimeZone(TimeZone clientTimeZone) {
+      this.timeZone = clientTimeZone;
       return this;
     }
 
@@ -911,11 +857,7 @@ public final class PgCodecContext implements CodecContext {
      */
     @Override
     public OfflineBuilder prefersJavaTime(PrefersJavaTime prefers) {
-      this.prefersJavaTimeForDate = prefers.forDate();
-      this.prefersJavaTimeForTime = prefers.forTime();
-      this.prefersJavaTimeForTimetz = prefers.forTimetz();
-      this.prefersJavaTimeForTimestamp = prefers.forTimestamp();
-      this.prefersJavaTimeForTimestamptz = prefers.forTimestamptz();
+      this.prefersJavaTime = prefers;
       return this;
     }
 
@@ -933,6 +875,19 @@ public final class PgCodecContext implements CodecContext {
     }
 
     /**
+     * Sets the {@code IntervalStyle} the interval codec renders a binary {@code interval} with.
+     * Defaults to {@link IntervalStyle#POSTGRES}.
+     *
+     * @param intervalStyle the interval style
+     * @return this builder
+     */
+    @Override
+    public OfflineBuilder intervalStyle(IntervalStyle intervalStyle) {
+      this.intervalStyle = intervalStyle;
+      return this;
+    }
+
+    /**
      * Builds the connectionless context.
      *
      * @return a {@link CodecContext} that encodes and decodes without a connection
@@ -946,8 +901,7 @@ public final class PgCodecContext implements CodecContext {
           ? Collections.<Integer, TypeDescriptor>emptyMap()
           : Collections.unmodifiableMap(new HashMap<>(typesByOid));
       return new PgCodecContext(timestampUtils, charset, codecs, types,
-          prefersJavaTimeForDate, prefersJavaTimeForTime, prefersJavaTimeForTimetz,
-          prefersJavaTimeForTimestamp, prefersJavaTimeForTimestamptz, convertBooleanToNumeric);
+          prefersJavaTime, convertBooleanToNumeric, intervalStyle);
     }
   }
 }

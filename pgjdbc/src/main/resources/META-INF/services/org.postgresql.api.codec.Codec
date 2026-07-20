@@ -1,3 +1,0 @@
-# Custom codecs can be registered via ServiceLoader by listing their
-# fully-qualified class names here (one per line).
-# Built-in codecs are registered programmatically in CodecRegistry.

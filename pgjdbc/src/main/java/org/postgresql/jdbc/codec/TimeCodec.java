@@ -5,7 +5,7 @@
 
 package org.postgresql.jdbc.codec;
 
-import org.postgresql.api.codec.BackpatchingBinarySink;
+import org.postgresql.api.codec.BackpatchingByteArrayOutputStream;
 import org.postgresql.api.codec.CodecContext;
 import org.postgresql.api.codec.StreamingBinaryCodec;
 import org.postgresql.api.codec.TextCodec;
@@ -33,11 +33,6 @@ public final class TimeCodec implements StreamingBinaryCodec, TextCodec {
   }
 
   @Override
-  public String getPrimaryTypeName() {
-    return "time";
-  }
-
-  @Override
   public Class<?> getDefaultJavaType() {
     return Time.class;
   }
@@ -45,7 +40,7 @@ public final class TimeCodec implements StreamingBinaryCodec, TextCodec {
   @Override
   public @Nullable Object decodeBinary(byte[] data, int offset, int length, TypeDescriptor type,
       CodecContext ctx) throws SQLException {
-    if (ctx.prefersJavaTimeForTime()) {
+    if (ctx.getJavaTimePreferences().forTime()) {
       return TemporalCodecs.decodeLocalTimeBin(data, offset, length, ctx);
     }
     return TemporalCodecs.decodeTimeBin(data, offset, length, ctx);
@@ -58,16 +53,17 @@ public final class TimeCodec implements StreamingBinaryCodec, TextCodec {
 
   @Override
   public void encodeBinary(Object value, TypeDescriptor type, CodecContext ctx,
-      BackpatchingBinarySink out) throws SQLException, IOException {
+      BackpatchingByteArrayOutputStream out) throws SQLException, IOException {
     TemporalCodecs.writeTimeBin(value, out, ctx);
   }
 
   @Override
-  public @Nullable Object decodeText(String data, TypeDescriptor type, CodecContext ctx) throws SQLException {
-    if (ctx.prefersJavaTimeForTime()) {
-      return TemporalCodecs.decodeLocalTimeText(data, ctx);
+  public @Nullable Object decodeText(CharSequence data, TypeDescriptor type, CodecContext ctx) throws SQLException {
+    String text = data.toString();
+    if (ctx.getJavaTimePreferences().forTime()) {
+      return TemporalCodecs.decodeLocalTimeText(text, ctx);
     }
-    return TemporalCodecs.decodeTimeText(data, ctx);
+    return TemporalCodecs.decodeTimeText(text, ctx);
   }
 
   @Override
@@ -127,32 +123,33 @@ public final class TimeCodec implements StreamingBinaryCodec, TextCodec {
   }
 
   @Override
-  public <T> @Nullable T decodeTextAs(String data, TypeDescriptor type, Class<T> targetClass, CodecContext ctx)
+  public <T> @Nullable T decodeTextAs(CharSequence data, TypeDescriptor type, Class<T> targetClass, CodecContext ctx)
       throws SQLException {
+    String text = data.toString();
     if (targetClass == Time.class || targetClass == Object.class) {
-      return targetClass.cast(TemporalCodecs.decodeTimeText(data, ctx));
+      return targetClass.cast(TemporalCodecs.decodeTimeText(text, ctx));
     }
     if (targetClass == LocalTime.class) {
-      return targetClass.cast(TemporalCodecs.decodeLocalTimeText(data, ctx));
+      return targetClass.cast(TemporalCodecs.decodeLocalTimeText(text, ctx));
     }
     if (targetClass == Timestamp.class) {
-      Time t = TemporalCodecs.decodeTimeText(data, ctx);
+      Time t = TemporalCodecs.decodeTimeText(text, ctx);
       if (t == null) {
         return null;
       }
       Timestamp r = new Timestamp(t.getTime());
-      r.setNanos(TemporalCodecs.decodeTimestampText(data, ctx).getNanos());
+      r.setNanos(TemporalCodecs.decodeTimestampText(text, ctx).getNanos());
       return targetClass.cast(r);
     }
     if (targetClass == java.util.Date.class) {
-      return targetClass.cast(TemporalCodecs.decodeTimeText(data, ctx));
+      return targetClass.cast(TemporalCodecs.decodeTimeText(text, ctx));
     }
     if (targetClass == Long.class) {
-      Time t = TemporalCodecs.decodeTimeText(data, ctx);
+      Time t = TemporalCodecs.decodeTimeText(text, ctx);
       return t == null ? null : targetClass.cast(t.getTime());
     }
     if (targetClass == String.class) {
-      return targetClass.cast(data);
+      return targetClass.cast(text);
     }
     throw Exceptions.cannotDecode("time", targetClass.getName());
   }
@@ -166,10 +163,11 @@ public final class TimeCodec implements StreamingBinaryCodec, TextCodec {
   }
 
   @Override
-  public @Nullable String decodeAsString(String data, TypeDescriptor type, CodecContext ctx) throws SQLException {
+  public @Nullable String decodeAsString(CharSequence data, TypeDescriptor type, CodecContext ctx) throws SQLException {
+    String text = data.toString();
     // Preserve the original text (including microseconds) — java.sql.Time.toString()
     // would truncate the fractional part.
-    return data;
+    return text;
   }
 
 }

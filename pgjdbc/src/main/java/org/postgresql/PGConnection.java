@@ -415,19 +415,21 @@ public interface PGConnection {
    * was created. Register codecs before running the queries that should use them — for
    * example right after opening the connection, or when resetting a pooled one.</p>
    *
+   * @param typeName the PostgreSQL type name to register the codec under; the codec itself carries
+   *     no name, so the same codec may be registered for several types
    * @param codec the codec to register
    * @throws SQLException if the codec cannot be registered
    * @since 42.8.0
    */
   @Experimental("Codec API is experimental and may change in future releases")
-  void registerCodec(Codec codec) throws SQLException;
+  void registerCodec(String typeName, Codec codec) throws SQLException;
 
   /**
    * Unregisters a codec from this connection by type name.
    *
    * <p>Removes any codec bound to {@code typeName} in the connection's user layer, whether it was
-   * added through {@link #registerCodec(Codec)} or directly through
-   * {@link CodecRegistry#registerByName(Codec)} or {@link CodecRegistry#registerAlias(String, Codec)}.
+   * added through {@link #registerCodec(String, Codec)} or directly through
+   * {@link CodecRegistry#registerByName(String, Codec)} or {@link CodecRegistry#registerAlias(String, Codec)}.
    * Service-loaded and built-in codecs are not affected. This is useful for connection pool reset
    * scenarios where a codec registered by a previous user should be removed.</p>
    *
@@ -453,8 +455,8 @@ public interface PGConnection {
    * Clears every codec registered on this connection.
    *
    * <p>Removes all user-layer registrations, including those added through
-   * {@link #registerCodec(Codec)} and those added directly on the {@link CodecRegistry} through
-   * {@link CodecRegistry#registerByName(Codec)}, {@link CodecRegistry#registerAlias(String, Codec)},
+   * {@link #registerCodec(String, Codec)} and those added directly on the {@link CodecRegistry} through
+   * {@link CodecRegistry#registerByName(String, Codec)}, {@link CodecRegistry#registerAlias(String, Codec)},
    * or {@link CodecRegistry#registerByOid(int, Codec)}. Service-loaded and built-in codecs are not
    * affected. This is useful for connection pool reset scenarios, where a physical connection is
    * handed to a new logical client and must not carry over the previous client's codecs.</p>

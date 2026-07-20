@@ -20,6 +20,5 @@ public final class TextCodec extends AbstractTextCodec {
   public static final TextCodec INSTANCE = new TextCodec();
 
   private TextCodec() {
-    super("text");
   }
 }

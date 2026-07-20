@@ -11,38 +11,52 @@ import org.checkerframework.checker.nullness.qual.Nullable;
 
 import java.nio.charset.Charset;
 import java.sql.SQLException;
-import java.util.Calendar;
-import java.util.Map;
 import java.util.TimeZone;
 
 /**
  * Per-operation settings a codec needs to encode or decode a value: wire encoding, the time zones
- * and {@link Calendar} that drive temporal conversion, the {@code getObject} type preferences, and
- * the custom type map.
+ * that drive temporal conversion, and the {@code getObject} type preferences.
  *
  * <p>A context is immutable and is supplied to every codec call. The surface here is the read-only
  * state a codec consumes; it deliberately exposes no connection, type cache, or codec registry, so
- * a codec written against this interface does not depend on the driver's internals.</p>
+ * a codec written against this class does not depend on the driver's internals.</p>
+ *
+ * <p><strong>Implemented by the driver.</strong> Applications receive instances — from the codec
+ * calls they implement, or from {@code OfflineCodecs.builder()} — but must not subclass this type.
+ * It is a class rather than an interface so that the driver can add a method with a working
+ * implementation instead of breaking every subclass; that only holds while no application subclasses
+ * it. To vary what a context resolves, build one through {@link CodecContextBuilder}.</p>
+ *
+ * <p>The {@code protected} constructor is a signal, not a barrier: it cannot be package-private
+ * because the driver's own implementation lives in another package.</p>
  *
  * @since 42.8.0
  */
 @Experimental("Codec API is experimental and may change in future releases")
-public interface CodecContext {
+public abstract class CodecContext {
+
+  /**
+   * Constructor for the driver's own implementation. Not for application use — see the class
+   * javadoc.
+   */
+  protected CodecContext() {
+  }
 
   /**
    * Returns the connection's character set, used to encode and decode text values.
    *
    * @return the character set
    */
-  Charset getCharset();
+  public abstract Charset getCharset();
 
   /**
-   * Returns whether the backend encodes binary {@code time}/{@code timestamp} payloads as doubles
-   * rather than 64-bit integers. Temporal codecs read this to decode the binary form.
+   * Returns whether the backend encodes binary {@code time}/{@code timestamp} payloads as 64-bit
+   * integers rather than doubles — the server's {@code integer_datetimes} setting, which every
+   * supported release has on. Temporal codecs read this to decode the binary form.
    *
-   * @return true if the backend uses {@code float8} timestamps
+   * @return true if the backend uses integer datetimes
    */
-  boolean usesDoubleDateTime();
+  public abstract boolean usesIntegerDateTimes();
 
   /**
    * Returns the client/session time zone (the backend's {@code TimeZone} setting). Temporal codecs
@@ -50,99 +64,63 @@ public interface CodecContext {
    *
    * @return the client time zone
    */
-  TimeZone getClientTimeZone();
+  public abstract TimeZone getClientTimeZone();
 
   /**
    * Returns the JVM default time zone, used for {@code date}/{@code time}/{@code timestamp} (without
-   * time zone) when no per-call {@link Calendar} is supplied.
+   * time zone) when no caller time zone is supplied.
    *
    * @return the default time zone
    */
-  TimeZone getDefaultTimeZone();
+  public abstract TimeZone getDefaultTimeZone();
 
   /**
-   * Returns the per-call {@link Calendar} threaded from {@code getDate/getTime/getTimestamp(col,
-   * Calendar)}, or null when none was supplied and the connection default applies. The Calendar is
-   * borrowed and consumed within a single decode, so codecs stay stateless.
+   * Returns the time zone of the {@code java.util.Calendar} a caller passed to
+   * {@code getDate/getTime/getTimestamp(col, Calendar)}, or {@code null} when none was supplied and
+   * {@link #getDefaultTimeZone()} applies.
    *
-   * @return the per-call Calendar, or null
+   * <p>Only the zone crosses this boundary. That is all the driver's own temporal decoding takes
+   * from a caller's {@code Calendar}, and handing out the {@code Calendar} itself would publish a
+   * mutable object shared with the caller.</p>
+   *
+   * @return the caller-supplied time zone, or null
    */
-  @Nullable Calendar getCalendar();
+  public abstract @Nullable TimeZone getCallerTimeZone();
 
   /**
-   * Returns whether {@code getObject} on a DATE column should return {@link java.time.LocalDate}.
+   * Returns the per-type {@code getObject} java.time preferences. A set flag makes
+   * {@code decode(..., Object.class)} on that temporal type yield the java.time class rather than
+   * the {@code java.sql} one; {@link PrefersJavaTime#NONE} means every type yields {@code java.sql}.
    *
-   * @return true if java.time is preferred for DATE
+   * @return the java.time preferences, never null
    */
-  boolean prefersJavaTimeForDate();
-
-  /**
-   * Returns whether {@code getObject} on a TIME column should return {@link java.time.LocalTime}.
-   *
-   * @return true if java.time is preferred for TIME
-   */
-  boolean prefersJavaTimeForTime();
-
-  /**
-   * Returns whether {@code getObject} on a TIMETZ column should return {@link java.time.OffsetTime}.
-   *
-   * @return true if java.time is preferred for TIMETZ
-   */
-  boolean prefersJavaTimeForTimetz();
-
-  /**
-   * Returns whether {@code getObject} on a TIMESTAMP column should return
-   * {@link java.time.LocalDateTime}.
-   *
-   * @return true if java.time is preferred for TIMESTAMP
-   */
-  boolean prefersJavaTimeForTimestamp();
-
-  /**
-   * Returns whether {@code getObject} on a TIMESTAMPTZ column should return
-   * {@link java.time.OffsetDateTime}.
-   *
-   * @return true if java.time is preferred for TIMESTAMPTZ
-   */
-  boolean prefersJavaTimeForTimestamptz();
+  public abstract PrefersJavaTime getJavaTimePreferences();
 
   /**
    * Returns whether numeric getters on a BOOL column convert {@code 't'}/{@code 'f'} (or binary
-   * {@code 0}/{@code 1}) to {@code 1}/{@code 0} instead of throwing. Controlled by the
-   * {@code convertBooleanToNumeric} connection property.
+   * {@code 0}/{@code 1}) to {@code 1}/{@code 0} instead of throwing. Set by the
+   * {@code convertBooleanToNumeric} connection property, or by
+   * {@link CodecContextBuilder#convertBooleanToNumeric(boolean)} offline.
    *
    * @return true if BOOL-to-numeric conversion is enabled
    */
-  boolean getConvertBooleanToNumeric();
+  public abstract boolean convertsBooleanToNumeric();
 
   /**
-   * Returns the backend's {@code IntervalStyle} (a GUC_REPORT parameter), which the interval codec
-   * uses to render a binary {@code interval} the way the server would in text mode, so that
-   * {@code getString} is independent of the wire format. Defaults to {@link IntervalStyle#POSTGRES}
-   * when no connection is available (offline decoding) or the server does not report the setting.
+   * Returns the {@code IntervalStyle} the interval codec renders a binary {@code interval} with, so
+   * that {@code getString} matches what the server would print in text mode and is independent of
+   * the wire format.
+   *
+   * <p>A connection-bound context reports the backend's setting (a GUC_REPORT parameter). Offline
+   * there is no server to ask, so it reports whatever
+   * {@link CodecContextBuilder#intervalStyle(IntervalStyle)} was given. Either way the fallback is
+   * {@link IntervalStyle#POSTGRES}, the server default, when nothing else is known.
    *
    * @return the current interval style, never null
    */
-  default IntervalStyle getIntervalStyle() {
+  public IntervalStyle getIntervalStyle() {
     return IntervalStyle.POSTGRES;
   }
-
-  /**
-   * Returns the current type map, which associates PostgreSQL type names with Java classes
-   * (typically {@link java.sql.SQLData} implementations).
-   *
-   * @return the type map (never null, may be empty)
-   */
-  Map<String, Class<?>> getTypeMap();
-
-  /**
-   * Returns the mapped Java class for a PostgreSQL type name, checking the type map first and then
-   * any connection-level mappings.
-   *
-   * @param typeName the PostgreSQL type name
-   * @return the mapped Java class, or null if not mapped
-   */
-  @Nullable Class<?> getMappedClass(String typeName);
 
   /**
    * Resolves a child type by OID so a container codec (array, composite, domain, range) can decode
@@ -150,14 +128,14 @@ public interface CodecContext {
    *
    * <p>The returned descriptor is self-contained: composite attributes and the range subtype
    * ({@code pg_range.rngsubtype}, which {@code typelem} does not carry) are loaded so that
-   * {@link TypeDescriptor#getFields()} and {@link TypeDescriptor#getRangeSubtype()} are populated.
+   * {@link TypeDescriptor#getAttributes()} and {@link TypeDescriptor#getRangeSubtype()} are populated.
    * Unknown OIDs resolve to a descriptor for the unknown type rather than null.</p>
    *
    * @param oid the PostgreSQL type OID
    * @return the resolved type descriptor
    * @throws SQLException if the type metadata cannot be loaded
    */
-  TypeDescriptor resolveType(int oid) throws SQLException;
+  public abstract TypeDescriptor resolveType(int oid) throws SQLException;
 
   /**
    * Resolves a type by OID and stamps the given applied modifier onto the descriptor, so a codec can
@@ -169,10 +147,10 @@ public interface CodecContext {
    *
    * @param oid the PostgreSQL type OID
    * @param typmod the applied type modifier, or {@code -1} for none
-   * @return the resolved descriptor reporting {@code typmod} from {@link TypeDescriptor#getTypmod()}
+   * @return the resolved descriptor reporting {@code typmod} from {@link TypeDescriptor#getAppliedTypmod()}
    * @throws SQLException if the type metadata cannot be loaded
    */
-  default TypeDescriptor resolveType(int oid, int typmod) throws SQLException {
+  public TypeDescriptor resolveType(int oid, int typmod) throws SQLException {
     return resolveType(oid).withTypmod(typmod);
   }
 
@@ -184,7 +162,7 @@ public interface CodecContext {
    * @return the codec for the type
    * @throws SQLException if the type metadata cannot be loaded
    */
-  Codec resolveCodec(int oid) throws SQLException;
+  public abstract Codec resolveCodec(int oid) throws SQLException;
 
   /**
    * Resolves the binary codec for a child type by OID, or null when the registered codec does not
@@ -194,7 +172,7 @@ public interface CodecContext {
    * @return the binary codec, or null if the type has no binary codec
    * @throws SQLException if the type metadata cannot be loaded
    */
-  default @Nullable BinaryCodec resolveBinaryCodec(int oid) throws SQLException {
+  public @Nullable BinaryCodec resolveBinaryCodec(int oid) throws SQLException {
     Codec codec = resolveCodec(oid);
     return codec instanceof BinaryCodec ? (BinaryCodec) codec : null;
   }
@@ -207,10 +185,18 @@ public interface CodecContext {
    * @return the text codec, or null if the type has no text codec
    * @throws SQLException if the type metadata cannot be loaded
    */
-  default @Nullable TextCodec resolveTextCodec(int oid) throws SQLException {
+  public @Nullable TextCodec resolveTextCodec(int oid) throws SQLException {
     Codec codec = resolveCodec(oid);
     return codec instanceof TextCodec ? (TextCodec) codec : null;
   }
+
+  /**
+   * Returns the factory for the JDBC objects a container codec hands back or reads through
+   * ({@link java.sql.Struct}, {@link java.sql.Array}, and the {@code SQLData} adapters).
+   *
+   * @return the value factory
+   */
+  public abstract CodecValueFactory getValueFactory();
 
   /**
    * Returns a context with the {@code getObject} java.time preferences cleared, so temporal codecs
@@ -221,5 +207,5 @@ public interface CodecContext {
    * @return a context that decodes temporal values as the {@code java.sql} types, or {@code this}
    *     when no preference is set
    */
-  CodecContext withoutJavaTimePreferences();
+  public abstract CodecContext withoutJavaTimePreferences();
 }

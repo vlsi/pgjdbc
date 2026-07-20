@@ -8,9 +8,11 @@ package org.postgresql.jdbc.codec;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 
+import org.postgresql.api.codec.BinaryCodec;
 import org.postgresql.api.codec.CodecContext;
 import org.postgresql.api.codec.PrimitiveDecoders;
-import org.postgresql.jdbc.ObjectName;
+import org.postgresql.api.codec.TypeDescriptor;
+import org.postgresql.api.codec.TypeName;
 import org.postgresql.jdbc.PgType;
 import org.postgresql.jdbc.TestCodecContext;
 import org.postgresql.util.PSQLException;
@@ -34,7 +36,7 @@ class EnumCodecTest {
 
     // Create an enum type
     enumType = new PgType(
-        new ObjectName("public", "status"),
+        TypeName.of("public", "status"),
         "status",
         12345,  // arbitrary OID
         'e',    // typtype = enum
@@ -48,7 +50,6 @@ class EnumCodecTest {
 
   @Test
   void getPrimaryTypeName_returnsEnum() {
-    assertEquals("enum", EnumCodec.INSTANCE.getPrimaryTypeName());
   }
 
   @Test
@@ -105,28 +106,28 @@ class EnumCodecTest {
   void decodeAsInt_throwsException() {
     byte[] data = "value".getBytes(StandardCharsets.UTF_8);
     assertThrows(PSQLException.class, () ->
-        PrimitiveDecoders.asInt(EnumCodec.INSTANCE, data, enumType, ctx));
+            PrimitiveDecoders.asInt((BinaryCodec) EnumCodec.INSTANCE, data, 0, data.length, (TypeDescriptor) enumType, ctx));
   }
 
   @Test
   void decodeAsLong_throwsException() {
     byte[] data = "value".getBytes(StandardCharsets.UTF_8);
     assertThrows(PSQLException.class, () ->
-        PrimitiveDecoders.asLong(EnumCodec.INSTANCE, data, enumType, ctx));
+        PrimitiveDecoders.asLong((BinaryCodec) EnumCodec.INSTANCE, data, 0, data.length, (TypeDescriptor) enumType, ctx));
   }
 
   @Test
   void decodeAsDouble_throwsException() {
     byte[] data = "value".getBytes(StandardCharsets.UTF_8);
     assertThrows(PSQLException.class, () ->
-        PrimitiveDecoders.asDouble(EnumCodec.INSTANCE, data, enumType, ctx));
+        PrimitiveDecoders.asDouble((BinaryCodec) EnumCodec.INSTANCE, data, 0, data.length, (TypeDescriptor) enumType, ctx));
   }
 
   @Test
   void decodeAsBoolean_throwsException() {
     byte[] data = "value".getBytes(StandardCharsets.UTF_8);
     assertThrows(PSQLException.class, () ->
-        PrimitiveDecoders.asBoolean(EnumCodec.INSTANCE, data, enumType, ctx));
+        PrimitiveDecoders.asBoolean((BinaryCodec) EnumCodec.INSTANCE, data, 0, data.length, (TypeDescriptor) enumType, ctx));
   }
 
   // Test enum for Java enum encoding

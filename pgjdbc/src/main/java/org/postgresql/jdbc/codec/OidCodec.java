@@ -5,7 +5,7 @@
 
 package org.postgresql.jdbc.codec;
 
-import org.postgresql.api.codec.BackpatchingBinarySink;
+import org.postgresql.api.codec.BackpatchingByteArrayOutputStream;
 import org.postgresql.api.codec.CodecContext;
 import org.postgresql.api.codec.PrimitiveBinaryDecoder;
 import org.postgresql.api.codec.PrimitiveTextDecoder;
@@ -34,11 +34,6 @@ public final class OidCodec implements StreamingBinaryCodec, PrimitiveBinaryDeco
 
   private OidCodec() {
     // Singleton
-  }
-
-  @Override
-  public String getPrimaryTypeName() {
-    return "oid";
   }
 
   @Override
@@ -77,27 +72,13 @@ public final class OidCodec implements StreamingBinaryCodec, PrimitiveBinaryDeco
 
   @Override
   public void encodeBinary(Object value, TypeDescriptor type, CodecContext ctx,
-      BackpatchingBinarySink out) throws SQLException, IOException {
+      BackpatchingByteArrayOutputStream out) throws SQLException, IOException {
     out.writeInt32((int) toLong(value));
   }
 
   @Override
-  public @Nullable Object decodeText(String data, TypeDescriptor type, CodecContext ctx) throws SQLException {
+  public @Nullable Object decodeText(CharSequence data, TypeDescriptor type, CodecContext ctx) throws SQLException {
     return decodeAsLong(data, type, ctx);
-  }
-
-  @Override
-  public @Nullable Object decodeText(char[] data, int offset, int length, TypeDescriptor type,
-      CodecContext ctx) throws SQLException {
-    // Long bounds, not 0..2^32-1: decodeText(String) parses the full signed long
-    // without masking to unsigned 32-bit, and the slice form has to match it.
-    try {
-      return NumberParser.getFastLong(data, offset, length, Long.MIN_VALUE, Long.MAX_VALUE);
-    } catch (NumberFormatException fast) {
-      // Anything the fast path rejects (a leading '+', whitespace, out-of-range)
-      // falls back to the String parser, which owns the error message.
-      return decodeText(new String(data, offset, length), type, ctx);
-    }
   }
 
   @Override
@@ -131,7 +112,7 @@ public final class OidCodec implements StreamingBinaryCodec, PrimitiveBinaryDeco
 
   @Override
   public long decodeAsLong(CharSequence data, TypeDescriptor type, CodecContext ctx) throws SQLException {
-    // Long bounds, matching decodeText(char[]): the oid text is parsed as a signed long without
+    // Long bounds, matching decodeText: the oid text is parsed as a signed long without
     // masking to unsigned 32-bit.
     try {
       return NumberParser.getFastLong(data, 0, data.length(), Long.MIN_VALUE, Long.MAX_VALUE);
@@ -194,7 +175,7 @@ public final class OidCodec implements StreamingBinaryCodec, PrimitiveBinaryDeco
   }
 
   @Override
-  public <T> @Nullable T decodeTextAs(String data, TypeDescriptor type, Class<T> targetClass, CodecContext ctx)
+  public <T> @Nullable T decodeTextAs(CharSequence data, TypeDescriptor type, Class<T> targetClass, CodecContext ctx)
       throws SQLException {
     long value = decodeAsLong(data, type, ctx);
     return decodeOidAs(value, targetClass);

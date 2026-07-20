@@ -7,7 +7,7 @@ package org.postgresql.fuzzkit;
 
 import org.postgresql.api.codec.Codecs;
 import org.postgresql.api.codec.Format;
-import org.postgresql.api.codec.RawValue;
+import org.postgresql.api.codec.WireValueSlice;
 import org.postgresql.fuzzkit.coercion.CoercionOutcome;
 import org.postgresql.fuzzkit.coercion.OutcomeContract;
 import org.postgresql.fuzzkit.coercion.OutcomeContract.Direction;
@@ -52,11 +52,11 @@ public final class WriteOracle {
    * the wire -- or {@code null} when the writer refused (the outcome is checked either way). Throws an
    * {@link AssertionError} on any unchecked leak the registry does not model.
    */
-  static @Nullable RawValue verify(PgType comp, PgCodecContext ctx, Format format,
+  static @Nullable WireValueSlice verify(PgType comp, PgCodecContext ctx, Format format,
       SqlOutputWriterBinding writer, Object value, @Nullable CoercionOutcome expected,
       Object caseLabel) {
     try {
-      RawValue wire = Codecs.encode(new WriteProbe(writer, value), comp, ctx, format);
+      WireValueSlice wire = Codecs.encode(new WriteProbe(writer, value), comp, ctx, format);
       requireEncodeAllowed(writer, expected, format, caseLabel);
       return wire;
     } catch (SQLException refused) {

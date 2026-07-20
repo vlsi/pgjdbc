@@ -29,10 +29,10 @@ public interface CodecLookup {
   /**
    * Resolves the codec registered for a type name.
    *
-   * @param typeName the PostgreSQL type name
+   * @param localTypeName the primary unqualified PostgreSQL type name; matching ignores the schema
    * @return the codec, or null if none is registered for that name
    */
-  @Nullable Codec getByName(String typeName);
+  @Nullable Codec getByLocalName(String localTypeName);
 
   /**
    * Resolves the codec for a type by OID, using the descriptor for name- and category-based

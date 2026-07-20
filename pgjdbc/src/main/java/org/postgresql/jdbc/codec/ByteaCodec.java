@@ -30,11 +30,6 @@ public final class ByteaCodec implements BinaryCodec, TextCodec, ArrayElementCod
   }
 
   @Override
-  public String getPrimaryTypeName() {
-    return "bytea";
-  }
-
-  @Override
   public Class<?> getDefaultJavaType() {
     return byte[].class;
   }
@@ -56,8 +51,9 @@ public final class ByteaCodec implements BinaryCodec, TextCodec, ArrayElementCod
   }
 
   @Override
-  public @Nullable Object decodeText(String data, TypeDescriptor type, CodecContext ctx) throws SQLException {
-    return PGbytea.toBytes(data.getBytes(ctx.getCharset()));
+  public @Nullable Object decodeText(CharSequence data, TypeDescriptor type, CodecContext ctx) throws SQLException {
+    String text = data.toString();
+    return PGbytea.toBytes(text.getBytes(ctx.getCharset()));
   }
 
   @Override
@@ -100,17 +96,18 @@ public final class ByteaCodec implements BinaryCodec, TextCodec, ArrayElementCod
 
   @Override
   @SuppressWarnings("unchecked")
-  public <T> @Nullable T decodeTextAs(String data, TypeDescriptor type, Class<T> targetClass, CodecContext ctx)
+  public <T> @Nullable T decodeTextAs(CharSequence data, TypeDescriptor type, Class<T> targetClass, CodecContext ctx)
       throws SQLException {
+    String text = data.toString();
     if (targetClass == byte[].class || targetClass == Object.class) {
-      return (T) decodeText(data, type, ctx);
+      return (T) decodeText(text, type, ctx);
     }
     if (targetClass == String.class) {
-      return (T) data;
+      return (T) text;
     }
     if (targetClass == InputStream.class) {
       // Decode text to bytes first, then wrap in InputStream
-      byte[] bytes = PGbytea.toBytes(data.getBytes(ctx.getCharset()));
+      byte[] bytes = PGbytea.toBytes(text.getBytes(ctx.getCharset()));
       return (T) new ByteArrayInputStream(bytes);
     }
     throw Exceptions.cannotDecode("bytea", targetClass.getName());

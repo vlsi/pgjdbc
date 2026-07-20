@@ -10,12 +10,12 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertInstanceOf;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 
-import org.postgresql.api.codec.CharArraySequence;
+import org.postgresql.api.codec.BinaryCodec;
 import org.postgresql.api.codec.CodecContext;
 import org.postgresql.api.codec.PrimitiveDecoders;
 import org.postgresql.api.codec.TypeDescriptor;
+import org.postgresql.api.codec.TypeName;
 import org.postgresql.core.Oid;
-import org.postgresql.jdbc.ObjectName;
 import org.postgresql.jdbc.PgType;
 import org.postgresql.jdbc.TestCodecContext;
 import org.postgresql.util.ByteConverter;
@@ -26,6 +26,7 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
 import java.math.BigDecimal;
+import java.nio.CharBuffer;
 import java.nio.charset.StandardCharsets;
 import java.sql.SQLException;
 
@@ -38,7 +39,7 @@ class NumericCodecTest {
   void setUp() {
     codec = NumericCodec.INSTANCE;
     numericType = new PgType(
-        new ObjectName("pg_catalog", "numeric"),
+        TypeName.of("pg_catalog", "numeric"),
         "numeric",
         Oid.NUMERIC,
         'b', 'N', -1, 0, 0, 0
@@ -230,12 +231,12 @@ class NumericCodecTest {
   }
 
   // Regression: the float/double text accessors go through Double.parseDouble, which keeps a signed
-  // zero; the char[] overloads must agree with the String form rather than fall through to the
+  // zero; a char[]-backed view must agree with the String form rather than fall through to the
   // BigDecimal path, which has no signed zero and would read "-0.0" as +0.0.
   @Test
   void decodeAsDouble_negativeZero_charArrayMatchesString() throws SQLException {
     char[] chars = "-0.0".toCharArray();
-    double viaChars = codec.decodeAsDouble(new CharArraySequence(chars, 0, chars.length), numericType, null);
+    double viaChars = codec.decodeAsDouble(CharBuffer.wrap(chars, 0, chars.length), numericType, null);
     assertEquals(Double.doubleToRawLongBits(codec.decodeAsDouble("-0.0", numericType, null)),
         Double.doubleToRawLongBits(viaChars));
     assertEquals(Double.doubleToRawLongBits(-0.0), Double.doubleToRawLongBits(viaChars));
@@ -244,7 +245,7 @@ class NumericCodecTest {
   @Test
   void decodeAsFloat_negativeZero_charArrayMatchesString() throws SQLException {
     char[] chars = "-0.0".toCharArray();
-    float viaChars = codec.decodeAsFloat(new CharArraySequence(chars, 0, chars.length), numericType, null);
+    float viaChars = codec.decodeAsFloat(CharBuffer.wrap(chars, 0, chars.length), numericType, null);
     assertEquals(Float.floatToRawIntBits(codec.decodeAsFloat("-0.0", numericType, null)),
         Float.floatToRawIntBits(viaChars));
     assertEquals(Float.floatToRawIntBits(-0.0f), Float.floatToRawIntBits(viaChars));
@@ -257,7 +258,7 @@ class NumericCodecTest {
     for (String special : new String[]{"NaN", "Infinity", "-Infinity"}) {
       char[] chars = special.toCharArray();
       assertEquals(Double.doubleToRawLongBits(codec.decodeAsDouble(special, numericType, null)),
-          Double.doubleToRawLongBits(codec.decodeAsDouble(new CharArraySequence(chars, 0, chars.length), numericType, null)),
+          Double.doubleToRawLongBits(codec.decodeAsDouble(CharBuffer.wrap(chars, 0, chars.length), numericType, null)),
           special);
     }
   }
@@ -268,17 +269,17 @@ class NumericCodecTest {
   @Test
   void decodeAsInt_charArray_roundsLikeString() throws SQLException {
     char[] chars = ".9".toCharArray();
-    assertEquals(1, codec.decodeAsInt(new CharArraySequence(chars, 0, chars.length), numericType, null));
+    assertEquals(1, codec.decodeAsInt(CharBuffer.wrap(chars, 0, chars.length), numericType, null));
     assertEquals(codec.decodeAsInt(".9", numericType, null),
-        codec.decodeAsInt(new CharArraySequence(chars, 0, chars.length), numericType, null));
+        codec.decodeAsInt(CharBuffer.wrap(chars, 0, chars.length), numericType, null));
   }
 
   @Test
   void decodeAsLong_charArray_roundsLikeString() throws SQLException {
     char[] chars = "1.5".toCharArray();
-    assertEquals(2L, codec.decodeAsLong(new CharArraySequence(chars, 0, chars.length), numericType, null));
+    assertEquals(2L, codec.decodeAsLong(CharBuffer.wrap(chars, 0, chars.length), numericType, null));
     assertEquals(codec.decodeAsLong("1.5", numericType, null),
-        codec.decodeAsLong(new CharArraySequence(chars, 0, chars.length), numericType, null));
+        codec.decodeAsLong(CharBuffer.wrap(chars, 0, chars.length), numericType, null));
   }
 
   // ==================== Text-as-bytes Decoding ====================
@@ -458,7 +459,7 @@ class NumericCodecTest {
     assertEquals("NaN", codec.encodeText(Double.NaN, numericType, null));
     assertEquals("Infinity", codec.encodeText(Double.POSITIVE_INFINITY, numericType, null));
     assertEquals("-Infinity", codec.encodeText(Double.NEGATIVE_INFINITY, numericType, null));
-    // Float too — the sentinels the fuzzer feeds through writeFloat.
+    // Float too — the sentinels the fuzzer feeds through writeFloat4.
     assertEquals("NaN", codec.encodeText(Float.NaN, numericType, null));
 
     assertEquals(Double.valueOf(Double.NaN), codec.decodeText("NaN", numericType, null));
@@ -552,7 +553,7 @@ class NumericCodecTest {
     byte[] data = ByteConverter.numeric(new BigDecimal("12.5"));
     assertEquals(new BigDecimal("12.5"), codec.decodeBinary(data, 0, data.length, numericType, null));
     assertEquals(new BigDecimal("12.5"), codec.decodeAsBigDecimal(data, 0, data.length, numericType, null));
-    assertEquals(12.5, PrimitiveDecoders.asDouble(codec, data, numericType, null), 0.0);
+    assertEquals(12.5, PrimitiveDecoders.asDouble(codec, data, 0, data.length, numericType, null), 0.0);
     assertEquals(new BigDecimal("12.5"),
         codec.decodeBinaryAs(data, 0, data.length, numericType, BigDecimal.class, null));
   }
@@ -565,7 +566,7 @@ class NumericCodecTest {
     assertBinaryPathRefused("decodeBinary", () -> codec.decodeBinary(data, 0, data.length, (TypeDescriptor) numericType, (CodecContext) null));
     assertBinaryPathRefused("decodeAsBigDecimal",
         () -> codec.decodeAsBigDecimal(data, 0, data.length, (TypeDescriptor) numericType, (CodecContext) null));
-    assertBinaryPathRefused("decodeAsDouble", () -> PrimitiveDecoders.asDouble(codec, data, numericType, null));
+    assertBinaryPathRefused("decodeAsDouble", () -> PrimitiveDecoders.asDouble((BinaryCodec) codec, data, 0, data.length, (TypeDescriptor) numericType, (CodecContext) null));
     // decodeBinaryAs(BigDecimal) is the exact path the Jazzer numericBinary target exercises.
     assertBinaryPathRefused("decodeBinaryAs",
         () -> codec.decodeBinaryAs(data, 0, data.length, (TypeDescriptor) numericType, BigDecimal.class, (CodecContext) null));
@@ -577,11 +578,6 @@ class NumericCodecTest {
         () -> "numeric binary " + path + " should refuse malformed wire");
     assertEquals(PSQLState.DATA_ERROR.getState(), e.getSQLState(),
         () -> "SQLState for numeric binary " + path);
-  }
-
-  @Test
-  void getPrimaryTypeName() {
-    assertEquals("numeric", codec.getPrimaryTypeName());
   }
 
   @Test

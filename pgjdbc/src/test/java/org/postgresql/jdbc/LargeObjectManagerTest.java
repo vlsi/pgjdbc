@@ -75,7 +75,6 @@ class LargeObjectManagerTest {
     }
   }
 
-
   /**
    * Writes data into a large object and reads it back.
    * The verifications are:

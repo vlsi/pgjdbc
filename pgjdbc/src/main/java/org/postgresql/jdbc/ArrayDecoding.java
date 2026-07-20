@@ -458,7 +458,7 @@ public final class ArrayDecoding {
       if (codec == null) {
         throw new PSQLException(
             GT.tr("No binary codec registered for element type {0}",
-                elementType.getFullName()),
+                elementType.getFormattedName()),
             PSQLState.DATA_TYPE_MISMATCH);
       }
       return castNonNull(codec.decodeBinary(copy, 0, copy.length, elementType, ctx));
@@ -474,7 +474,7 @@ public final class ArrayDecoding {
       if (codec == null) {
         throw new PSQLException(
             GT.tr("No text codec registered for element type {0}",
-                elementType.getFullName()),
+                elementType.getFormattedName()),
             PSQLState.DATA_TYPE_MISMATCH);
       }
       return castNonNull(codec.decodeText(stringVal, elementType, ctx));

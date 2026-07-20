@@ -17,6 +17,7 @@ import org.postgresql.core.Tuple;
 import org.postgresql.core.TypeInfo;
 import org.postgresql.jdbc.codec.ArrayCodec;
 import org.postgresql.jdbc.codec.CompositeCodec;
+import org.postgresql.jdbc.codec.ContainerTextEscaper;
 import org.postgresql.util.ByteConverter;
 import org.postgresql.util.GT;
 import org.postgresql.util.PGobject;
@@ -494,7 +495,7 @@ public class PgArray implements Array {
         return displayName;
       }
     }
-    return getElementPgType().getTypeName().getName();
+    return getElementPgType().getName().getLocalName();
   }
 
   @Override
@@ -629,16 +630,7 @@ public class PgArray implements Array {
   }
 
   public static void escapeArrayElement(StringBuilder b, String s) {
-    b.append('"');
-    for (int j = 0; j < s.length(); j++) {
-      char c = s.charAt(j);
-      if (c == '"' || c == '\\') {
-        b.append('\\');
-      }
-
-      b.append(c);
-    }
-    b.append('"');
+    ContainerTextEscaper.appendQuotedArrayStyle(b, s);
   }
 
   public boolean isBinary() {

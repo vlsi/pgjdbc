@@ -12,10 +12,10 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import org.postgresql.jdbc.OfflineCodecs;
 
-import org.checkerframework.checker.nullness.qual.Nullable;
 import org.junit.jupiter.api.Test;
 
 import java.sql.SQLException;
+import java.util.Collections;
 import java.util.List;
 import java.util.Map;
 
@@ -26,7 +26,7 @@ import java.util.Map;
  *
  * <p>Every other declared type lives in the public {@code api.codec} package:
  * {@link CodecContextBuilder}, {@link CodecContext}, {@link CodecLookup}, {@link Codecs},
- * {@link TypeDescriptor}, {@link RawValue}, {@link Format}. If the offline round-trip ever needs
+ * {@link TypeDescriptor}, {@link WireValueSlice}, {@link Format}. If the offline round-trip ever needs
  * another driver-internal type, this test stops compiling against the api surface, which is the
  * regression it guards.</p>
  */
@@ -48,7 +48,7 @@ class OfflineCodecApiRoundTripTest {
     TypeDescriptor int4 = ctx.resolveType(INT4_OID);
 
     for (Format format : Format.values()) {
-      RawValue encoded = Codecs.encode(42, int4, ctx, format);
+      WireValueSlice encoded = Codecs.encode(42, int4, ctx, format);
       Integer decoded = Codecs.decode(encoded, int4, ctx, Integer.class);
       assertEquals(Integer.valueOf(42), decoded, "int4 round-trip in " + format);
     }
@@ -62,7 +62,7 @@ class OfflineCodecApiRoundTripTest {
 
     assertNotNull(registry.getByOid(INT4_OID, int4), "int4 resolves to a codec");
 
-    RawValue encoded = Codecs.encode(42, int4, ctx, Format.BINARY);
+    WireValueSlice encoded = Codecs.encode(42, int4, ctx, Format.BINARY);
     assertEquals(Integer.valueOf(42), Codecs.decode(encoded, int4, ctx, Integer.class));
   }
 
@@ -72,11 +72,11 @@ class OfflineCodecApiRoundTripTest {
     // descriptor. Both the convenience overload and the wither report it; the plain descriptor has none.
     CodecContext ctx = OfflineCodecs.builder().build();
 
-    assertEquals(NUMERIC_2_NEG2, ctx.resolveType(NUMERIC_OID, NUMERIC_2_NEG2).getTypmod(),
+    assertEquals(NUMERIC_2_NEG2, ctx.resolveType(NUMERIC_OID, NUMERIC_2_NEG2).getAppliedTypmod(),
         "resolveType(oid, typmod) reports the modifier");
-    assertEquals(NUMERIC_2_NEG2, ctx.resolveType(NUMERIC_OID).withTypmod(NUMERIC_2_NEG2).getTypmod(),
+    assertEquals(NUMERIC_2_NEG2, ctx.resolveType(NUMERIC_OID).withTypmod(NUMERIC_2_NEG2).getAppliedTypmod(),
         "withTypmod reports the modifier");
-    assertEquals(-1, ctx.resolveType(NUMERIC_OID).getTypmod(), "no modifier by default");
+    assertEquals(-1, ctx.resolveType(NUMERIC_OID).getAppliedTypmod(), "no modifier by default");
   }
 
   @Test
@@ -86,10 +86,10 @@ class OfflineCodecApiRoundTripTest {
     TypeDescriptor foreign = new MinimalDescriptor();
     TypeDescriptor stamped = foreign.withTypmod(42);
 
-    assertEquals(42, stamped.getTypmod(), "wrapper reports the modifier");
+    assertEquals(42, stamped.getAppliedTypmod(), "wrapper reports the modifier");
     assertEquals(foreign.getOid(), stamped.getOid(), "wrapper delegates other properties");
-    assertEquals(-1, foreign.getTypmod(), "the original descriptor is unchanged");
-    assertEquals(7, stamped.withTypmod(7).getTypmod(), "restamping replaces rather than nests");
+    assertEquals(-1, foreign.getAppliedTypmod(), "the original descriptor is unchanged");
+    assertEquals(7, stamped.withTypmod(7).getAppliedTypmod(), "restamping replaces rather than nests");
   }
 
   @Test
@@ -112,27 +112,22 @@ class OfflineCodecApiRoundTripTest {
     }
 
     @Override
-    public ObjectName getTypeName() {
-      return new ObjectName() {
-        @Override
-        public @Nullable String getNamespace() {
-          return "pg_catalog";
-        }
-
-        @Override
-        public String getName() {
-          return "numeric";
-        }
-      };
+    public TypeDescriptor withAttributes(List<? extends CompositeAttribute> attributes) {
+      throw new UnsupportedOperationException("numeric is not composite");
     }
 
     @Override
-    public String getFullName() {
+    public TypeName getName() {
+      return TypeName.of("pg_catalog", "numeric");
+    }
+
+    @Override
+    public String getFormattedName() {
       return "numeric";
     }
 
     @Override
-    public int getTyptypmod() {
+    public int getCatalogTypmod() {
       return -1;
     }
 
@@ -177,15 +172,15 @@ class OfflineCodecApiRoundTripTest {
     }
 
     @Override
-    public @Nullable List<? extends CompositeField> getFields() {
-      return null;
+    public List<? extends CompositeAttribute> getAttributes() {
+      return Collections.emptyList();
     }
   }
 
   /** A {@link CodecLookup} not produced by the driver; every call is unreachable in these tests. */
   private static final class UnsupportedCodecLookup implements CodecLookup {
     @Override
-    public Codec getByName(String typeName) {
+    public Codec getByLocalName(String localTypeName) {
       throw new UnsupportedOperationException();
     }
 

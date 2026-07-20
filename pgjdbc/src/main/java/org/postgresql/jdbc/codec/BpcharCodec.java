@@ -17,6 +17,5 @@ public final class BpcharCodec extends AbstractTextCodec {
   public static final BpcharCodec INSTANCE = new BpcharCodec();
 
   private BpcharCodec() {
-    super("bpchar");
   }
 }

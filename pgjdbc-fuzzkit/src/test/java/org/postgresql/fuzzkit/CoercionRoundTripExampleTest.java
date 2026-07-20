@@ -9,7 +9,7 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 
 import org.postgresql.api.codec.Codecs;
 import org.postgresql.api.codec.Format;
-import org.postgresql.api.codec.RawValue;
+import org.postgresql.api.codec.WireValueSlice;
 import org.postgresql.core.Oid;
 import org.postgresql.fuzzkit.coercion.PgTypeDescriptors;
 import org.postgresql.jdbc.OfflineCodecs;
@@ -84,9 +84,9 @@ class CoercionRoundTripExampleTest {
     PgType comp = FuzzComposites.singleField(Oid.TIME);
     PgCodecContext ctx = (PgCodecContext) OfflineCodecs.builder()
         .type(comp)
-        .timeZone(TimeZone.getDefault())
+        .clientTimeZone(TimeZone.getDefault())
         .build();
-    RawValue wire = Codecs.encode(
+    WireValueSlice wire = Codecs.encode(
         new WriteOracle.WriteProbe(SqlOutputWriterBinding.WRITE_STRING, literal), comp, ctx, Format.TEXT);
     SQLInput in = new PgSQLInputText(wire.asString(StandardCharsets.UTF_8), comp, ctx);
     return SqlInputReader.READ_TIME.read(in, Object.class);

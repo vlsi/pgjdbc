@@ -9,7 +9,7 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 
 import org.postgresql.api.codec.BinaryCodec;
 import org.postgresql.api.codec.CodecContext;
-import org.postgresql.jdbc.ObjectName;
+import org.postgresql.api.codec.TypeName;
 import org.postgresql.jdbc.PgType;
 import org.postgresql.jdbc.TestCodecContext;
 import org.postgresql.util.ByteConverter;
@@ -32,7 +32,7 @@ class TemporalSliceDecodeTest {
   private static final int TRAIL = 2;
 
   private static PgType type(String schemaless, String fullName, int oid) {
-    return new PgType(new ObjectName("pg_catalog", schemaless), fullName, oid,
+    return new PgType(TypeName.of("pg_catalog", schemaless), fullName, oid,
         'b', 'D', -1, 0, 0, 0);
   }
 
@@ -48,7 +48,7 @@ class TemporalSliceDecodeTest {
       CodecContext ctx) throws SQLException {
     Object whole = codec.decodeBinary(payload, 0, payload.length, type, ctx);
     Object slice = codec.decodeBinary(pad(payload), LEAD, payload.length, type, ctx);
-    assertEquals(whole, slice, codec.getPrimaryTypeName() + " slice decode must match whole-buffer decode");
+    assertEquals(whole, slice, codec.getClass().getSimpleName() + " slice decode must match whole-buffer decode");
   }
 
   private static byte[] int8(long micros) {
@@ -70,7 +70,7 @@ class TemporalSliceDecodeTest {
     byte[] payload = int4(8800);
     assertSliceParity(DateCodec.INSTANCE, t, payload, TestCodecContext.create());
     assertSliceParity(DateCodec.INSTANCE, t, payload,
-        TestCodecContext.create(true, false, false, false, false));
+        TestCodecContext.preferringJavaTimeForDate());
   }
 
   @Test
@@ -80,7 +80,7 @@ class TemporalSliceDecodeTest {
     byte[] payload = int8(45_000_000_000L);
     assertSliceParity(TimeCodec.INSTANCE, t, payload, TestCodecContext.create());
     assertSliceParity(TimeCodec.INSTANCE, t, payload,
-        TestCodecContext.create(false, true, false, false, false));
+        TestCodecContext.preferringJavaTimeForTime());
   }
 
   @Test
@@ -92,7 +92,7 @@ class TemporalSliceDecodeTest {
     ByteConverter.int4(payload, 8, -3600);
     assertSliceParity(TimetzCodec.INSTANCE, t, payload, TestCodecContext.create());
     assertSliceParity(TimetzCodec.INSTANCE, t, payload,
-        TestCodecContext.create(false, false, true, false, false));
+        TestCodecContext.preferringJavaTimeForTimetz());
   }
 
   @Test
@@ -102,7 +102,7 @@ class TemporalSliceDecodeTest {
     byte[] payload = int8(760_000_000_000_000L);
     assertSliceParity(TimestampCodec.INSTANCE, t, payload, TestCodecContext.create());
     assertSliceParity(TimestampCodec.INSTANCE, t, payload,
-        TestCodecContext.create(false, false, false, true, false));
+        TestCodecContext.preferringJavaTimeForTimestamp());
   }
 
   @Test
@@ -111,6 +111,6 @@ class TemporalSliceDecodeTest {
     byte[] payload = int8(760_000_000_000_000L);
     assertSliceParity(TimestamptzCodec.INSTANCE, t, payload, TestCodecContext.create());
     assertSliceParity(TimestamptzCodec.INSTANCE, t, payload,
-        TestCodecContext.create(false, false, false, false, true));
+        TestCodecContext.preferringJavaTimeForTimestamptz());
   }
 }

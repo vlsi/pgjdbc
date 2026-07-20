@@ -5,7 +5,7 @@
 
 package org.postgresql.jdbc.codec;
 
-import org.postgresql.api.codec.BackpatchingBinarySink;
+import org.postgresql.api.codec.BackpatchingByteArrayOutputStream;
 import org.postgresql.api.codec.CodecContext;
 import org.postgresql.api.codec.StreamingBinaryCodec;
 import org.postgresql.api.codec.TextCodec;
@@ -28,11 +28,6 @@ public final class UuidCodec implements StreamingBinaryCodec, TextCodec {
 
   private UuidCodec() {
     // Singleton
-  }
-
-  @Override
-  public String getPrimaryTypeName() {
-    return "uuid";
   }
 
   @Override
@@ -62,18 +57,19 @@ public final class UuidCodec implements StreamingBinaryCodec, TextCodec {
 
   @Override
   public void encodeBinary(Object value, TypeDescriptor type, CodecContext ctx,
-      BackpatchingBinarySink out) throws SQLException, IOException {
+      BackpatchingByteArrayOutputStream out) throws SQLException, IOException {
     UUID uuid = toUuid(value);
     out.writeInt64(uuid.getMostSignificantBits());
     out.writeInt64(uuid.getLeastSignificantBits());
   }
 
   @Override
-  public @Nullable Object decodeText(String data, TypeDescriptor type, CodecContext ctx) throws SQLException {
+  public @Nullable Object decodeText(CharSequence data, TypeDescriptor type, CodecContext ctx) throws SQLException {
+    String text = data.toString();
     try {
-      return UUID.fromString(data.trim());
+      return UUID.fromString(text.trim());
     } catch (IllegalArgumentException e) {
-      throw Exceptions.cannotConvertValue("UUID", data, PSQLState.DATA_ERROR, e);
+      throw Exceptions.cannotConvertValue("UUID", text, PSQLState.DATA_ERROR, e);
     }
   }
 
@@ -104,13 +100,13 @@ public final class UuidCodec implements StreamingBinaryCodec, TextCodec {
   }
 
   @Override
-  public <T> @Nullable T decodeTextAs(String data, TypeDescriptor type, Class<T> targetClass, CodecContext ctx)
+  public <T> @Nullable T decodeTextAs(CharSequence data, TypeDescriptor type, Class<T> targetClass, CodecContext ctx)
       throws SQLException {
     if (targetClass == UUID.class || targetClass == Object.class) {
       return (T) decodeText(data, type, ctx);
     }
     if (targetClass == String.class) {
-      return (T) data;
+      return (T) data.toString();
     }
     throw Exceptions.cannotDecode("uuid", targetClass.getName());
   }

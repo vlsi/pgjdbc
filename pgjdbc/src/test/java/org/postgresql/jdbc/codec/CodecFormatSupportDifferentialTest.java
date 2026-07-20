@@ -18,11 +18,11 @@ import org.postgresql.api.codec.CodecContext;
 import org.postgresql.api.codec.CodecFormatSupport;
 import org.postgresql.api.codec.Codecs;
 import org.postgresql.api.codec.Format;
-import org.postgresql.api.codec.RawValue;
 import org.postgresql.api.codec.TextCodec;
 import org.postgresql.api.codec.TypeDescriptor;
+import org.postgresql.api.codec.TypeName;
+import org.postgresql.api.codec.WireValueSlice;
 import org.postgresql.jdbc.CodecRegistry;
-import org.postgresql.jdbc.ObjectName;
 import org.postgresql.jdbc.PgType;
 
 import org.checkerframework.checker.nullness.qual.Nullable;
@@ -100,7 +100,7 @@ class CodecFormatSupportDifferentialTest {
   @ParameterizedTest
   @MethodSource("cases")
   void predicatesMatchDeclaredCapability(Case c) throws SQLException {
-    CodecContext ctx = new SingleCodecContext(c.codec);
+    CodecContext ctx = SingleCodecContexts.of(c.codec);
     assertEquals(c.readsBinary, CodecFormatSupport.canReadBinary(c.codec), "canReadBinary");
     assertEquals(c.writesBinary,
         CodecFormatSupport.canWriteBinary(c.codec, VALUE, c.type, ctx), "canWriteBinary");
@@ -111,14 +111,14 @@ class CodecFormatSupportDifferentialTest {
   @ParameterizedTest
   @MethodSource("cases")
   void codecsEnforcesRequestedFormat(Case c) {
-    CodecContext ctx = new SingleCodecContext(c.codec);
+    CodecContext ctx = SingleCodecContexts.of(c.codec);
 
     assertEncodeMatches(c.writesBinary, c.type, ctx, Format.BINARY);
     assertEncodeMatches(c.writesText, c.type, ctx, Format.TEXT);
 
-    RawValue binary = RawValue.binary(new byte[]{1});
+    WireValueSlice binary = WireValueSlice.binary(new byte[]{1});
     assertDecodeMatches(c.readsBinary, c.type, ctx, binary, "decode binary");
-    RawValue text = RawValue.text("t".getBytes(StandardCharsets.UTF_8));
+    WireValueSlice text = WireValueSlice.text("t".getBytes(StandardCharsets.UTF_8));
     assertDecodeMatches(c.readsText, c.type, ctx, text, "decode text");
   }
 
@@ -126,7 +126,7 @@ class CodecFormatSupportDifferentialTest {
   @MethodSource("cases")
   void registryReceiveNegotiationMatchesReadCapability(Case c) {
     CodecRegistry registry = new CodecRegistry();
-    registry.registerByName(c.codec);
+    registry.registerByName(c.type.getName().getLocalName(), c.codec);
     assertSame(c.codec, registry.getByOid(c.type.getOid(), c.type),
         "the fake resolves for its own type");
     assertEquals(c.readsBinary, registry.canDecodeBinary(c.type.getOid(), c.type), "canDecodeBinary");
@@ -136,7 +136,7 @@ class CodecFormatSupportDifferentialTest {
   @ParameterizedTest
   @MethodSource("cases")
   void chooseBindFormatFollowsWriteCapability(Case c) throws SQLException {
-    CodecContext ctx = new SingleCodecContext(c.codec);
+    CodecContext ctx = SingleCodecContexts.of(c.codec);
 
     // With the backend allowing binary, prefer binary when the codec can write the value in binary,
     // else text, else refuse — never silently pick a format the codec cannot produce.
@@ -183,7 +183,7 @@ class CodecFormatSupportDifferentialTest {
   private static void assertEncodeMatches(boolean capable, TypeDescriptor type, CodecContext ctx,
       Format format) {
     if (capable) {
-      RawValue encoded = assertDoesNotThrow(() -> Codecs.encode(VALUE, type, ctx, format),
+      WireValueSlice encoded = assertDoesNotThrow(() -> Codecs.encode(VALUE, type, ctx, format),
           "encode " + format + " must succeed when the codec can write it");
       assertEquals(format, encoded.getFormat(),
           "encode " + format + " must keep the requested format, never fall back");
@@ -194,7 +194,7 @@ class CodecFormatSupportDifferentialTest {
   }
 
   private static void assertDecodeMatches(boolean capable, TypeDescriptor type, CodecContext ctx,
-      RawValue value, String label) {
+      WireValueSlice value, String label) {
     if (capable) {
       assertDoesNotThrow(() -> Codecs.decode(value, type, ctx, String.class),
           label + " must succeed when the codec can read the format");
@@ -217,7 +217,7 @@ class CodecFormatSupportDifferentialTest {
     Case(String name, int oid, Codec codec,
         boolean readsBinary, boolean writesBinary, boolean readsText, boolean writesText) {
       this.name = name;
-      this.type = new PgType(new ObjectName("public", name), name, oid, 'b', 'U', -1, 0, 0, 0);
+      this.type = new PgType(TypeName.of("public", name), name, oid, 'b', 'U', -1, 0, 0, 0);
       this.codec = codec;
       this.readsBinary = readsBinary;
       this.writesBinary = writesBinary;
@@ -239,11 +239,6 @@ class CodecFormatSupportDifferentialTest {
     }
 
     @Override
-    public String getPrimaryTypeName() {
-      return typeName;
-    }
-
-    @Override
     public Class<?> getDefaultJavaType() {
       return String.class;
     }
@@ -260,11 +255,6 @@ class CodecFormatSupportDifferentialTest {
       this.readsBinary = readsBinary;
       this.encodesBinary = encodesBinary;
       this.canEncodeValue = canEncodeValue;
-    }
-
-    @Override
-    public String getPrimaryTypeName() {
-      return typeName;
     }
 
     @Override
@@ -309,17 +299,12 @@ class CodecFormatSupportDifferentialTest {
     }
 
     @Override
-    public String getPrimaryTypeName() {
-      return typeName;
-    }
-
-    @Override
     public Class<?> getDefaultJavaType() {
       return String.class;
     }
 
     @Override
-    public @Nullable Object decodeText(String data, TypeDescriptor type, CodecContext ctx) {
+    public @Nullable Object decodeText(CharSequence data, TypeDescriptor type, CodecContext ctx) {
       return "decoded";
     }
 
@@ -345,11 +330,6 @@ class CodecFormatSupportDifferentialTest {
       this.readsBinary = readsBinary;
       this.encodesBinary = encodesBinary;
       this.readsText = readsText;
-    }
-
-    @Override
-    public String getPrimaryTypeName() {
-      return typeName;
     }
 
     @Override
@@ -379,7 +359,7 @@ class CodecFormatSupportDifferentialTest {
     }
 
     @Override
-    public @Nullable Object decodeText(String data, TypeDescriptor type, CodecContext ctx) {
+    public @Nullable Object decodeText(CharSequence data, TypeDescriptor type, CodecContext ctx) {
       return "decoded";
     }
 

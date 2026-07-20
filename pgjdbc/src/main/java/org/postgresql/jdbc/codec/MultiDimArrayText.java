@@ -37,7 +37,7 @@ public final class MultiDimArrayText {
    * <p>The {@code out} parameter is an {@link Appendable} so leaf writers
    * that dispatch through a per-element
    * {@link org.postgresql.api.codec.StreamingTextCodec} can wrap it in an
-   * {@link EscapingAppendable} and let escape processing happen char-by-char
+   * {@link ContainerTextEscaper} and let escape processing happen char-by-char
    * during the write rather than as a second pass over a buffered String.</p>
    */
   public interface LeafTextWriter {
@@ -129,26 +129,35 @@ public final class MultiDimArrayText {
    * the dimensionality from the leading braces and each dimension's length by
    * counting children (quote-aware) — the text analogue of reading the binary
    * array header. A second pass fills the typed array.</p>
+   *
+   * <p>{@code data} may be a borrowed view over the parent's buffer when the array is nested in a
+   * composite or another array. This decodes eagerly and retains nothing.</p>
+   *
+   * @param data the array text literal
+   * @param leafComponentType the Java class of one leaf element
+   * @param delim the element delimiter
+   * @param ctx the codec context
+   * @param leaf the leaf codec pulling one value per element
+   * @return the decoded array
+   * @throws SQLException if decoding fails
    */
-  public static Object decode(String data, Class<?> leafComponentType, char delim,
+  public static Object decode(CharSequence data, Class<?> leafComponentType, char delim,
       CodecContext ctx, ArrayLeafCodec leaf) throws SQLException {
     if (!leaf.supportsTargetComponent(leafComponentType)) {
       throw Exceptions.arrayLeafCodecUnsupported(leaf.getElementOid(), leafComponentType.getName());
     }
-    char[] chars = data.toCharArray();
-
-    LiteralCursor measure = new LiteralCursor(chars, 0, chars.length);
+    LiteralCursor measure = LiteralCursor.over(data);
     measure.skipDimensionPrefix();
     int dimensions = measure.countLeadingBraces();
     if (dimensions == 0) {
-      throw Exceptions.requiresArrayLiteral("MultiDimArrayText.decode", data);
+      throw Exceptions.requiresArrayLiteral("MultiDimArrayText.decode", data.toString());
     }
     int[] dimLengths = new int[dimensions];
     measureDim(measure, dimLengths, 0, dimensions, delim);
 
     Object result = java.lang.reflect.Array.newInstance(leafComponentType, dimLengths);
 
-    LiteralCursor values = new LiteralCursor(chars, 0, chars.length);
+    LiteralCursor values = measure.restart();
     values.skipDimensionPrefix();
     walkAndDecode(values, result, dimensions, delim, ctx, leaf);
     return result;

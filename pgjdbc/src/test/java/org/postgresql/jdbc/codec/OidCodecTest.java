@@ -9,12 +9,12 @@ import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 
-import org.postgresql.api.codec.CharArraySequence;
+import org.postgresql.api.codec.BinaryCodec;
 import org.postgresql.api.codec.CodecContext;
 import org.postgresql.api.codec.PrimitiveDecoders;
 import org.postgresql.api.codec.TypeDescriptor;
+import org.postgresql.api.codec.TypeName;
 import org.postgresql.core.Oid;
-import org.postgresql.jdbc.ObjectName;
 import org.postgresql.jdbc.PgType;
 import org.postgresql.jdbc.TestCodecContext;
 import org.postgresql.util.ByteConverter;
@@ -24,6 +24,7 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
 import java.math.BigDecimal;
+import java.nio.CharBuffer;
 import java.nio.charset.StandardCharsets;
 import java.sql.SQLException;
 
@@ -36,16 +37,11 @@ class OidCodecTest {
   void setUp() {
     codec = OidCodec.INSTANCE;
     oidType = new PgType(
-        new ObjectName("pg_catalog", "oid"),
+        TypeName.of("pg_catalog", "oid"),
         "oid",
         Oid.OID,
         'b', 'N', -1, 0, 0, 0
     );
-  }
-
-  @Test
-  void getPrimaryTypeName() {
-    assertEquals("oid", codec.getPrimaryTypeName());
   }
 
   @Test
@@ -70,10 +66,10 @@ class OidCodecTest {
   void decodeAsLong_charSlice() throws SQLException {
     // The fast path reads the digits off the slice with no String and no box.
     char[] buf = "x4294967295y".toCharArray();
-    assertEquals(4294967295L, codec.decodeAsLong(new CharArraySequence(buf, 1, 10), oidType, null));
+    assertEquals(4294967295L, codec.decodeAsLong(CharBuffer.wrap(buf, 1, 10), oidType, null));
     // A leading '+' is rejected by the fast path and handled by the String fallback.
     char[] plus = "+7".toCharArray();
-    assertEquals(7L, codec.decodeAsLong(new CharArraySequence(plus, 0, plus.length), oidType, null));
+    assertEquals(7L, codec.decodeAsLong(CharBuffer.wrap(plus, 0, plus.length), oidType, null));
   }
 
   @Test
@@ -94,14 +90,14 @@ class OidCodecTest {
   void decodeBinary_unsignedHighBit() throws SQLException {
     // 0xFFFFFFFF should be 4294967295L (unsigned)
     byte[] data = {(byte) 0xFF, (byte) 0xFF, (byte) 0xFF, (byte) 0xFF};
-    long result = PrimitiveDecoders.asLong(codec, data, oidType, null);
+    long result = PrimitiveDecoders.asLong(codec, data, 0, data.length, oidType, null);
     assertEquals(4294967295L, result);
   }
 
   @Test
   void decodeBinary_invalidLength() {
     byte[] data = new byte[3]; // wrong length
-    assertThrows(PSQLException.class, () -> PrimitiveDecoders.asLong(codec, data, oidType, null));
+    assertThrows(PSQLException.class, () -> PrimitiveDecoders.asLong((BinaryCodec) codec, data, 0, data.length, (TypeDescriptor) oidType, (CodecContext) null));
   }
 
   // ==================== Encoding ====================
@@ -133,7 +129,7 @@ class OidCodecTest {
   void decodeAsInt_binary() throws SQLException {
     byte[] data = new byte[4];
     ByteConverter.int4(data, 0, 42);
-    assertEquals(42, PrimitiveDecoders.asInt(codec, data, oidType, null));
+    assertEquals(42, PrimitiveDecoders.asInt(codec, data, 0, data.length, oidType, null));
   }
 
   @Test
@@ -147,10 +143,10 @@ class OidCodecTest {
     ByteConverter.int4(data, 0, 0xFFFFFFFF); // oid 4294967295, above Integer.MAX_VALUE
     // getInt reinterprets the raw 32-bit value as signed (unsigned 32-bit wrap), like the legacy
     // driver; it does not throw. getLong keeps the unsigned value and getString renders it unsigned.
-    assertEquals(-1, PrimitiveDecoders.asInt(codec, data, oidType, null));
+    assertEquals(-1, PrimitiveDecoders.asInt(codec, data, 0, data.length, oidType, null));
     assertEquals(Integer.valueOf(-1),
         codec.decodeBinaryAs(data, 0, data.length, oidType, Integer.class, null));
-    assertEquals(4294967295L, PrimitiveDecoders.asLong(codec, data, oidType, null));
+    assertEquals(4294967295L, PrimitiveDecoders.asLong(codec, data, 0, data.length, oidType, null));
     assertEquals("4294967295", codec.decodeBinaryAs(data, 0, data.length, oidType, String.class, null));
   }
 
@@ -158,7 +154,7 @@ class OidCodecTest {
   void decodeAsLong_binary() throws SQLException {
     byte[] data = new byte[4];
     ByteConverter.int4(data, 0, 42);
-    assertEquals(42L, PrimitiveDecoders.asLong(codec, data, oidType, null));
+    assertEquals(42L, PrimitiveDecoders.asLong(codec, data, 0, data.length, oidType, null));
   }
 
   @Test
@@ -200,7 +196,7 @@ class OidCodecTest {
   void decodeAsDouble_binary() throws SQLException {
     byte[] data = new byte[4];
     ByteConverter.int4(data, 0, 42);
-    assertEquals(42.0, PrimitiveDecoders.asDouble(codec, data, oidType, null));
+    assertEquals(42.0, PrimitiveDecoders.asDouble(codec, data, 0, data.length, oidType, null));
   }
 
   @Test
@@ -247,7 +243,7 @@ class OidCodecTest {
   void binaryRoundtrip() throws SQLException {
     long original = 12345L;
     byte[] encoded = codec.encodeBinary(original, oidType, null);
-    long decoded = PrimitiveDecoders.asLong(codec, encoded, oidType, null);
+    long decoded = PrimitiveDecoders.asLong(codec, encoded, 0, encoded.length, oidType, null);
     assertEquals(original, decoded);
   }
 

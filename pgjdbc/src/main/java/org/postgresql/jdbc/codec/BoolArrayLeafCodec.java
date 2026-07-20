@@ -5,7 +5,7 @@
 
 package org.postgresql.jdbc.codec;
 
-import org.postgresql.api.codec.BackpatchingBinarySink;
+import org.postgresql.api.codec.BackpatchingByteArrayOutputStream;
 import org.postgresql.api.codec.CodecContext;
 import org.postgresql.core.Oid;
 import org.postgresql.jdbc.BooleanTypeUtil;
@@ -49,7 +49,7 @@ final class BoolArrayLeafCodec implements ArrayLeafCodec {
   }
 
   @Override
-  public boolean writeLeaf(Object leaf, BackpatchingBinarySink out, CodecContext ctx)
+  public boolean writeLeaf(Object leaf, BackpatchingByteArrayOutputStream out, CodecContext ctx)
       throws IOException, SQLException {
     if (leaf instanceof boolean[]) {
       boolean[] arr = (boolean[]) leaf;
@@ -178,8 +178,7 @@ final class BoolArrayLeafCodec implements ArrayLeafCodec {
   }
 
   private static boolean parseBoolean(LiteralCursor cur) throws SQLException {
-    return BooleanTypeUtil.fromString(
-        new String(cur.tokenChars(), cur.tokenOffset(), cur.tokenLength()));
+    return BooleanTypeUtil.fromString(cur.getToken());
   }
 
   private static void validateElementLength(int length) throws SQLException {

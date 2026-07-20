@@ -5,7 +5,7 @@
 
 package org.postgresql.fuzzkit.coercion;
 
-import org.postgresql.jdbc.ObjectName;
+import org.postgresql.api.codec.TypeName;
 import org.postgresql.jdbc.PgType;
 
 import java.lang.reflect.Array;
@@ -91,7 +91,7 @@ public final class ArrayDescriptor extends PgTypeDescriptor {
    */
   @Override
   public PgType pgType() {
-    return new PgType(new ObjectName("pg_catalog", arrayName), arrayFullName, oid(), 'b', 'A', -1,
+    return new PgType(TypeName.of("pg_catalog", arrayName), arrayFullName, oid(), 'b', 'A', -1,
         element.oid(), 0, 0);
   }
 

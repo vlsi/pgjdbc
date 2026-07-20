@@ -63,11 +63,6 @@ public final class MoneyCodec implements PrimitiveBinaryDecoder, PrimitiveTextDe
   }
 
   @Override
-  public String getPrimaryTypeName() {
-    return "money";
-  }
-
-  @Override
   public Class<?> getDefaultJavaType() {
     return Double.class;
   }
@@ -88,14 +83,15 @@ public final class MoneyCodec implements PrimitiveBinaryDecoder, PrimitiveTextDe
   // ----------------------------------------------------------------- text decode
 
   @Override
-  public @Nullable Object decodeText(String data, TypeDescriptor type, CodecContext ctx) throws SQLException {
+  public @Nullable Object decodeText(CharSequence data, TypeDescriptor type, CodecContext ctx) throws SQLException {
     return parseMoney(data).doubleValue();
   }
 
   @Override
-  public @Nullable String decodeAsString(String data, TypeDescriptor type, CodecContext ctx) {
+  public @Nullable String decodeAsString(CharSequence data, TypeDescriptor type, CodecContext ctx) {
+    String text = data.toString();
     // The server already produced the locale-formatted literal ("$1.00"); getString returns it as is.
-    return data;
+    return text;
   }
 
   @Override
@@ -125,7 +121,7 @@ public final class MoneyCodec implements PrimitiveBinaryDecoder, PrimitiveTextDe
   }
 
   @Override
-  public <T> @Nullable T decodeTextAs(String data, TypeDescriptor type, Class<T> targetClass, CodecContext ctx)
+  public <T> @Nullable T decodeTextAs(CharSequence data, TypeDescriptor type, Class<T> targetClass, CodecContext ctx)
       throws SQLException {
     if (isMoneyObjectTarget(targetClass)) {
       // Build PGmoney from the parsed numeric value rather than its string constructor, which does
@@ -133,7 +129,7 @@ public final class MoneyCodec implements PrimitiveBinaryDecoder, PrimitiveTextDe
       return targetClass.cast(new PGmoney(parseMoney(data).doubleValue()));
     }
     if (targetClass == String.class) {
-      return targetClass.cast(data);
+      return targetClass.cast(data.toString());
     }
     return decodeDecimalAs(parseMoney(data), targetClass);
   }

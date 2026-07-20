@@ -11,12 +11,13 @@ import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
-import org.postgresql.jdbc.ObjectName;
+import org.postgresql.api.codec.TypeName;
 import org.postgresql.jdbc.PgType;
 import org.postgresql.util.PGRange;
 
 import org.junit.jupiter.api.Test;
 
+import java.nio.CharBuffer;
 import java.sql.SQLException;
 
 /**
@@ -31,7 +32,7 @@ import java.sql.SQLException;
 class RangeCodecTest {
 
   private static final PgType INT4RANGE = new PgType(
-      new ObjectName("pg_catalog", "int4range"),
+      TypeName.of("pg_catalog", "int4range"),
       "int4range",
       3904,
       'r',   // typtype = range
@@ -126,10 +127,11 @@ class RangeCodecTest {
     assertThrows(SQLException.class, () -> decode("[1,10"));
   }
 
-  // ---------------- slice form (zero-copy, used for ranges nested in composites) ----------------
+  // -------- borrowed view (zero-copy, used for ranges nested in composites) --------
 
   private static PGRange<?> decodeSlice(char[] buf, int offset, int length) throws SQLException {
-    return (PGRange<?>) RangeCodec.INSTANCE.decodeText(buf, offset, length, INT4RANGE, null);
+    return (PGRange<?>) RangeCodec.INSTANCE.decodeText(
+        CharBuffer.wrap(buf, offset, length), INT4RANGE, null);
   }
 
   @Test

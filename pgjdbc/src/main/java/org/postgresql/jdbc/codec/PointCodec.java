@@ -5,7 +5,7 @@
 
 package org.postgresql.jdbc.codec;
 
-import org.postgresql.api.codec.BackpatchingBinarySink;
+import org.postgresql.api.codec.BackpatchingByteArrayOutputStream;
 import org.postgresql.api.codec.CodecContext;
 import org.postgresql.api.codec.StreamingBinaryCodec;
 import org.postgresql.api.codec.TextCodec;
@@ -27,11 +27,6 @@ public final class PointCodec implements StreamingBinaryCodec, TextCodec {
 
   private PointCodec() {
     // Singleton
-  }
-
-  @Override
-  public String getPrimaryTypeName() {
-    return "point";
   }
 
   @Override
@@ -59,15 +54,16 @@ public final class PointCodec implements StreamingBinaryCodec, TextCodec {
 
   @Override
   public void encodeBinary(Object value, TypeDescriptor type, CodecContext ctx,
-      BackpatchingBinarySink out) throws SQLException, IOException {
+      BackpatchingByteArrayOutputStream out) throws SQLException, IOException {
     PGpoint point = toPoint(value);
-    out.writeDouble(point.x);
-    out.writeDouble(point.y);
+    out.writeFloat8(point.x);
+    out.writeFloat8(point.y);
   }
 
   @Override
-  public @Nullable Object decodeText(String data, TypeDescriptor type, CodecContext ctx) throws SQLException {
-    double[] xy = PGpointFormat.parseText(data);
+  public @Nullable Object decodeText(CharSequence data, TypeDescriptor type, CodecContext ctx) throws SQLException {
+    String text = data.toString();
+    double[] xy = PGpointFormat.parseText(text);
     return new PGpoint(xy[0], xy[1]);
   }
 

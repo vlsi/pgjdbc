@@ -11,9 +11,9 @@ import static org.junit.jupiter.api.Assertions.assertNotNull;
 import org.postgresql.api.codec.CodecContext;
 import org.postgresql.api.codec.Codecs;
 import org.postgresql.api.codec.Format;
-import org.postgresql.api.codec.RawValue;
+import org.postgresql.api.codec.TypeName;
+import org.postgresql.api.codec.WireValueSlice;
 import org.postgresql.core.Oid;
-import org.postgresql.jdbc.ObjectName;
 import org.postgresql.jdbc.OfflineCodecs;
 import org.postgresql.jdbc.PgField;
 import org.postgresql.jdbc.PgStruct;
@@ -39,7 +39,7 @@ import java.util.Collections;
 class NumericTypmodDecodeTest {
 
   private static final PgType NUMERIC = new PgType(
-      new ObjectName("pg_catalog", "numeric"), "numeric", Oid.NUMERIC, 'b', 'N', -1, 0, 0, 0);
+      TypeName.of("pg_catalog", "numeric"), "numeric", Oid.NUMERIC, 'b', 'N', -1, 0, 0, 0);
 
   /** Encodes a {@code numeric} typmod: precision in the high 16 bits, scale (sign-extended) below. */
   private static int numericTypmod(int precision, int scale) {
@@ -107,7 +107,7 @@ class NumericTypmodDecodeTest {
   }
 
   private static PgType numericArray(int precision, int scale) {
-    return new PgType(new ObjectName("pg_catalog", "_numeric"), "numeric[]",
+    return new PgType(TypeName.of("pg_catalog", "_numeric"), "numeric[]",
         Oid.NUMERIC_ARRAY, 'b', 'A', -1, Oid.NUMERIC, 0, 0).withTypmod(numericTypmod(precision, scale));
   }
 
@@ -120,7 +120,7 @@ class NumericTypmodDecodeTest {
     BigDecimal[] value = {new BigDecimal("1500"), new BigDecimal("2500")};
 
     for (Format format : Format.values()) {
-      RawValue raw = Codecs.encode(value, type, ctx, format);
+      WireValueSlice raw = Codecs.encode(value, type, ctx, format);
       Object[] back = (Object[]) Codecs.decode(raw, type, ctx, Object.class);
       assertNotNull(back, () -> "numeric(2,-2)[] " + format);
       assertEquals(scaled("1500", -2), back[0], () -> "element 0 " + format);
@@ -134,13 +134,13 @@ class NumericTypmodDecodeTest {
     // Object/BigDecimal[] one that falls through to the generic walker. numeric(10,4) with a wire
     // scale of 1 makes the difference observable: rescaling pads to 5.5000, wire-faithful keeps 5.5.
     PgType stamped = numericArray(10, 4);
-    PgType modLess = new PgType(new ObjectName("pg_catalog", "_numeric"), "numeric[]",
+    PgType modLess = new PgType(TypeName.of("pg_catalog", "_numeric"), "numeric[]",
         Oid.NUMERIC_ARRAY, 'b', 'A', -1, Oid.NUMERIC, 0, 0);
     CodecContext ctx = OfflineCodecs.builder().build();
     BigDecimal[] value = {new BigDecimal("5.5")};
 
     for (Format format : Format.values()) {
-      RawValue raw = Codecs.encode(value, stamped, ctx, format);
+      WireValueSlice raw = Codecs.encode(value, stamped, ctx, format);
 
       Object[] asObject = (Object[]) Codecs.decode(raw, stamped, ctx, Object.class);
       assertEquals(scaled("5.5", 4), asObject[0], () -> "Object.class " + format);
@@ -167,13 +167,13 @@ class NumericTypmodDecodeTest {
     // A composite with a numeric(2,-2) attribute; the atttypmod reaches the field codec via the
     // stamped descriptor, so the decoded struct attribute carries scale -2.
     PgField numericField = new PgField("p", Oid.NUMERIC, 1, numericTypmod(2, -2));
-    PgType composite = new PgType(new ObjectName("public", "typmod_t"), "public.typmod_t", 90_100,
+    PgType composite = new PgType(TypeName.of("public", "typmod_t"), "public.typmod_t", 90_100,
         'c', 'C', -1, 0, 0, 0, ',', Collections.singletonList(numericField));
     CodecContext ctx = OfflineCodecs.builder().type(composite).build();
     PgStruct value = new PgStruct(composite, new Object[]{new BigDecimal("1500")}, null);
 
     for (Format format : Format.values()) {
-      RawValue raw = Codecs.encode(value, composite, ctx, format);
+      WireValueSlice raw = Codecs.encode(value, composite, ctx, format);
       Struct decoded = Codecs.decode(raw, composite, ctx, Struct.class);
       assertNotNull(decoded, () -> "composite decode " + format);
       assertEquals(scaled("1500", -2), decoded.getAttributes()[0],
@@ -185,7 +185,7 @@ class NumericTypmodDecodeTest {
   void domainModifierRescalesBaseTypeDecode() throws SQLException {
     // CREATE DOMAIN price AS numeric(2,-2): the modifier lives in the domain's typtypmod, and
     // DomainCodec forwards it to the base numeric codec.
-    PgType domain = new PgType(new ObjectName("public", "price"), "public.price", 90_101,
+    PgType domain = new PgType(TypeName.of("public", "price"), "public.price", 90_101,
         'd', 'N', numericTypmod(2, -2), 0, 0, Oid.NUMERIC);
     CodecContext ctx = OfflineCodecs.builder().type(domain).build();
     byte[] wire = NumericCodec.INSTANCE.encodeBinary(new BigDecimal("1500"), NUMERIC, ctx);

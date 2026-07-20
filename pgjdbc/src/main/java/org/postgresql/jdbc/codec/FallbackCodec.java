@@ -36,11 +36,6 @@ public final class FallbackCodec implements PrimitiveBinaryDecoder, PrimitiveTex
   }
 
   @Override
-  public String getPrimaryTypeName() {
-    return "unknown";
-  }
-
-  @Override
   public Class<?> getDefaultJavaType() {
     return PGobject.class;
   }
@@ -62,7 +57,7 @@ public final class FallbackCodec implements PrimitiveBinaryDecoder, PrimitiveTex
     // binary record): preserve the raw bytes as PGUnknownBinary instead of a lossy hex string. The
     // value owns its bytes, so copy only for a genuine sub-slice.
     byte[] bytes = offset == 0 && length == data.length ? data : Arrays.copyOfRange(data, offset, offset + length);
-    return new PGUnknownBinary(type.getTypeName().getName(), bytes);
+    return new PGUnknownBinary(type.getName().getLocalName(), bytes);
   }
 
   @Override
@@ -85,14 +80,15 @@ public final class FallbackCodec implements PrimitiveBinaryDecoder, PrimitiveTex
     // A String reaches here only if a caller bypasses canEncodeBinary/the format negotiation and forces
     // binary. The fallback cannot produce the binary wire of an unmapped type, so refuse rather than
     // emit charset (text) bytes under a binary label.
-    throw Exceptions.cannotEncode(value, type.getTypeName().getName());
+    throw Exceptions.cannotEncode(value, type.getName().getLocalName());
   }
 
   @Override
-  public @Nullable Object decodeText(String data, TypeDescriptor type, CodecContext ctx) throws SQLException {
+  public @Nullable Object decodeText(CharSequence data, TypeDescriptor type, CodecContext ctx) throws SQLException {
+    String text = data.toString();
     PGobject obj = new PGobject();
-    obj.setType(type.getTypeName().getName());
-    obj.setValue(data);
+    obj.setType(type.getName().getLocalName());
+    obj.setValue(text);
     return obj;
   }
 
@@ -124,7 +120,7 @@ public final class FallbackCodec implements PrimitiveBinaryDecoder, PrimitiveTex
     if (targetClass == PGobject.class) {
       // Return text-based PGobject for compatibility
       PGobject obj = new PGobject();
-      obj.setType(type.getTypeName().getName());
+      obj.setType(type.getName().getLocalName());
       obj.setValue(decodeAsString(data, offset, length, type, ctx));
       return (T) obj;
     }
@@ -134,32 +130,33 @@ public final class FallbackCodec implements PrimitiveBinaryDecoder, PrimitiveTex
     if (targetClass == byte[].class) {
       return (T) Arrays.copyOfRange(data, offset, offset + length);
     }
-    throw Exceptions.cannotDecode(type.getTypeName().getName(), targetClass.getName());
+    throw Exceptions.cannotDecode(type.getName().getLocalName(), targetClass.getName());
   }
 
   @Override
-  public <T> @Nullable T decodeTextAs(String data, TypeDescriptor type, Class<T> targetClass, CodecContext ctx)
+  public <T> @Nullable T decodeTextAs(CharSequence data, TypeDescriptor type, Class<T> targetClass, CodecContext ctx)
       throws SQLException {
+    String text = data.toString();
     if (targetClass == PGobject.class || targetClass == Object.class) {
-      return (T) decodeText(data, type, ctx);
+      return (T) decodeText(text, type, ctx);
     }
     if (targetClass == String.class) {
-      return (T) data;
+      return (T) text;
     }
     // 'unknown' (oid 705, e.g. SELECT '2024-01-01' without a cast) and any other unmapped text
     // value is parsed as a date/time literal, matching how the legacy fallback handled any
     // text column. Mapped non-string types (json, xml, ...) carry their own codec and never
     // reach here, so they keep rejecting date/time coercion.
     if (targetClass == Date.class) {
-      return (T) TemporalCodecs.decodeDateText(data, ctx);
+      return (T) TemporalCodecs.decodeDateText(text, ctx);
     }
     if (targetClass == Time.class) {
-      return (T) TemporalCodecs.decodeTimeText(data, ctx);
+      return (T) TemporalCodecs.decodeTimeText(text, ctx);
     }
     if (targetClass == Timestamp.class) {
-      return (T) TemporalCodecs.decodeTimestampText(data, ctx);
+      return (T) TemporalCodecs.decodeTimestampText(text, ctx);
     }
-    throw Exceptions.cannotDecode(type.getTypeName().getName(), targetClass.getName());
+    throw Exceptions.cannotDecode(type.getName().getLocalName(), targetClass.getName());
   }
 
   @Override

@@ -59,7 +59,7 @@ public class BooleanTypeUtil {
    * Accepts PostgreSQL boolean literals: true, false, t, f, yes, no, y, n, on, off, 1, 0.
    *
    * <p>Takes a {@link CharSequence} so a container decoding a {@code bool[]}/{@code bit[]} element can
-   * pass a borrowed {@code CharArraySequence} slice, and a {@link String} caller passes itself: the
+   * pass a borrowed view over their buffer, and a {@link String} caller passes itself: the
    * happy path reads the literal in place and copies nothing out.</p>
    *
    * @param strval the sequence to parse

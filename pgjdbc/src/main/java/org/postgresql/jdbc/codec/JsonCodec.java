@@ -9,7 +9,6 @@ import org.postgresql.api.codec.BinaryCodec;
 import org.postgresql.api.codec.CodecContext;
 import org.postgresql.api.codec.TextCodec;
 import org.postgresql.api.codec.TypeDescriptor;
-import org.postgresql.core.Oid;
 import org.postgresql.util.PGobject;
 
 import org.checkerframework.checker.nullness.qual.Nullable;
@@ -25,23 +24,11 @@ import java.sql.SQLException;
  * via {@link PGobject#getValue()} or request String/byte[] explicitly through
  * {@code getObject(i, String.class)} / {@code getString(i)}.</p>
  */
-public final class JsonCodec implements BinaryCodec, TextCodec, ArrayElementCodec {
+public final class JsonCodec implements BinaryCodec, TextCodec {
 
   public static final JsonCodec INSTANCE = new JsonCodec();
 
-  private static final JsonArrayLeafCodec ARRAY_LEAF = new JsonArrayLeafCodec(Oid.JSON, INSTANCE);
-
   private JsonCodec() {
-  }
-
-  @Override
-  public String getPrimaryTypeName() {
-    return "json";
-  }
-
-  @Override
-  public ArrayLeafCodec arrayLeaf() {
-    return ARRAY_LEAF;
   }
 
   @Override
@@ -65,8 +52,8 @@ public final class JsonCodec implements BinaryCodec, TextCodec, ArrayElementCode
   }
 
   @Override
-  public @Nullable Object decodeText(String data, TypeDescriptor type, CodecContext ctx) throws SQLException {
-    return wrap(data);
+  public @Nullable Object decodeText(CharSequence data, TypeDescriptor type, CodecContext ctx) throws SQLException {
+    return wrap(data.toString());
   }
 
   private static PGobject wrap(String value) throws SQLException {
@@ -91,8 +78,8 @@ public final class JsonCodec implements BinaryCodec, TextCodec, ArrayElementCode
   }
 
   @Override
-  public String decodeAsString(String data, TypeDescriptor type, CodecContext ctx) throws SQLException {
-    return data;
+  public String decodeAsString(CharSequence data, TypeDescriptor type, CodecContext ctx) throws SQLException {
+    return data.toString();
   }
 
   @Override
@@ -114,16 +101,17 @@ public final class JsonCodec implements BinaryCodec, TextCodec, ArrayElementCode
 
   @Override
   @SuppressWarnings("unchecked")
-  public <T> @Nullable T decodeTextAs(String data, TypeDescriptor type, Class<T> targetClass, CodecContext ctx)
+  public <T> @Nullable T decodeTextAs(CharSequence data, TypeDescriptor type, Class<T> targetClass, CodecContext ctx)
       throws SQLException {
-    if (data == null || data.isEmpty()) {
+    String text = data.toString();
+    if (text == null || text.isEmpty()) {
       return null;
     }
     if (targetClass == String.class) {
-      return (T) data;
+      return (T) text;
     }
     if (targetClass == PGobject.class || targetClass == Object.class) {
-      return (T) wrap(data);
+      return (T) wrap(text);
     }
     throw Exceptions.cannotDecode("json", targetClass.getName());
   }

@@ -5,6 +5,8 @@
 
 package org.postgresql.util;
 
+import org.postgresql.jdbc.codec.ContainerTextEscaper;
+
 import org.checkerframework.checker.nullness.qual.Nullable;
 
 import java.io.Serializable;
@@ -275,25 +277,30 @@ public class PGRange<T> extends PGobject implements Serializable, Cloneable {
   }
 
   /**
-   * Quotes a value if necessary for PostgreSQL range format.
+   * Appends a bound, quoting it if the range format requires it. {@code range_out} quotes a bound
+   * that is empty or carries a character the parser would otherwise read as syntax, and doubles
+   * {@code "} and {@code \\} inside the quotes just as {@code record_out} does.
    */
-  private static String quoteIfNeeded(String s) {
-    if (s.isEmpty()) {
-      return "\"\"";
+  private static void appendBound(StringBuilder sb, String s) {
+    if (needsQuoting(s)) {
+      ContainerTextEscaper.appendQuotedRecordStyle(sb, s);
+    } else {
+      sb.append(s);
     }
-    boolean needsQuoting = false;
+  }
+
+  private static boolean needsQuoting(String s) {
+    if (s.isEmpty()) {
+      return true;
+    }
     for (int i = 0; i < s.length(); i++) {
       char c = s.charAt(i);
       if (c == ',' || c == '[' || c == ']' || c == '(' || c == ')' || c == '"' || c == '\\'
           || Character.isWhitespace(c)) {
-        needsQuoting = true;
-        break;
+        return true;
       }
     }
-    if (!needsQuoting) {
-      return s;
-    }
-    return "\"" + s.replace("\\", "\\\\").replace("\"", "\"\"") + "\"";
+    return false;
   }
 
   /**
@@ -318,11 +325,11 @@ public class PGRange<T> extends PGobject implements Serializable, Cloneable {
     StringBuilder sb = new StringBuilder();
     sb.append(lowerInclusive ? '[' : '(');
     if (lower != null) {
-      sb.append(quoteIfNeeded(formatBound(lower)));
+      appendBound(sb, formatBound(lower));
     }
     sb.append(',');
     if (upper != null) {
-      sb.append(quoteIfNeeded(formatBound(upper)));
+      appendBound(sb, formatBound(upper));
     }
     sb.append(upperInclusive ? ']' : ')');
     return sb.toString();

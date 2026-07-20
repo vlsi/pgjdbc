@@ -9,8 +9,8 @@ import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 
 import org.postgresql.api.codec.CodecContext;
+import org.postgresql.api.codec.TypeName;
 import org.postgresql.core.Oid;
-import org.postgresql.jdbc.ObjectName;
 import org.postgresql.jdbc.PgType;
 import org.postgresql.jdbc.TestCodecContext;
 
@@ -30,7 +30,7 @@ class CharCodecTest {
   void setUp() {
     codec = CharCodec.INSTANCE;
     charType = new PgType(
-        new ObjectName("pg_catalog", "char"),
+        TypeName.of("pg_catalog", "char"),
         "\"char\"",
         Oid.CHAR,
         'b', 'Z', -1, 0, 0, 0

@@ -1,0 +1,2 @@
+org.postgresql.test.consumer.composite.ServicePointCodecProvider
+org.postgresql.test.consumer.borrowed.BorrowedTokenProbeCodecProvider

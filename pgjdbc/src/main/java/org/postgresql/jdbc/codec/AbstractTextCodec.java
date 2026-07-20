@@ -24,8 +24,9 @@ import java.sql.Timestamp;
 /**
  * Shared decode/encode logic for the {@code String}-natural built-in types: {@code text}, {@code varchar},
  * {@code bpchar}, {@code name}, and {@code "char"}. Their {@code typsend}/{@code typreceive} pair leaves the
- * value as its charset text, so the wire is just the string in the connection charset in both formats; a
- * subclass supplies only the type name (see {@link #getPrimaryTypeName()}).
+ * value as its charset text, so the wire is just the string in the connection charset in both formats.
+ * A subclass adds nothing but its identity: the type names these codecs answer to live in the registry
+ * that binds them.
  *
  * <p>This base advertises only {@link PrimitiveBinaryDecoder} and {@link PrimitiveTextDecoder}. None of
  * these codecs stream: a {@code String} must be materialized into charset bytes before it is written
@@ -34,17 +35,6 @@ import java.sql.Timestamp;
  * leaf codecs.</p>
  */
 abstract class AbstractTextCodec implements PrimitiveBinaryDecoder, PrimitiveTextDecoder {
-
-  private final String typeName;
-
-  AbstractTextCodec(String typeName) {
-    this.typeName = typeName;
-  }
-
-  @Override
-  public String getPrimaryTypeName() {
-    return typeName;
-  }
 
   @Override
   public Class<?> getDefaultJavaType() {
@@ -65,8 +55,10 @@ abstract class AbstractTextCodec implements PrimitiveBinaryDecoder, PrimitiveTex
   }
 
   @Override
-  public Object decodeText(String data, TypeDescriptor type, CodecContext ctx) throws SQLException {
-    return data;
+  public Object decodeText(CharSequence data, TypeDescriptor type, CodecContext ctx) throws SQLException {
+    // The wire form is already the value, but the decoded object outlives the call, so it cannot be
+    // the caller's borrowed view.
+    return data.toString();
   }
 
   @Override
@@ -198,11 +190,12 @@ abstract class AbstractTextCodec implements PrimitiveBinaryDecoder, PrimitiveTex
   }
 
   @Override
-  public <T> @Nullable T decodeTextAs(String data, TypeDescriptor type, Class<T> targetClass, CodecContext ctx)
+  public <T> @Nullable T decodeTextAs(CharSequence data, TypeDescriptor type, Class<T> targetClass, CodecContext ctx)
       throws SQLException {
+    String text = data.toString();
     Charset encoding = ctx.getCharset();
     // TODO: optimize
-    byte[] data1 = data.getBytes(encoding);
+    byte[] data1 = text.getBytes(encoding);
     return decodeBinaryAs(data1, 0, data1.length, type, targetClass, ctx);
   }
 

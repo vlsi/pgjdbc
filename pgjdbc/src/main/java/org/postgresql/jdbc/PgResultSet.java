@@ -342,27 +342,27 @@ public class PgResultSet implements ResultSet, PGRefCursorResultSet {
       case Types.LONGVARCHAR:
         return getString(columnIndex);
       case Types.DATE:
-        if (connection.getCodecContext().prefersJavaTimeForDate()) {
+        if (connection.getCodecContext().getJavaTimePreferences().forDate()) {
           return decodeViaCodec(columnIndex);
         }
         return getDate(columnIndex);
       case Types.TIME:
-        if (connection.getCodecContext().prefersJavaTimeForTime()) {
+        if (connection.getCodecContext().getJavaTimePreferences().forTime()) {
           return decodeViaCodec(columnIndex);
         }
         return getTime(columnIndex);
       case Types.TIME_WITH_TIMEZONE:
-        if (connection.getCodecContext().prefersJavaTimeForTimetz()) {
+        if (connection.getCodecContext().getJavaTimePreferences().forTimetz()) {
           return decodeViaCodec(columnIndex);
         }
         return getTime(columnIndex);
       case Types.TIMESTAMP:
-        if (connection.getCodecContext().prefersJavaTimeForTimestamp()) {
+        if (connection.getCodecContext().getJavaTimePreferences().forTimestamp()) {
           return decodeViaCodec(columnIndex);
         }
         return getTimestamp(columnIndex, null);
       case Types.TIMESTAMP_WITH_TIMEZONE:
-        if (connection.getCodecContext().prefersJavaTimeForTimestamptz()) {
+        if (connection.getCodecContext().getJavaTimePreferences().forTimestamptz()) {
           return decodeViaCodec(columnIndex);
         }
         return getTimestamp(columnIndex, null);
@@ -654,14 +654,14 @@ public class PgResultSet implements ResultSet, PGRefCursorResultSet {
     if (isBinary(i)) {
       BinaryCodec codec = getBinaryCodec(i);
       if (codec != null) {
-        TypeDescriptor type = field.getPgType();
+        TypeDescriptor type = field.getTypeDescriptor();
         return codec.decodeBinaryAs(value, 0, value.length, type, targetClass, ctx);
       }
       return null;
     }
     TextCodec codec = getTextCodec(i);
     if (codec != null) {
-      return codec.decodeTextAs(castNonNull(getString(i)), field.getPgType(), targetClass, ctx);
+      return codec.decodeTextAs(castNonNull(getString(i)), field.getTypeDescriptor(), targetClass, ctx);
     }
     return null;
   }
@@ -2587,7 +2587,7 @@ public class PgResultSet implements ResultSet, PGRefCursorResultSet {
       if (codec == null) {
         throw cannotConvert(field, "boolean");
       }
-      return PrimitiveDecoders.asBoolean(codec, value, pgType, ctx);
+      return PrimitiveDecoders.asBoolean(codec, value, 0, value.length, pgType, ctx);
     }
 
     // Text format
@@ -2616,7 +2616,7 @@ public class PgResultSet implements ResultSet, PGRefCursorResultSet {
       if (codec == null) {
         throw cannotConvert(field, "byte");
       }
-      int intValue = PrimitiveDecoders.asInt(codec, value, pgType, ctx);
+      int intValue = PrimitiveDecoders.asInt(codec, value, 0, value.length, pgType, ctx);
       if (intValue < Byte.MIN_VALUE || intValue > Byte.MAX_VALUE) {
         throw new PSQLException(GT.tr("Bad value for type {0} : {1}", "byte", intValue),
             PSQLState.NUMERIC_VALUE_OUT_OF_RANGE);
@@ -2655,7 +2655,7 @@ public class PgResultSet implements ResultSet, PGRefCursorResultSet {
       if (codec == null) {
         throw cannotConvert(field, "short");
       }
-      int intValue = PrimitiveDecoders.asInt(codec, value, pgType, ctx);
+      int intValue = PrimitiveDecoders.asInt(codec, value, 0, value.length, pgType, ctx);
       if (intValue < Short.MIN_VALUE || intValue > Short.MAX_VALUE) {
         throw new PSQLException(GT.tr("Bad value for type {0} : {1}", "short", intValue),
             PSQLState.NUMERIC_VALUE_OUT_OF_RANGE);
@@ -2695,7 +2695,7 @@ public class PgResultSet implements ResultSet, PGRefCursorResultSet {
       if (codec == null) {
         throw cannotConvert(field, "int");
       }
-      return PrimitiveDecoders.asInt(codec, value, pgType, ctx);
+      return PrimitiveDecoders.asInt(codec, value, 0, value.length, pgType, ctx);
     }
 
     // Text format - delegate to codec. BOOL→numeric is handled by BoolCodec
@@ -2725,7 +2725,7 @@ public class PgResultSet implements ResultSet, PGRefCursorResultSet {
       if (codec == null) {
         throw cannotConvert(field, "long");
       }
-      return PrimitiveDecoders.asLong(codec, value, pgType, ctx);
+      return PrimitiveDecoders.asLong(codec, value, 0, value.length, pgType, ctx);
     }
 
     // Text format - delegate to codec. BOOL→numeric is handled by BoolCodec
@@ -2834,7 +2834,7 @@ public class PgResultSet implements ResultSet, PGRefCursorResultSet {
       if (codec == null) {
         throw cannotConvert(field, "float");
       }
-      return PrimitiveDecoders.asFloat(codec, value, pgType, ctx);
+      return PrimitiveDecoders.asFloat(codec, value, 0, value.length, pgType, ctx);
     }
 
     // Text format - delegate to codec. BOOL→numeric is handled by BoolCodec
@@ -2864,7 +2864,7 @@ public class PgResultSet implements ResultSet, PGRefCursorResultSet {
       if (codec == null) {
         throw cannotConvert(field, "double");
       }
-      return PrimitiveDecoders.asDouble(codec, value, pgType, ctx);
+      return PrimitiveDecoders.asDouble(codec, value, 0, value.length, pgType, ctx);
     }
 
     // Text format - delegate to codec. BOOL→numeric is handled by BoolCodec
@@ -3310,9 +3310,9 @@ public class PgResultSet implements ResultSet, PGRefCursorResultSet {
     // and user-defined types alike.
     Class<?> mapped = ctx.getTypeMapClass(pgType);
     if (mapped == null) {
-      mapped = ctx.getRegisteredClass(pgType.getFullName());
+      mapped = ctx.getRegisteredClass(pgType.getFormattedName());
       if (mapped == null) {
-        mapped = ctx.getRegisteredClass(pgType.getTypeName().getName());
+        mapped = ctx.getRegisteredClass(pgType.getName().getLocalName());
       }
     }
 
@@ -3544,7 +3544,7 @@ public class PgResultSet implements ResultSet, PGRefCursorResultSet {
     // would silently surface as SQL NULL to the caller.
     throw new PSQLException(
         GT.tr("No {0} codec available for type {1}",
-            isBinary(columnIndex) ? "binary" : "text", pgType.getTypeName()),
+            isBinary(columnIndex) ? "binary" : "text", pgType.getName()),
         PSQLState.SYSTEM_ERROR);
   }
 

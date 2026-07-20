@@ -59,7 +59,7 @@ public final class PgSQLInputText extends PgSQLInput {
    * @param type the composite type
    * @param ctx the codec context
    */
-  public PgSQLInputText(String compositeData, PgType type, PgCodecContext ctx)
+  public PgSQLInputText(CharSequence compositeData, PgType type, PgCodecContext ctx)
       throws SQLException {
     this(CompositeCodec.parseCompositeText(compositeData), type, ctx);
   }
@@ -192,6 +192,6 @@ public final class PgSQLInputText extends PgSQLInput {
   protected Array decodeArray() throws SQLException {
     // A nested array materializes a connection-bound PgArray; offline reports a clear limitation.
     return new PgArray(ctx.requireConnection(getCurrentType()), getCurrentType().getOid(),
-        getCurrentType().getTypmod(), currentValue());
+        getCurrentType().getAppliedTypmod(), currentValue());
   }
 }

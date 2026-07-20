@@ -8,10 +8,10 @@ package org.postgresql.jdbc.codec;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 
+import org.postgresql.api.codec.TypeName;
 import org.postgresql.core.Oid;
 import org.postgresql.geometric.PGpoint;
 import org.postgresql.geometric.PGpolygon;
-import org.postgresql.jdbc.ObjectName;
 import org.postgresql.jdbc.PgType;
 import org.postgresql.util.ByteConverter;
 import org.postgresql.util.PSQLException;
@@ -30,7 +30,7 @@ class PolygonCodecTest {
   void setUp() {
     codec = PolygonCodec.INSTANCE;
     polygonType = new PgType(
-        new ObjectName("pg_catalog", "polygon"),
+        TypeName.of("pg_catalog", "polygon"),
         "polygon",
         Oid.POLYGON,
         'b', 'G', -1, 0, 0, 0
@@ -94,11 +94,6 @@ class PolygonCodecTest {
     String encoded = codec.encodeText(original, polygonType, null);
     Object decoded = codec.decodeText(encoded, polygonType, null);
     assertEquals(original, decoded);
-  }
-
-  @Test
-  void getPrimaryTypeName() {
-    assertEquals("polygon", codec.getPrimaryTypeName());
   }
 
   @Test

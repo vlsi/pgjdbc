@@ -32,7 +32,7 @@ class Exceptions {
    */
   static SQLException noCodecForFormat(TypeDescriptor type, String format) {
     return new PSQLException(
-        GT.tr("No {0} codec is registered for type {1}.", format, type.getFullName()),
+        GT.tr("No {0} codec is registered for type {1}.", format, type.getFormattedName()),
         PSQLState.INVALID_PARAMETER_TYPE);
   }
 

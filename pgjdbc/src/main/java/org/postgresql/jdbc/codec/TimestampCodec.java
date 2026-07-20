@@ -5,7 +5,7 @@
 
 package org.postgresql.jdbc.codec;
 
-import org.postgresql.api.codec.BackpatchingBinarySink;
+import org.postgresql.api.codec.BackpatchingByteArrayOutputStream;
 import org.postgresql.api.codec.CodecContext;
 import org.postgresql.api.codec.StreamingBinaryCodec;
 import org.postgresql.api.codec.TextCodec;
@@ -37,11 +37,6 @@ public final class TimestampCodec implements StreamingBinaryCodec, TextCodec {
   }
 
   @Override
-  public String getPrimaryTypeName() {
-    return "timestamp";
-  }
-
-  @Override
   public Class<?> getDefaultJavaType() {
     return Timestamp.class;
   }
@@ -50,7 +45,7 @@ public final class TimestampCodec implements StreamingBinaryCodec, TextCodec {
   public @Nullable Object decodeBinary(byte[] data, int offset, int length, TypeDescriptor type,
       CodecContext ctx) throws SQLException {
     // Check connection property for default type
-    if (ctx.prefersJavaTimeForTimestamp()) {
+    if (ctx.getJavaTimePreferences().forTimestamp()) {
       return TemporalCodecs.decodeLocalDateTimeBin(data, offset, length, ctx);
     }
     return TemporalCodecs.decodeTimestampBin(data, offset, length, false, ctx);
@@ -63,17 +58,18 @@ public final class TimestampCodec implements StreamingBinaryCodec, TextCodec {
 
   @Override
   public void encodeBinary(Object value, TypeDescriptor type, CodecContext ctx,
-      BackpatchingBinarySink out) throws SQLException, IOException {
+      BackpatchingByteArrayOutputStream out) throws SQLException, IOException {
     TemporalCodecs.writeTimestampBin(value, out, ctx);
   }
 
   @Override
-  public @Nullable Object decodeText(String data, TypeDescriptor type, CodecContext ctx) throws SQLException {
+  public @Nullable Object decodeText(CharSequence data, TypeDescriptor type, CodecContext ctx) throws SQLException {
+    String text = data.toString();
     // Check connection property for default type
-    if (ctx.prefersJavaTimeForTimestamp()) {
-      return TemporalCodecs.decodeLocalDateTimeText(data, ctx);
+    if (ctx.getJavaTimePreferences().forTimestamp()) {
+      return TemporalCodecs.decodeLocalDateTimeText(text, ctx);
     }
-    return TemporalCodecs.decodeTimestampText(data, ctx);
+    return TemporalCodecs.decodeTimestampText(text, ctx);
   }
 
   @Override
@@ -156,45 +152,46 @@ public final class TimestampCodec implements StreamingBinaryCodec, TextCodec {
   }
 
   @Override
-  public <T> @Nullable T decodeTextAs(String data, TypeDescriptor type, Class<T> targetClass, CodecContext ctx)
+  public <T> @Nullable T decodeTextAs(CharSequence data, TypeDescriptor type, Class<T> targetClass, CodecContext ctx)
       throws SQLException {
+    String text = data.toString();
     if (targetClass == Timestamp.class || targetClass == Object.class) {
-      return targetClass.cast(TemporalCodecs.decodeTimestampText(data, ctx));
+      return targetClass.cast(TemporalCodecs.decodeTimestampText(text, ctx));
     }
     if (targetClass == LocalDateTime.class) {
-      return targetClass.cast(TemporalCodecs.decodeLocalDateTimeText(data, ctx));
+      return targetClass.cast(TemporalCodecs.decodeLocalDateTimeText(text, ctx));
     }
     if (targetClass == LocalDate.class) {
-      LocalDateTime ldt = TemporalCodecs.decodeLocalDateTimeText(data, ctx);
+      LocalDateTime ldt = TemporalCodecs.decodeLocalDateTimeText(text, ctx);
       return ldt == null ? null : targetClass.cast(ldt.toLocalDate());
     }
     if (targetClass == OffsetDateTime.class) {
       // timestamp (no tz) - parse and interpret in UTC
-      return targetClass.cast(TemporalCodecs.decodeOffsetDateTimeText(data, ctx));
+      return targetClass.cast(TemporalCodecs.decodeOffsetDateTimeText(text, ctx));
     }
     if (targetClass == ZonedDateTime.class) {
-      OffsetDateTime odt = TemporalCodecs.decodeOffsetDateTimeText(data, ctx);
+      OffsetDateTime odt = TemporalCodecs.decodeOffsetDateTimeText(text, ctx);
       return odt == null ? null : targetClass.cast(odt.toZonedDateTime());
     }
     if (targetClass == Instant.class) {
-      OffsetDateTime odt = TemporalCodecs.decodeOffsetDateTimeText(data, ctx);
+      OffsetDateTime odt = TemporalCodecs.decodeOffsetDateTimeText(text, ctx);
       return odt == null ? null : targetClass.cast(odt.toInstant());
     }
     if (targetClass == Date.class) {
-      return targetClass.cast(TemporalCodecs.decodeDateText(data, ctx));
+      return targetClass.cast(TemporalCodecs.decodeDateText(text, ctx));
     }
     if (targetClass == Time.class) {
-      return targetClass.cast(TemporalCodecs.decodeTimeText(data, ctx));
+      return targetClass.cast(TemporalCodecs.decodeTimeText(text, ctx));
     }
     if (targetClass == java.util.Date.class) {
-      return targetClass.cast(TemporalCodecs.decodeTimestampText(data, ctx));
+      return targetClass.cast(TemporalCodecs.decodeTimestampText(text, ctx));
     }
     if (targetClass == Long.class) {
-      Timestamp t = TemporalCodecs.decodeTimestampText(data, ctx);
+      Timestamp t = TemporalCodecs.decodeTimestampText(text, ctx);
       return t == null ? null : targetClass.cast(t.getTime());
     }
     if (targetClass == String.class) {
-      return targetClass.cast(data);
+      return targetClass.cast(text);
     }
     throw Exceptions.cannotDecode("timestamp", targetClass.getName());
   }
@@ -207,9 +204,10 @@ public final class TimestampCodec implements StreamingBinaryCodec, TextCodec {
   }
 
   @Override
-  public @Nullable String decodeAsString(String data, TypeDescriptor type, CodecContext ctx) throws SQLException {
+  public @Nullable String decodeAsString(CharSequence data, TypeDescriptor type, CodecContext ctx) throws SQLException {
+    String text = data.toString();
     // Preserve the original text (with microsecond precision).
-    return data;
+    return text;
   }
 
 }

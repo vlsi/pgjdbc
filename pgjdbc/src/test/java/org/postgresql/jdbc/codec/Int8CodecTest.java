@@ -9,12 +9,12 @@ import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 
-import org.postgresql.api.codec.CharArraySequence;
+import org.postgresql.api.codec.BinaryCodec;
 import org.postgresql.api.codec.CodecContext;
 import org.postgresql.api.codec.PrimitiveDecoders;
 import org.postgresql.api.codec.TypeDescriptor;
+import org.postgresql.api.codec.TypeName;
 import org.postgresql.core.Oid;
-import org.postgresql.jdbc.ObjectName;
 import org.postgresql.jdbc.PgType;
 import org.postgresql.jdbc.TestCodecContext;
 import org.postgresql.util.ByteConverter;
@@ -24,6 +24,7 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
 import java.math.BigDecimal;
+import java.nio.CharBuffer;
 import java.nio.charset.StandardCharsets;
 import java.sql.SQLException;
 
@@ -48,7 +49,7 @@ class Int8CodecTest {
     codec = Int8Codec.INSTANCE;
     // Create a minimal PgType for int8
     int8Type = new PgType(
-        new ObjectName("pg_catalog", "int8"),
+        TypeName.of("pg_catalog", "int8"),
         "bigint",
         Oid.INT8,
         'b', // base type
@@ -119,14 +120,14 @@ class Int8CodecTest {
   void decodeAsLong_charSlice() throws SQLException {
     // The fast path reads the digits off the slice with no String and no box.
     char[] buf = "x-42y".toCharArray();
-    assertEquals(-42L, codec.decodeAsLong(new CharArraySequence(buf, 1, 3), int8Type, null));
+    assertEquals(-42L, codec.decodeAsLong(CharBuffer.wrap(buf, 1, 3), int8Type, null));
     // A leading '+' is rejected by the fast path and handled by the String fallback.
     char[] plus = "+7".toCharArray();
-    assertEquals(7L, codec.decodeAsLong(new CharArraySequence(plus, 0, plus.length), int8Type, null));
+    assertEquals(7L, codec.decodeAsLong(CharBuffer.wrap(plus, 0, plus.length), int8Type, null));
     // Out of int8 range surfaces the same error as the String form.
     char[] overflow = "99999999999999999999".toCharArray();
     assertThrows(PSQLException.class,
-        () -> codec.decodeAsLong(new CharArraySequence(overflow, 0, overflow.length), int8Type, null));
+        () -> codec.decodeAsLong(CharBuffer.wrap(overflow, 0, overflow.length), int8Type, null));
   }
 
   @Test
@@ -246,7 +247,7 @@ class Int8CodecTest {
     byte[] data = new byte[8];
     ByteConverter.int8(data, 0, 42L);
 
-    int result = PrimitiveDecoders.asInt(codec, data, int8Type, null);
+    int result = PrimitiveDecoders.asInt(codec, data, 0, data.length, int8Type, null);
     assertEquals(42, result);
   }
 
@@ -255,7 +256,7 @@ class Int8CodecTest {
     byte[] data = new byte[8];
     ByteConverter.int8(data, 0, Integer.MAX_VALUE);
 
-    int result = PrimitiveDecoders.asInt(codec, data, int8Type, null);
+    int result = PrimitiveDecoders.asInt(codec, data, 0, data.length, int8Type, null);
     assertEquals(Integer.MAX_VALUE, result);
   }
 
@@ -264,7 +265,7 @@ class Int8CodecTest {
     byte[] data = new byte[8];
     ByteConverter.int8(data, 0, Integer.MIN_VALUE);
 
-    int result = PrimitiveDecoders.asInt(codec, data, int8Type, null);
+    int result = PrimitiveDecoders.asInt(codec, data, 0, data.length, int8Type, null);
     assertEquals(Integer.MIN_VALUE, result);
   }
 
@@ -273,7 +274,7 @@ class Int8CodecTest {
     byte[] data = new byte[8];
     ByteConverter.int8(data, 0, (long) Integer.MAX_VALUE + 1);
 
-    assertThrows(PSQLException.class, () -> PrimitiveDecoders.asInt(codec, data, int8Type, null));
+    assertThrows(PSQLException.class, () -> PrimitiveDecoders.asInt((BinaryCodec) codec, data, 0, data.length, (TypeDescriptor) int8Type, (CodecContext) null));
   }
 
   @Test
@@ -281,7 +282,7 @@ class Int8CodecTest {
     byte[] data = new byte[8];
     ByteConverter.int8(data, 0, (long) Integer.MIN_VALUE - 1);
 
-    assertThrows(PSQLException.class, () -> PrimitiveDecoders.asInt(codec, data, int8Type, null));
+    assertThrows(PSQLException.class, () -> PrimitiveDecoders.asInt((BinaryCodec) codec, data, 0, data.length, (TypeDescriptor) int8Type, (CodecContext) null));
   }
 
   @Test
@@ -403,7 +404,7 @@ class Int8CodecTest {
   void binaryRoundtrip_positiveValue() throws SQLException {
     long original = 123456789012345L;
     byte[] encoded = codec.encodeBinary(original, int8Type, null);
-    long decoded = PrimitiveDecoders.asLong(codec, encoded, int8Type, null);
+    long decoded = PrimitiveDecoders.asLong(codec, encoded, 0, encoded.length, int8Type, null);
     assertEquals(original, decoded);
   }
 
@@ -411,7 +412,7 @@ class Int8CodecTest {
   void binaryRoundtrip_negativeValue() throws SQLException {
     long original = -123456789012345L;
     byte[] encoded = codec.encodeBinary(original, int8Type, null);
-    long decoded = PrimitiveDecoders.asLong(codec, encoded, int8Type, null);
+    long decoded = PrimitiveDecoders.asLong(codec, encoded, 0, encoded.length, int8Type, null);
     assertEquals(original, decoded);
   }
 
@@ -419,7 +420,7 @@ class Int8CodecTest {
   void binaryRoundtrip_maxValue() throws SQLException {
     long original = Long.MAX_VALUE;
     byte[] encoded = codec.encodeBinary(original, int8Type, null);
-    long decoded = PrimitiveDecoders.asLong(codec, encoded, int8Type, null);
+    long decoded = PrimitiveDecoders.asLong(codec, encoded, 0, encoded.length, int8Type, null);
     assertEquals(original, decoded);
   }
 
@@ -427,7 +428,7 @@ class Int8CodecTest {
   void binaryRoundtrip_minValue() throws SQLException {
     long original = Long.MIN_VALUE;
     byte[] encoded = codec.encodeBinary(original, int8Type, null);
-    long decoded = PrimitiveDecoders.asLong(codec, encoded, int8Type, null);
+    long decoded = PrimitiveDecoders.asLong(codec, encoded, 0, encoded.length, int8Type, null);
     assertEquals(original, decoded);
   }
 
@@ -442,11 +443,6 @@ class Int8CodecTest {
   // ==================== Codec Metadata ====================
 
   @Test
-  void getPrimaryTypeName() {
-    assertEquals("int8", codec.getPrimaryTypeName());
-  }
-
-  @Test
   void getDefaultJavaType() {
     assertEquals(Long.class, codec.getDefaultJavaType());
   }
@@ -456,6 +452,6 @@ class Int8CodecTest {
   @Test
   void decodeBinary_invalidLength() {
     byte[] data = new byte[4]; // Should be 8
-    assertThrows(PSQLException.class, () -> PrimitiveDecoders.asLong(codec, data, int8Type, null));
+    assertThrows(PSQLException.class, () -> PrimitiveDecoders.asLong((BinaryCodec) codec, data, 0, data.length, (TypeDescriptor) int8Type, (CodecContext) null));
   }
 }

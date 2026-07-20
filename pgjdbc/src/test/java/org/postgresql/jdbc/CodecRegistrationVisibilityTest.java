@@ -38,10 +38,6 @@ class CodecRegistrationVisibilityTest {
 
   /** A codec that decodes every value of its type to {@link #MARKER}, so its use is observable. */
   private static final class MarkerCodec implements BinaryCodec, TextCodec {
-    @Override
-    public String getPrimaryTypeName() {
-      return "int4";
-    }
 
     @Override
     public Class<?> getDefaultJavaType() {
@@ -55,7 +51,7 @@ class CodecRegistrationVisibilityTest {
     }
 
     @Override
-    public @Nullable Object decodeText(String data, TypeDescriptor type, CodecContext ctx) {
+    public @Nullable Object decodeText(CharSequence data, TypeDescriptor type, CodecContext ctx) {
       return MARKER;
     }
 

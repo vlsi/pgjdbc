@@ -15,7 +15,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import org.postgresql.api.codec.CodecContext;
 import org.postgresql.api.codec.Format;
 import org.postgresql.api.codec.TypeDescriptor;
-import org.postgresql.jdbc.ObjectName;
+import org.postgresql.api.codec.TypeName;
 import org.postgresql.jdbc.PgType;
 import org.postgresql.jdbc.TemporalCodecs;
 import org.postgresql.jdbc.TestCodecContext;
@@ -40,7 +40,7 @@ class FallbackCodecTest {
   void setUp() {
     codec = FallbackCodec.INSTANCE;
     unknownType = new PgType(
-        new ObjectName("pg_catalog", "unknown_type"),
+        TypeName.of("pg_catalog", "unknown_type"),
         "unknown_type",
         99999,
         'b', 'X', -1, 0, 0, 0
@@ -96,11 +96,6 @@ class FallbackCodecTest {
     assertInstanceOf(PGobject.class, result);
     PGobject pgobj = (PGobject) result;
     assertEquals("", pgobj.getValue());
-  }
-
-  @Test
-  void getPrimaryTypeName() {
-    assertEquals("unknown", codec.getPrimaryTypeName());
   }
 
   @Test

@@ -39,11 +39,6 @@ public final class TextLikeCodec implements BinaryCodec, TextCodec {
   }
 
   @Override
-  public String getPrimaryTypeName() {
-    return "textlike";
-  }
-
-  @Override
   public Class<?> getDefaultJavaType() {
     return PGobject.class;
   }
@@ -63,13 +58,14 @@ public final class TextLikeCodec implements BinaryCodec, TextCodec {
   }
 
   @Override
-  public @Nullable Object decodeText(String data, TypeDescriptor type, CodecContext ctx) throws SQLException {
-    return toPgObject(type, data);
+  public @Nullable Object decodeText(CharSequence data, TypeDescriptor type, CodecContext ctx) throws SQLException {
+    String text = data.toString();
+    return toPgObject(type, text);
   }
 
   private static PGobject toPgObject(TypeDescriptor type, String value) throws SQLException {
     PGobject obj = new PGobject();
-    obj.setType(type.getTypeName().getName());
+    obj.setType(type.getName().getLocalName());
     obj.setValue(value);
     return obj;
   }
@@ -93,24 +89,25 @@ public final class TextLikeCodec implements BinaryCodec, TextCodec {
     if (targetClass == byte[].class) {
       return (T) Arrays.copyOfRange(data, offset, offset + length);
     }
-    throw Exceptions.cannotDecode(getPrimaryTypeName(), targetClass.getName());
+    throw Exceptions.cannotDecode(type.getFormattedName(), targetClass.getName());
   }
 
   @Override
   @SuppressWarnings("unchecked")
-  public <T> @Nullable T decodeTextAs(String data, TypeDescriptor type, Class<T> targetClass, CodecContext ctx)
+  public <T> @Nullable T decodeTextAs(CharSequence data, TypeDescriptor type, Class<T> targetClass, CodecContext ctx)
       throws SQLException {
+    String text = data.toString();
     if (targetClass == Object.class || targetClass == PGobject.class) {
-      return (T) decodeText(data, type, ctx);
+      return (T) decodeText(text, type, ctx);
     }
     if (targetClass == String.class) {
-      return (T) data;
+      return (T) text;
     }
     if (targetClass == byte[].class) {
       // The text form already is the value; its charset bytes mirror decodeBinaryAs(byte[]).
-      return (T) data.getBytes(ctx.getCharset());
+      return (T) text.getBytes(ctx.getCharset());
     }
-    throw Exceptions.cannotDecode(getPrimaryTypeName(), targetClass.getName());
+    throw Exceptions.cannotDecode(type.getFormattedName(), targetClass.getName());
   }
 
   @Override
@@ -137,13 +134,13 @@ public final class TextLikeCodec implements BinaryCodec, TextCodec {
     if (text != null) {
       return text;
     }
-    throw Exceptions.cannotEncode(value, type.getTypeName().getName());
+    throw Exceptions.cannotEncode(value, type.getName().getLocalName());
   }
 
   // The text of a matching-type PGobject (a null value as ""), or null when value is not such a PGobject.
   private static @Nullable String encodableText(Object value, TypeDescriptor type) {
     if (value instanceof PGobject
-        && type.getTypeName().getName().equals(((PGobject) value).getType())) {
+        && type.getName().getLocalName().equals(((PGobject) value).getType())) {
       String v = ((PGobject) value).getValue();
       return v != null ? v : "";
     }

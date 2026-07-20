@@ -9,6 +9,7 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import org.postgresql.api.codec.TypeName;
 import org.postgresql.core.Oid;
 
 import org.junit.jupiter.api.Test;
@@ -95,7 +96,7 @@ public class PgTypeTest {
   @Test
   void testPgTypeProperties() {
     PgType type = new PgType(
-        new ObjectName("public", "my_type"),
+        TypeName.of("public", "my_type"),
         "public.my_type",
         12345,
         'c', // composite
@@ -106,9 +107,9 @@ public class PgTypeTest {
         0    // typbasetype
     );
 
-    assertEquals("my_type", type.getTypeName().getName());
-    assertEquals("public", type.getTypeName().getNamespace());
-    assertEquals("public.my_type", type.getFullName());
+    assertEquals("my_type", type.getName().getLocalName());
+    assertEquals("public", type.getName().getNamespace());
+    assertEquals("public.my_type", type.getFormattedName());
     assertEquals(12345, type.getOid());
     assertTrue(type.isComposite());
     assertFalse(type.isArray());
@@ -120,7 +121,7 @@ public class PgTypeTest {
   @Test
   void testPgTypeDomain() {
     PgType type = new PgType(
-        new ObjectName("public", "positive_int"),
+        TypeName.of("public", "positive_int"),
         "public.positive_int",
         12346,
         'd', // domain
@@ -139,7 +140,7 @@ public class PgTypeTest {
   @Test
   void testPgTypeArray() {
     PgType type = new PgType(
-        new ObjectName("pg_catalog", "_int4"),
+        TypeName.of("pg_catalog", "_int4"),
         "integer[]",
         Oid.INT4_ARRAY,
         'b', // base type
@@ -159,7 +160,7 @@ public class PgTypeTest {
   void testPgTypeWithCustomDelimiter() {
     // Box type uses semicolon as delimiter
     PgType boxType = new PgType(
-        new ObjectName("pg_catalog", "box"),
+        TypeName.of("pg_catalog", "box"),
         "box",
         Oid.BOX,
         'b',
@@ -173,7 +174,7 @@ public class PgTypeTest {
 
     // Other types use comma
     PgType intType = new PgType(
-        new ObjectName("pg_catalog", "int4"),
+        TypeName.of("pg_catalog", "int4"),
         "integer",
         Oid.INT4,
         'b',
@@ -187,7 +188,7 @@ public class PgTypeTest {
 
     // Custom delimiter from database
     PgType customType = new PgType(
-        new ObjectName("public", "custom"),
+        TypeName.of("public", "custom"),
         "public.custom",
         99999,
         'b',

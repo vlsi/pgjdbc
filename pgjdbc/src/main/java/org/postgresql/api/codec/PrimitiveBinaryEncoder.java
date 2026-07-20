@@ -12,11 +12,11 @@ import java.sql.SQLException;
 
 /**
  * Optional capability a {@link StreamingBinaryCodec} implements to encode a Java
- * primitive straight into a {@link BackpatchingBinarySink} without boxing it
+ * primitive straight into a {@link BackpatchingByteArrayOutputStream} without boxing it
  * first.
  *
  * <p>The {@code SQLOutput} composite writer calls {@code writeInt}, {@code
- * writeLong}, {@code writeDouble}, and friends with primitives. Routed through
+ * writeLong}, {@code writeFloat8}, and friends with primitives. Routed through
  * the {@code Object}-typed {@link BinaryCodec#encodeBinary(Object,
  * TypeDescriptor, CodecContext)} the primitive would be boxed only to be
  * unboxed again inside the codec. A codec that opts into this interface exposes
@@ -47,7 +47,7 @@ public interface PrimitiveBinaryEncoder extends StreamingBinaryCodec {
    * @throws SQLException if {@code value} is out of range for the target type
    * @throws IOException if {@code out} throws
    */
-  default void encodeInt(int value, TypeDescriptor type, CodecContext ctx, BackpatchingBinarySink out)
+  default void encodeInt(int value, TypeDescriptor type, CodecContext ctx, BackpatchingByteArrayOutputStream out)
       throws SQLException, IOException {
     encodeBinary(value, type, ctx, out);
   }
@@ -62,7 +62,7 @@ public interface PrimitiveBinaryEncoder extends StreamingBinaryCodec {
    * @throws SQLException if {@code value} is out of range for the target type
    * @throws IOException if {@code out} throws
    */
-  default void encodeLong(long value, TypeDescriptor type, CodecContext ctx, BackpatchingBinarySink out)
+  default void encodeLong(long value, TypeDescriptor type, CodecContext ctx, BackpatchingByteArrayOutputStream out)
       throws SQLException, IOException {
     encodeBinary(value, type, ctx, out);
   }
@@ -77,7 +77,7 @@ public interface PrimitiveBinaryEncoder extends StreamingBinaryCodec {
    * @throws SQLException if {@code value} is out of range for the target type
    * @throws IOException if {@code out} throws
    */
-  default void encodeFloat(float value, TypeDescriptor type, CodecContext ctx, BackpatchingBinarySink out)
+  default void encodeFloat(float value, TypeDescriptor type, CodecContext ctx, BackpatchingByteArrayOutputStream out)
       throws SQLException, IOException {
     encodeBinary(value, type, ctx, out);
   }
@@ -92,7 +92,7 @@ public interface PrimitiveBinaryEncoder extends StreamingBinaryCodec {
    * @throws SQLException if {@code value} is out of range for the target type
    * @throws IOException if {@code out} throws
    */
-  default void encodeDouble(double value, TypeDescriptor type, CodecContext ctx, BackpatchingBinarySink out)
+  default void encodeDouble(double value, TypeDescriptor type, CodecContext ctx, BackpatchingByteArrayOutputStream out)
       throws SQLException, IOException {
     encodeBinary(value, type, ctx, out);
   }

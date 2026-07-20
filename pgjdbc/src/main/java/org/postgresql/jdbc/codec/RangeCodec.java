@@ -7,10 +7,11 @@ package org.postgresql.jdbc.codec;
 
 import static org.postgresql.util.internal.Nullness.castNonNull;
 
-import org.postgresql.api.codec.BackpatchingBinarySink;
+import org.postgresql.api.codec.BackpatchingByteArrayOutputStream;
 import org.postgresql.api.codec.BinaryCodec;
 import org.postgresql.api.codec.Codec;
 import org.postgresql.api.codec.CodecContext;
+import org.postgresql.api.codec.CodecFormatSupport;
 import org.postgresql.api.codec.StreamingBinaryCodec;
 import org.postgresql.api.codec.TextCodec;
 import org.postgresql.api.codec.TypeDescriptor;
@@ -59,11 +60,6 @@ public final class RangeCodec implements StreamingBinaryCodec, TextCodec {
   }
 
   @Override
-  public String getPrimaryTypeName() {
-    return "range";
-  }
-
-  @Override
   public Class<?> getDefaultJavaType() {
     return PGRange.class;
   }
@@ -86,7 +82,7 @@ public final class RangeCodec implements StreamingBinaryCodec, TextCodec {
       // Check for empty range
       if ((flags & FLAG_EMPTY) != 0) {
         PGRange<Object> range = PGRange.empty();
-        range.setType(type.getFullName());
+        range.setType(type.getFormattedName());
         return range;
       }
 
@@ -95,16 +91,16 @@ public final class RangeCodec implements StreamingBinaryCodec, TextCodec {
       boolean lowerInfinite = (flags & FLAG_LOWER_INFINITE) != 0;
       boolean upperInfinite = (flags & FLAG_UPPER_INFINITE) != 0;
 
-      // Resolve the subtype codec. pg_type.typelem is 0 for ranges; the real subtype
-      // lives in pg_range.rngsubtype (loaded lazily via TypeInfo).
-      int subtypeOid = resolveSubtypeOid(type, ctx);
+      // Resolve the subtype codec. pg_type.typelem is 0 for ranges; the real subtype lives in
+      // pg_range.rngsubtype, which a descriptor reaching a codec already carries.
+      int subtypeOid = type.getRangeSubtype();
       if (subtypeOid == 0) {
-        throw Exceptions.rangeSubtypeUnresolvedForDecode(type.getFullName());
+        throw Exceptions.rangeSubtypeUnresolvedForDecode(type.getFormattedName());
       }
       TypeDescriptor subtypeType = ctx.resolveType(subtypeOid);
       BinaryCodec subtypeCodec = ctx.resolveBinaryCodec(subtypeOid);
       if (subtypeCodec == null) {
-        throw Exceptions.rangeSubtypeCodecMissingForDecode(type.getFullName(), subtypeOid);
+        throw Exceptions.rangeSubtypeCodecMissingForDecode(type.getFormattedName(), subtypeOid);
       }
 
       int offset = 1;
@@ -143,7 +139,7 @@ public final class RangeCodec implements StreamingBinaryCodec, TextCodec {
       }
 
       PGRange<Object> range = new PGRange<>(lower, upper, lowerInclusive, upperInclusive);
-      range.setType(type.getFullName());
+      range.setType(type.getFormattedName());
       return range;
     } finally {
       CodecDepth.exit();
@@ -152,11 +148,11 @@ public final class RangeCodec implements StreamingBinaryCodec, TextCodec {
 
   @Override
   public byte[] encodeBinary(Object value, TypeDescriptor type, CodecContext ctx) throws SQLException {
-    BackpatchByteArrayOutputStream out = new BackpatchByteArrayOutputStream();
+    BackpatchingByteArrayOutputStream out = new BackpatchingByteArrayOutputStream();
     try {
       encodeBinary(value, type, ctx, out);
     } catch (IOException e) {
-      // BackpatchByteArrayOutputStream never throws; keep the historical error mapping regardless.
+      // BackpatchingByteArrayOutputStream never throws; keep the historical error mapping regardless.
       throw Exceptions.errorEncodingRange(e);
     }
     return out.toByteArray();
@@ -164,7 +160,7 @@ public final class RangeCodec implements StreamingBinaryCodec, TextCodec {
 
   @Override
   public void encodeBinary(Object value, TypeDescriptor type, CodecContext ctx,
-      BackpatchingBinarySink out) throws SQLException, IOException {
+      BackpatchingByteArrayOutputStream out) throws SQLException, IOException {
     if (!(value instanceof PGRange)) {
       throw Exceptions.cannotEncodeRange(value);
     }
@@ -179,16 +175,16 @@ public final class RangeCodec implements StreamingBinaryCodec, TextCodec {
         return;
       }
 
-      // Resolve the subtype codec. pg_type.typelem is 0 for ranges; the real subtype
-      // lives in pg_range.rngsubtype (loaded lazily via TypeInfo).
-      int subtypeOid = resolveSubtypeOid(type, ctx);
+      // Resolve the subtype codec. pg_type.typelem is 0 for ranges; the real subtype lives in
+      // pg_range.rngsubtype, which a descriptor reaching a codec already carries.
+      int subtypeOid = type.getRangeSubtype();
       if (subtypeOid == 0) {
-        throw Exceptions.rangeSubtypeUnresolvedForEncode(type.getFullName());
+        throw Exceptions.rangeSubtypeUnresolvedForEncode(type.getFormattedName());
       }
       TypeDescriptor subtypeType = ctx.resolveType(subtypeOid);
       BinaryCodec subtypeCodec = ctx.resolveBinaryCodec(subtypeOid);
       if (subtypeCodec == null) {
-        throw Exceptions.rangeSubtypeCodecMissingForEncode(type.getFullName(), subtypeOid);
+        throw Exceptions.rangeSubtypeCodecMissingForEncode(type.getFormattedName(), subtypeOid);
       }
 
       // Calculate flags
@@ -210,33 +206,17 @@ public final class RangeCodec implements StreamingBinaryCodec, TextCodec {
       // Write lower bound if not infinite
       if (range.hasLowerBound()) {
         Object bound = castNonNull(range.getLower());
-        BinaryCodec.writeElement(out, bound, subtypeCodec, subtypeType, ctx);
+        CodecFormatSupport.writeBinaryElement(out, bound, subtypeCodec, subtypeType, ctx);
       }
 
       // Write upper bound if not infinite
       if (range.hasUpperBound()) {
         Object bound = castNonNull(range.getUpper());
-        BinaryCodec.writeElement(out, bound, subtypeCodec, subtypeType, ctx);
+        CodecFormatSupport.writeBinaryElement(out, bound, subtypeCodec, subtypeType, ctx);
       }
     } finally {
       CodecDepth.exit();
     }
-  }
-
-  /**
-   * Resolves the range's subtype OID from {@code pg_range.rngsubtype}. A range carries
-   * {@code typelem == 0}, so the subtype is taken from the type metadata: the value already cached
-   * on {@link TypeDescriptor} when present, otherwise from {@link CodecContext#resolveType(int)},
-   * which loads it lazily. Returns {@code 0} when no context is available (the codec unit tests pass
-   * a {@code null} context) or the subtype cannot be resolved, in which case the bounds stay as raw
-   * strings.
-   */
-  private static int resolveSubtypeOid(TypeDescriptor type, @Nullable CodecContext ctx) throws SQLException {
-    int subtypeOid = type.getRangeSubtype();
-    if (subtypeOid == 0 && ctx != null) {
-      subtypeOid = ctx.resolveType(type.getOid()).getRangeSubtype();
-    }
-    return subtypeOid;
   }
 
   @Override
@@ -255,27 +235,18 @@ public final class RangeCodec implements StreamingBinaryCodec, TextCodec {
   // ==================== Text Codec Methods ====================
 
   @Override
-  public @Nullable Object decodeText(String data, TypeDescriptor type, CodecContext ctx) throws SQLException {
-    if (data == null || data.isEmpty()) {
+  public @Nullable Object decodeText(CharSequence data, TypeDescriptor type, CodecContext ctx) throws SQLException {
+    if (data == null || data.length() == 0) {
       return null;
     }
-    return decodeRange(LiteralCursor.over(data), type, ctx);
-  }
-
-  @Override
-  public @Nullable Object decodeText(char[] data, int offset, int length, TypeDescriptor type,
-      CodecContext ctx) throws SQLException {
-    if (length == 0) {
-      return null;
-    }
-    // Slice form: parse a range nested in a composite/array directly off the
-    // borrowed char[] without materializing a per-element String first.
-    return decodeRange(new LiteralCursor(data, offset, length), type, ctx);
+    LiteralCursor cur = LiteralCursor.over(data);
+    Object range = decodeRange(cur, type, ctx);
+    return range;
   }
 
   /**
    * Parses one range literal off {@code cur}, driving the shared {@link LiteralCursor}
-   * so the same code serves the String and slice forms. On return the cursor sits just
+   * so the same code serves a {@code String} and a borrowed view alike. On return the cursor sits just
    * past the range's closing bracket, so {@link MultirangeCodec} can call this in a loop
    * to peel the ranges out of a {@code {...}} multirange literal off the same cursor.
    *
@@ -288,18 +259,17 @@ public final class RangeCodec implements StreamingBinaryCodec, TextCodec {
     cur.skipWhitespace();
     if (cur.consumeKeyword("empty")) {
       PGRange<Object> range = PGRange.empty();
-      range.setType(type.getFullName());
+      range.setType(type.getFormattedName());
       return range;
     }
 
     CodecDepth.enter();
     try {
-      // pg_type.typelem is 0 for ranges; the real subtype lives in pg_range.rngsubtype
-      // (loaded lazily via TypeInfo). With a connection-bound context the bounds are
-      // decoded by the subtype's text codec into typed values; without one (the codec
-      // unit tests, which pass a null context) the subtype stays unresolved and the
-      // bounds are kept as their raw strings.
-      int subtypeOid = resolveSubtypeOid(type, ctx);
+      // pg_type.typelem is 0 for ranges; the real subtype lives in pg_range.rngsubtype, which a
+      // descriptor reaching a codec already carries. With a connection-bound context the bounds
+      // are decoded by the subtype's text codec into typed values; without one (the codec unit
+      // tests, which pass a null context) the bounds are kept as their raw strings.
+      int subtypeOid = type.getRangeSubtype();
       TypeDescriptor subtypeType = subtypeOid != 0 && ctx != null ? ctx.resolveType(subtypeOid) : null;
       Codec subtypeCodec = subtypeOid != 0 && ctx != null ? ctx.resolveCodec(subtypeOid) : null;
       TextCodec boundCodec =
@@ -337,7 +307,7 @@ public final class RangeCodec implements StreamingBinaryCodec, TextCodec {
       cur.expect(close);
 
       PGRange<Object> range = new PGRange<>(lower, upper, lowerInclusive, upperInclusive);
-      range.setType(type.getFullName());
+      range.setType(type.getFormattedName());
       return range;
     } finally {
       CodecDepth.exit();
@@ -348,6 +318,8 @@ public final class RangeCodec implements StreamingBinaryCodec, TextCodec {
    * Decodes the cursor's current token as a range bound. An unquoted empty token
    * is an infinite/unbounded bound ({@code null}); otherwise the bound slice is
    * decoded by the subtype text codec when known, or kept as its raw string.
+   * Whitespace is part of the bound, as it is for {@code range_parse_bound}, so
+   * {@code [ ,b)} has a lower bound of one space rather than an infinite one.
    */
   private static @Nullable Object decodeBound(LiteralCursor cur, @Nullable TextCodec boundCodec,
       @Nullable TypeDescriptor subtypeType, CodecContext ctx) throws SQLException {
@@ -355,13 +327,12 @@ public final class RangeCodec implements StreamingBinaryCodec, TextCodec {
       return null; // infinite / unbounded
     }
     if (boundCodec != null && subtypeType != null) {
-      Object decoded = boundCodec.decodeText(cur.tokenChars(), cur.tokenOffset(),
-          cur.tokenLength(), subtypeType, ctx);
+      Object decoded = boundCodec.decodeText(cur.getToken(), subtypeType, ctx);
       if (decoded != null) {
         return decoded;
       }
     }
-    return new String(cur.tokenChars(), cur.tokenOffset(), cur.tokenLength());
+    return cur.getToken().toString();
   }
 
   @Override
@@ -374,19 +345,19 @@ public final class RangeCodec implements StreamingBinaryCodec, TextCodec {
 
   @Override
   @SuppressWarnings("unchecked")
-  public <T> @Nullable T decodeTextAs(String data, TypeDescriptor type, Class<T> targetClass, CodecContext ctx)
+  public <T> @Nullable T decodeTextAs(CharSequence data, TypeDescriptor type, Class<T> targetClass, CodecContext ctx)
       throws SQLException {
     if (targetClass == PGRange.class || targetClass == Object.class) {
       return (T) decodeText(data, type, ctx);
     }
     if (targetClass == String.class) {
-      return (T) data;
+      return (T) data.toString();
     }
     throw Exceptions.cannotDecodeRangeTo(targetClass.getName());
   }
 
   @Override
-  public @Nullable String decodeAsString(String data, TypeDescriptor type, CodecContext ctx) throws SQLException {
-    return data;
+  public @Nullable String decodeAsString(CharSequence data, TypeDescriptor type, CodecContext ctx) throws SQLException {
+    return data.toString();
   }
 }

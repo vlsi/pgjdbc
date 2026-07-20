@@ -5,7 +5,7 @@
 
 package org.postgresql.jdbc.codec;
 
-import org.postgresql.api.codec.BackpatchingBinarySink;
+import org.postgresql.api.codec.BackpatchingByteArrayOutputStream;
 import org.postgresql.api.codec.CodecContext;
 import org.postgresql.util.ByteConverter;
 
@@ -59,7 +59,7 @@ public final class MultiDimArrayBinary {
    * Implementations MUST return {@code true} if they encoded any {@code -1}
    * element-length marker for a null element.</p>
    *
-   * <p>The {@code out} parameter is a {@link BackpatchingBinarySink} so leaf
+   * <p>The {@code out} parameter is a {@link BackpatchingByteArrayOutputStream} so leaf
    * writers that dispatch through a per-element
    * {@link org.postgresql.api.codec.StreamingBinaryCodec} can reserve a
    * length placeholder, stream the element body in-place, and back-patch
@@ -74,7 +74,7 @@ public final class MultiDimArrayBinary {
      * @param leaf the leaf-level Java array (e.g. {@code int[]}, {@code Object[]})
      * @param out  the output sink
      */
-    boolean writeLeaf(Object leaf, BackpatchingBinarySink out, CodecContext ctx)
+    boolean writeLeaf(Object leaf, BackpatchingByteArrayOutputStream out, CodecContext ctx)
         throws IOException, SQLException;
   }
 
@@ -98,12 +98,12 @@ public final class MultiDimArrayBinary {
   public static byte[] encode(Object javaArray, CodecContext ctx, ArrayLeafCodec leaf)
       throws SQLException {
     int elementOid = leaf.getElementOid();
-    BackpatchByteArrayOutputStream baos =
-        new BackpatchByteArrayOutputStream(estimateInitialCapacityFor(javaArray, leaf));
+    BackpatchingByteArrayOutputStream baos =
+        new BackpatchingByteArrayOutputStream(estimateInitialCapacityFor(javaArray, leaf));
     try {
       encode(javaArray, elementOid, (LeafBinaryWriter) leaf, baos, ctx);
     } catch (IOException e) {
-      // BackpatchByteArrayOutputStream never throws.
+      // BackpatchingByteArrayOutputStream never throws.
       throw new AssertionError(e);
     }
     return baos.toByteArray();
@@ -116,7 +116,7 @@ public final class MultiDimArrayBinary {
    * {@code byte[]} copy.
    */
   public static void encode(Object javaArray, int elementOid,
-      LeafBinaryWriter leaf, BackpatchingBinarySink out, CodecContext ctx)
+      LeafBinaryWriter leaf, BackpatchingByteArrayOutputStream out, CodecContext ctx)
       throws SQLException, IOException {
     int dimensions = MultiDimArraySupport.computeDimensions(javaArray, leafElementClassOf(leaf));
     if (dimensions == 0) {
@@ -145,12 +145,12 @@ public final class MultiDimArrayBinary {
     out.setInt32At(hasNullsSlot, hasNulls ? 1 : 0);
   }
 
-  public static void encode(Object javaArray, BackpatchingBinarySink out, CodecContext ctx,
+  public static void encode(Object javaArray, BackpatchingByteArrayOutputStream out, CodecContext ctx,
       ArrayLeafCodec leaf) throws SQLException, IOException {
     encode(javaArray, leaf.getElementOid(), leaf, out, ctx);
   }
 
-  private static boolean walkAndEncode(Object array, int depth, BackpatchingBinarySink out,
+  private static boolean walkAndEncode(Object array, int depth, BackpatchingByteArrayOutputStream out,
       CodecContext ctx, LeafBinaryWriter leaf) throws IOException, SQLException {
     if (depth == 1) {
       return leaf.writeLeaf(array, out, ctx);

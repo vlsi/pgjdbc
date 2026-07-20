@@ -20,9 +20,9 @@ import java.sql.SQLException;
  * itself, which meant every codec — a range, a composite, a geometry — advertised a
  * {@code decodeAsInt} it could not honour. They now live here, so only a codec that can actually
  * produce the primitive opts in. A caller with a base-typed reference goes through
- * {@link PrimitiveDecoders#asInt(BinaryCodec, byte[], TypeDescriptor, CodecContext)} and friends,
- * which fall back to boxing through {@link BinaryCodec#decodeBinary} when the codec does not
- * implement this interface.</p>
+ * {@link PrimitiveDecoders#asInt(BinaryCodec, byte[], int, int, TypeDescriptor, CodecContext)} and
+ * friends, which fall back to boxing through {@link BinaryCodec#decodeBinary} when the codec
+ * does not implement this interface.</p>
  *
  * <p>The methods take a {@code [offset, offset + length)} slice of a larger buffer — the same
  * in-place form as {@link BinaryCodec#decodeBinary(byte[], int, int, TypeDescriptor, CodecContext)}

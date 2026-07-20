@@ -119,6 +119,6 @@ class Oid8ArrayLeafCodecTest {
   @Test
   void registry_oid8_isArrayElementCodec() {
     CodecRegistry registry = new CodecRegistry();
-    assertInstanceOf(ArrayElementCodec.class, registry.getByName("oid8"));
+    assertInstanceOf(ArrayElementCodec.class, registry.getByLocalName("oid8"));
   }
 }

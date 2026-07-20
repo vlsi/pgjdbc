@@ -8,9 +8,9 @@ package org.postgresql.jdbc.codec;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 
+import org.postgresql.api.codec.TypeName;
 import org.postgresql.core.Oid;
 import org.postgresql.geometric.PGlseg;
-import org.postgresql.jdbc.ObjectName;
 import org.postgresql.jdbc.PgType;
 import org.postgresql.util.ByteConverter;
 import org.postgresql.util.PSQLException;
@@ -29,7 +29,7 @@ class LsegCodecTest {
   void setUp() {
     codec = LsegCodec.INSTANCE;
     lsegType = new PgType(
-        new ObjectName("pg_catalog", "lseg"),
+        TypeName.of("pg_catalog", "lseg"),
         "lseg",
         Oid.LSEG,
         'b', 'G', -1, 0, 0, 0
@@ -95,11 +95,6 @@ class LsegCodecTest {
     String encoded = codec.encodeText(original, lsegType, null);
     Object decoded = codec.decodeText(encoded, lsegType, null);
     assertEquals(original, decoded);
-  }
-
-  @Test
-  void getPrimaryTypeName() {
-    assertEquals("lseg", codec.getPrimaryTypeName());
   }
 
   @Test

@@ -8,17 +8,17 @@ package org.postgresql.jdbc.codec;
 import static java.nio.charset.StandardCharsets.UTF_8;
 import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import org.postgresql.api.codec.CodecContext;
 import org.postgresql.api.codec.Codecs;
 import org.postgresql.api.codec.Format;
-import org.postgresql.api.codec.RawValue;
 import org.postgresql.api.codec.TypeDescriptor;
+import org.postgresql.api.codec.TypeName;
+import org.postgresql.api.codec.WireValueSlice;
 import org.postgresql.core.Oid;
-import org.postgresql.jdbc.ObjectName;
 import org.postgresql.jdbc.OfflineCodecs;
 import org.postgresql.jdbc.PgCodecContext;
 import org.postgresql.jdbc.PgType;
@@ -42,7 +42,7 @@ import java.util.UUID;
 /**
  * Round-trips values through the public offline (connectionless) codec surface: build a
  * {@link CodecContext} with {@link PgCodecContext#offlineBuilder()}, encode with {@link Codecs#encode}
- * to a {@link RawValue}, and decode it back with {@link Codecs#decode} — all with no
+ * to a {@link WireValueSlice}, and decode it back with {@link Codecs#decode} — all with no
  * {@link java.sql.Connection}. Scalar and temporal types round-trip in both wire formats; container
  * types report a clear error pending offline container support.
  */
@@ -76,13 +76,13 @@ class OfflineCodecRoundtripTest {
   // A built-in array type. Its codec resolves offline through the driver's built-in catalog, so the
   // builder need not carry it; the descriptor's typelem drives element decoding.
   private static final PgType INT4_ARRAY = new PgType(
-      new ObjectName("pg_catalog", "_int4"), "integer[]", Oid.INT4_ARRAY, 'b', 'A', -1,
+      TypeName.of("pg_catalog", "_int4"), "integer[]", Oid.INT4_ARRAY, 'b', 'A', -1,
       Oid.INT4, 0, 0);
   // A user composite OID with no built-in or registered descriptor, for the unregistered-type case.
   private static final int COMPOSITE_OID = 99_999;
 
   private static PgType base(String name, String fullName, int oid, char typcategory) {
-    return new PgType(new ObjectName("pg_catalog", name), fullName, oid, 'b', typcategory, -1, 0,
+    return new PgType(TypeName.of("pg_catalog", name), fullName, oid, 'b', typcategory, -1, 0,
         0, 0);
   }
 
@@ -92,7 +92,7 @@ class OfflineCodecRoundtripTest {
 
   private static <T> T roundtrip(Object value, TypeDescriptor type, CodecContext ctx, Format format,
       Class<T> targetClass) throws SQLException {
-    RawValue encoded = Codecs.encode(value, type, ctx, format);
+    WireValueSlice encoded = Codecs.encode(value, type, ctx, format);
     assertEquals(format, encoded.getFormat());
     T decoded = Codecs.decode(encoded, type, ctx, targetClass);
     assertNotNull(decoded, "round-trip decoded a present value, not null");
@@ -161,11 +161,11 @@ class OfflineCodecRoundtripTest {
   void offlineBuilderProducesConnectionlessContext() {
     CodecContext ctx = OfflineCodecs.builder()
         .charset(UTF_8)
-        .timeZone(TimeZone.getTimeZone("UTC"))
+        .clientTimeZone(TimeZone.getTimeZone("UTC"))
         .integerDateTimes(true)
         .build();
     assertEquals(UTF_8, ctx.getCharset());
-    assertFalse(ctx.usesDoubleDateTime(), "integerDateTimes(true) means no float8 datetimes");
+    assertTrue(ctx.usesIntegerDateTimes(), "integerDateTimes(true) is reported back");
     assertEquals(TimeZone.getTimeZone("UTC"), ctx.getClientTimeZone());
   }
 
@@ -173,7 +173,7 @@ class OfflineCodecRoundtripTest {
   void arrayDecodeOfflineProducesJavaArray() throws SQLException {
     CodecContext ctx = offline();
     Integer[] values = {1, 2, 3};
-    RawValue raw = Codecs.encode(values, INT4_ARRAY, ctx, Format.BINARY);
+    WireValueSlice raw = Codecs.encode(values, INT4_ARRAY, ctx, Format.BINARY);
     // A typed array target decodes element-for-element with no connection.
     assertArrayEquals(values, Codecs.decode(raw, INT4_ARRAY, ctx, Integer[].class));
     // Object.class also yields a Java array offline (a connection-bound context gives a PgArray).
@@ -186,7 +186,7 @@ class OfflineCodecRoundtripTest {
     // A java.sql.Array needs connection-bound lazy operations, so an explicit Array target reports a
     // clear error offline rather than handing back a Java array of a different type.
     PSQLException ex = assertThrows(PSQLException.class,
-        () -> Codecs.decode(RawValue.binary(new byte[0]), INT4_ARRAY, ctx, Array.class));
+        () -> Codecs.decode(WireValueSlice.binary(new byte[0]), INT4_ARRAY, ctx, Array.class));
     assertEquals(PSQLState.NOT_IMPLEMENTED.getState(), ex.getSQLState(),
         "offline java.sql.Array decode should report 'feature not supported'");
   }
@@ -202,7 +202,7 @@ class OfflineCodecRoundtripTest {
   @Test
   void rawValueWrapsBorrowedSliceAndCopiesOnDemand() {
     byte[] buffer = {10, 20, 30, 40, 50};
-    RawValue slice = RawValue.of(Format.BINARY, buffer, 1, 3);
+    WireValueSlice slice = WireValueSlice.of(Format.BINARY, buffer, 1, 3);
     assertEquals(Format.BINARY, slice.getFormat());
     assertEquals(3, slice.getLength());
     assertArrayEquals(new byte[]{20, 30, 40}, slice.toByteArray());
@@ -212,8 +212,8 @@ class OfflineCodecRoundtripTest {
     copy[0] = 99;
     assertEquals(20, buffer[1]);
 
-    RawValue text = RawValue.text("café".getBytes(UTF_8));
+    WireValueSlice text = WireValueSlice.text("café".getBytes(UTF_8));
     assertEquals("café", text.asString(UTF_8));
-    assertEquals(RawValue.binary(new byte[]{1, 2, 3}), RawValue.binary(new byte[]{1, 2, 3}));
+    assertEquals(WireValueSlice.binary(new byte[]{1, 2, 3}), WireValueSlice.binary(new byte[]{1, 2, 3}));
   }
 }

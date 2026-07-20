@@ -5,6 +5,7 @@
 
 package org.postgresql.jdbc.codec;
 
+import java.nio.CharBuffer;
 import java.sql.SQLException;
 
 /**
@@ -20,10 +21,12 @@ import java.sql.SQLException;
  * <h2>Reading values</h2>
  *
  * <p>{@link #readValue(char, char)} consumes one element and exposes it as a borrowed
- * slice via {@link #tokenChars()} / {@link #tokenOffset()} / {@link #tokenLength()}.
- * The slice points directly into the backing {@code char[]} when the element has
- * no escapes, and into a reusable scratch buffer when it does. It is valid only
- * until the next {@code readValue} call; leaf codecs must not retain it.</p>
+ * {@link CharBuffer} via {@link #getToken()}. The view points directly into the backing
+ * {@code char[]} when the element has no escapes, and into a reusable scratch buffer when it does.
+ * There is one view per backing array, repointed rather than replaced, so a container decoding a
+ * thousand-element array allocates neither a view nor a {@code String} per element. The view is
+ * valid only until the next read call; a leaf codec that needs to keep the text calls
+ * {@code toString()} before returning.</p>
  *
  * <p>On the wire side this cursor is lenient on decode: inside double quotes it
  * accepts both {@code \x} backslash escapes and {@code ""} doubled quotes, which
@@ -47,17 +50,50 @@ final class LiteralCursor {
   private int tokenLen;
   private boolean tokenQuoted;
 
-  LiteralCursor(char[] src, int offset, int length) {
+  // One view per backing array, repointed at each token by moving position/limit. The source array
+  // never changes, so its view is built once; the scratch view is rebuilt only when the buffer it
+  // wraps is replaced by a larger one.
+  private final CharBuffer sourceView;
+  private CharBuffer scratchView = CharBuffer.wrap(EMPTY);
+
+  private LiteralCursor(char[] src, int offset, int length) {
     this.src = src;
     this.start = offset;
     this.pos = offset;
     this.end = offset + length;
     this.tokenBuf = src;
+    this.sourceView = CharBuffer.wrap(src);
   }
 
-  static LiteralCursor over(String literal) {
-    char[] chars = literal.toCharArray();
+  /**
+   * Opens a cursor over {@code literal}, reading it in place whenever the backing {@code char[]} is
+   * reachable. A {@link CharBuffer} that exposes its array qualifies, which covers the nesting case
+   * for free: {@link #getToken()} hands out such a buffer, so an array of composites or a range
+   * inside a composite reaches its child codec with no copy. Anything else — a {@code String}, a
+   * read-only buffer, a foreign sequence — is copied out once per literal, never per token.
+   *
+   * <p>A child cursor built over a parent's token borrows the parent's buffer for the length of the
+   * child's decode, which is nested inside the call that produced the token. The parent cannot
+   * advance until that call returns, so the characters cannot move under the child.</p>
+   */
+  static LiteralCursor over(CharSequence literal) {
+    if (literal instanceof CharBuffer) {
+      CharBuffer buf = (CharBuffer) literal;
+      if (buf.hasArray()) {
+        return new LiteralCursor(buf.array(), buf.arrayOffset() + buf.position(), buf.remaining());
+      }
+    }
+    char[] chars = literal.toString().toCharArray();
     return new LiteralCursor(chars, 0, chars.length);
+  }
+
+  /**
+   * A second cursor over the same characters, positioned at the start. The array decoder makes a
+   * cheap structural pass to size the result before a second pass fills it; both read the same
+   * backing buffer, so the literal is never copied twice.
+   */
+  LiteralCursor restart() {
+    return new LiteralCursor(src, start, end - start);
   }
 
   // -------------------------- structural primitives --------------------------
@@ -171,8 +207,7 @@ final class LiteralCursor {
   /**
    * Reads one element up to (but not consuming) the next {@code delim} or the
    * container's {@code close} bracket. The decoded value is exposed via
-   * {@link #tokenChars()} / {@link #tokenOffset()} / {@link #tokenLength()} and
-   * {@link #tokenWasQuoted()}.
+   * {@link #getToken()} / {@link #tokenLength()} and {@link #tokenWasQuoted()}.
    *
    * <p>Only {@code close} terminates an unquoted run, not every bracket kind:
    * an unquoted composite field may legitimately contain {@code {}}/{@code []}
@@ -195,9 +230,9 @@ final class LiteralCursor {
   }
 
   /**
-   * Variant accepting two acceptable closing brackets, for a range upper bound
-   * that may be followed by either {@code ']'} (inclusive) or {@code ')'}
-   * (exclusive).
+   * Reads one element terminated by either of two closing brackets. Ranges use
+   * this because a range literal may close with {@code ']'} or {@code ')'}
+   * independently of how it opened.
    *
    * @param delim the element delimiter
    * @param close1 one acceptable closing bracket
@@ -233,12 +268,17 @@ final class LiteralCursor {
     skipWhitespace();
   }
 
-  char[] tokenChars() {
-    return tokenBuf;
-  }
-
-  int tokenOffset() {
-    return tokenOff;
+  /**
+   * The current token as a borrowed {@link CharSequence}. One of two view instances is returned,
+   * repointed at each read, so nothing is allocated per token; the caller must finish
+   * reading — or {@code toString()} — before advancing the cursor.
+   */
+  CharSequence getToken() {
+    CharBuffer view = tokenBuf == src ? sourceView : scratchView;
+    view.clear();
+    view.position(tokenOff);
+    view.limit(tokenOff + tokenLen);
+    return view;
   }
 
   int tokenLength() {
@@ -389,6 +429,7 @@ final class LiteralCursor {
   private char[] ensureScratch(int needed) {
     if (scratch.length < needed) {
       scratch = new char[Math.max(needed, 16)];
+      scratchView = CharBuffer.wrap(scratch);
     }
     return scratch;
   }

@@ -5,13 +5,13 @@
 
 package org.postgresql.jdbc.codec;
 
-import org.postgresql.api.codec.BackpatchingBinarySink;
+import org.postgresql.api.codec.BackpatchingByteArrayOutputStream;
 import org.postgresql.api.codec.CodecContext;
 import org.postgresql.api.codec.PrimitiveBinaryDecoder;
 import org.postgresql.api.codec.PrimitiveBinaryEncoder;
 import org.postgresql.api.codec.PrimitiveTextDecoder;
 import org.postgresql.api.codec.PrimitiveTextEncoder;
-import org.postgresql.api.codec.TextSink;
+import org.postgresql.api.codec.PrimitiveTextSink;
 import org.postgresql.api.codec.TypeDescriptor;
 import org.postgresql.core.Encoding;
 import org.postgresql.util.ByteConverter;
@@ -33,11 +33,6 @@ public final class Int4Codec implements PrimitiveBinaryEncoder, PrimitiveBinaryD
 
   private Int4Codec() {
     // Singleton
-  }
-
-  @Override
-  public String getPrimaryTypeName() {
-    return "int4";
   }
 
   @Override
@@ -75,24 +70,24 @@ public final class Int4Codec implements PrimitiveBinaryEncoder, PrimitiveBinaryD
 
   @Override
   public void encodeBinary(Object value, TypeDescriptor type, CodecContext ctx,
-      BackpatchingBinarySink out) throws SQLException, IOException {
+      BackpatchingByteArrayOutputStream out) throws SQLException, IOException {
     out.writeInt32(toInt(value));
   }
 
   @Override
   public void encodeText(Object value, TypeDescriptor type, CodecContext ctx, Appendable out)
       throws SQLException, IOException {
-    TextSink.appendInt(out, toInt(value));
+    PrimitiveTextSink.appendInt(out, toInt(value));
   }
 
   @Override
-  public void encodeInt(int value, TypeDescriptor type, CodecContext ctx, BackpatchingBinarySink out)
+  public void encodeInt(int value, TypeDescriptor type, CodecContext ctx, BackpatchingByteArrayOutputStream out)
       throws SQLException, IOException {
     out.writeInt32(value);
   }
 
   @Override
-  public void encodeLong(long value, TypeDescriptor type, CodecContext ctx, BackpatchingBinarySink out)
+  public void encodeLong(long value, TypeDescriptor type, CodecContext ctx, BackpatchingByteArrayOutputStream out)
       throws SQLException, IOException {
     if (value < Integer.MIN_VALUE || value > Integer.MAX_VALUE) {
       throw Exceptions.outOfRange(value, "int4");
@@ -103,7 +98,7 @@ public final class Int4Codec implements PrimitiveBinaryEncoder, PrimitiveBinaryD
   @Override
   public void encodeInt(int value, TypeDescriptor type, CodecContext ctx, Appendable out)
       throws SQLException, IOException {
-    TextSink.appendInt(out, value);
+    PrimitiveTextSink.appendInt(out, value);
   }
 
   @Override
@@ -112,25 +107,12 @@ public final class Int4Codec implements PrimitiveBinaryEncoder, PrimitiveBinaryD
     if (value < Integer.MIN_VALUE || value > Integer.MAX_VALUE) {
       throw Exceptions.outOfRange(value, "int4");
     }
-    TextSink.appendInt(out, (int) value);
+    PrimitiveTextSink.appendInt(out, (int) value);
   }
 
   @Override
-  public @Nullable Object decodeText(String data, TypeDescriptor type, CodecContext ctx) throws SQLException {
+  public @Nullable Object decodeText(CharSequence data, TypeDescriptor type, CodecContext ctx) throws SQLException {
     return decodeAsInt(data, type, ctx);
-  }
-
-  @Override
-  public @Nullable Object decodeText(char[] data, int offset, int length, TypeDescriptor type,
-      CodecContext ctx) throws SQLException {
-    try {
-      return (int) NumberParser.getFastLong(
-          data, offset, length, Integer.MIN_VALUE, Integer.MAX_VALUE);
-    } catch (NumberFormatException fast) {
-      // Anything the fast path rejects (a leading '+', whitespace, out-of-range)
-      // falls back to the String parser, which owns the error message.
-      return decodeText(new String(data, offset, length), type, ctx);
-    }
   }
 
   @Override
@@ -155,7 +137,7 @@ public final class Int4Codec implements PrimitiveBinaryEncoder, PrimitiveBinaryD
     } catch (NumberFormatException fast) {
       // The fast path rejects a leading '+', whitespace, or an out-of-range value; fall back to the
       // String parser, which owns the parse and the error message. A String reaching here is copied
-      // out once; a borrowed CharArraySequence slice parses in place on the fast path.
+      // out once; a borrowed view parses in place on the fast path.
       // It also rejects a non-ASCII digit, which Integer.parseInt would otherwise accept, so screen for
       // that here rather than on the fast path, where a well-formed value would pay for the scan.
       String text = data.toString();
@@ -221,7 +203,7 @@ public final class Int4Codec implements PrimitiveBinaryEncoder, PrimitiveBinaryD
   }
 
   @Override
-  public <T> @Nullable T decodeTextAs(String data, TypeDescriptor type, Class<T> targetClass, CodecContext ctx)
+  public <T> @Nullable T decodeTextAs(CharSequence data, TypeDescriptor type, Class<T> targetClass, CodecContext ctx)
       throws SQLException {
     int value = decodeAsInt(data, type, ctx);
     return decodeIntAs(value, targetClass);

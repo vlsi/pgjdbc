@@ -6,9 +6,13 @@
 package org.postgresql.jdbc.codec;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertSame;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import org.junit.jupiter.api.Test;
 
+import java.nio.CharBuffer;
 import java.sql.SQLException;
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -26,35 +30,54 @@ import java.util.List;
  */
 class LiteralCursorTest {
 
-  private static List<String> drive(LiteralCursor c, char open, char delim, char close)
-      throws SQLException {
-    c.expect(open);
+  /** Parses a one-dimensional array literal {@code {...}} into its peeled elements. */
+  private static List<String> array(String literal) throws SQLException {
+    return array(literal, ',');
+  }
+
+  /** Parses a one-dimensional array literal with a non-default delimiter. */
+  private static List<String> array(String literal, char delim) throws SQLException {
+    LiteralCursor c = LiteralCursor.over(literal);
+    c.skipDimensionPrefix();
+    c.expect('{');
     List<String> out = new ArrayList<>();
-    if (c.tryConsume(close)) {
+    if (c.tryConsume('}')) {
       return out;
     }
     do {
-      c.readValue(delim, close);
-      if (!c.tokenWasQuoted() && c.tokenEquals("NULL")) {
-        out.add(null);
-      } else {
-        out.add(new String(c.tokenChars(), c.tokenOffset(), c.tokenLength()));
-      }
+      c.readValue(delim, '}');
+      // The array NULL marker, as in the leaf codecs: an unquoted NULL only.
+      out.add(!c.tokenWasQuoted() && c.tokenEquals("NULL") ? null : c.getToken().toString());
     } while (c.tryConsume(delim));
-    c.expect(close);
+    c.expect('}');
     return out;
-  }
-
-  /** Parses a one-dimensional array literal {@code {...}} into its peeled elements. */
-  private static List<String> array(String literal) throws SQLException {
-    LiteralCursor c = LiteralCursor.over(literal);
-    c.skipDimensionPrefix();
-    return drive(c, '{', ',', '}');
   }
 
   /** Parses a composite literal {@code (...)} into its peeled fields. */
   private static List<String> composite(String literal) throws SQLException {
-    return drive(LiteralCursor.over(literal), '(', ',', ')');
+    LiteralCursor c = LiteralCursor.over(literal);
+    c.expect('(');
+    List<String> out = new ArrayList<>();
+    do {
+      c.readValue(',', ')');
+      // The composite NULL rule, as in CompositeCodec: unquoted and empty.
+      out.add(!c.tokenWasQuoted() && c.tokenLength() == 0 ? null : c.getToken().toString());
+    } while (c.tryConsume(','));
+    c.expect(')');
+    return out;
+  }
+
+  /** Parses a range literal into its two peeled bounds, an unbounded one as {@code null}. */
+  private static List<String> range(String literal) throws SQLException {
+    LiteralCursor c = LiteralCursor.over(literal);
+    c.expect(literal.charAt(0));
+    List<String> out = new ArrayList<>();
+    c.readValue(',', ']', ')');
+    out.add(!c.tokenWasQuoted() && c.tokenLength() == 0 ? null : c.getToken().toString());
+    c.expect(',');
+    c.readValue(',', ']', ')');
+    out.add(!c.tokenWasQuoted() && c.tokenLength() == 0 ? null : c.getToken().toString());
+    return out;
   }
 
   // -------------------------- plain scanning --------------------------
@@ -81,8 +104,7 @@ class LiteralCursorTest {
 
   @Test
   void customDelimiter() throws SQLException {
-    LiteralCursor c = LiteralCursor.over("{1;2;3}");
-    assertEquals(Arrays.asList("1", "2", "3"), drive(c, '{', ';', '}'));
+    assertEquals(Arrays.asList("1", "2", "3"), array("{1;2;3}", ';'));
   }
 
   // -------------------------- one-level un-escaping --------------------------
@@ -154,5 +176,86 @@ class LiteralCursorTest {
     // the inner field, re-parsed by a fresh cursor, peels the remaining level
     List<String> inner = composite(outer.get(0));
     assertEquals(Arrays.asList("x\"y", "1"), inner);
+  }
+
+  // -------------------------- the borrowed token view --------------------------
+
+  /** Reads every token of {@code {...}} as {@code getToken()} reports it, one at a time. */
+  private static List<String> tokensOf(CharSequence literal) throws SQLException {
+    LiteralCursor c = LiteralCursor.over(literal);
+    c.expect('{');
+    List<String> out = new ArrayList<>();
+    do {
+      c.readValue(',', '}');
+      CharSequence token = c.getToken();
+      // Read the view through CharSequence, not toString(), so a wrong length or offset shows up
+      // as wrong characters rather than being hidden by the copy.
+      StringBuilder sb = new StringBuilder(token.length());
+      for (int i = 0; i < token.length(); i++) {
+        sb.append(token.charAt(i));
+      }
+      assertEquals(sb.toString(), token.toString(), "charAt must agree with toString");
+      out.add(sb.toString());
+    } while (c.tryConsume(','));
+    c.expect('}');
+    return out;
+  }
+
+  @Test
+  void tokenView_readsUnquotedTokensFromTheSourceBuffer() throws SQLException {
+    assertEquals(Arrays.asList("1", "22", "333"), tokensOf("{1,22,333}"));
+  }
+
+  @Test
+  void tokenView_readsUnescapedTokensFromTheScratchBuffer() throws SQLException {
+    // literal: {"a""b","c\d"} — both need un-escaping, so both come out of scratch.
+    assertEquals(Arrays.asList("a\"b", "c\\d"), tokensOf("{\"a\"\"b\",\"c\\\\d\"}"));
+  }
+
+  @Test
+  void tokenView_switchesBetweenSourceAndScratch() throws SQLException {
+    // plain -> escaped -> plain -> longer escaped: the view is repointed each time, and the
+    // scratch buffer grows on the last token without stranding the view on the old array.
+    assertEquals(Arrays.asList("x", "a\"b", "y", "long\"value\"here"),
+        tokensOf("{x,\"a\"\"b\",y,\"long\"\"value\"\"here\"}"));
+  }
+
+  @Test
+  void tokenView_readsAnEmbeddedCharBuffer() throws SQLException {
+    // The literal sits at offset 4 of a larger array. A wrapped slice carries the offset as the
+    // buffer's position; slicing it again carries the same offset as arrayOffset instead. A cursor
+    // that dropped either would read the surrounding noise.
+    char[] backing = "####{1,22,333}####".toCharArray();
+    CharBuffer positioned = CharBuffer.wrap(backing, 4, 10);
+    assertEquals(Arrays.asList("1", "22", "333"), tokensOf(positioned));
+
+    CharBuffer sliced = positioned.slice();
+    assertEquals(4, sliced.arrayOffset(), "slice must fold the offset into arrayOffset");
+    assertEquals(Arrays.asList("1", "22", "333"), tokensOf(sliced));
+  }
+
+  @Test
+  void tokenView_readsAReadOnlyCharBufferThroughTheFallback() throws SQLException {
+    // A read-only buffer denies hasArray(), so the cursor copies the literal out once up front.
+    CharBuffer readOnly = CharBuffer.wrap("{x,\"a\"\"b\"}".toCharArray()).asReadOnlyBuffer();
+    assertFalse(readOnly.hasArray(), "a read-only buffer must not expose its array");
+    assertEquals(Arrays.asList("x", "a\"b"), tokensOf(readOnly));
+  }
+
+  @Test
+  void tokenView_exposesItsBackingArraySoANestedLiteralCostsNoCopy() throws SQLException {
+    // A nested container reopens its field with LiteralCursor.over, which reads a buffer in place
+    // only when it can reach the array behind it. A view that hid its array would still decode
+    // correctly — it would just quietly copy every nested literal — so pin the property itself.
+    char[] backing = "{alpha,beta}".toCharArray();
+    LiteralCursor c = LiteralCursor.over(CharBuffer.wrap(backing));
+    c.expect('{');
+    c.readValue(',', '}');
+
+    CharBuffer token = (CharBuffer) c.getToken();
+    assertTrue(token.hasArray(), "the token must expose its backing array");
+    assertSame(backing, token.array(), "the token must point at the source, not a copy");
+    assertEquals(1, token.arrayOffset() + token.position(), "token starts after the brace");
+    assertEquals("alpha", token.toString());
   }
 }

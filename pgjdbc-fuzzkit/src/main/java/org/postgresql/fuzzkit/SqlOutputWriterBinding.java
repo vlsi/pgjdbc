@@ -40,8 +40,8 @@ import java.util.Set;
 public enum SqlOutputWriterBinding {
   WRITE_INT(Method.WRITE_INT, "writeInt", (out, v) -> out.writeInt((Integer) v)),
   WRITE_LONG(Method.WRITE_LONG, "writeLong", (out, v) -> out.writeLong((Long) v)),
-  WRITE_FLOAT(Method.WRITE_FLOAT, "writeFloat", (out, v) -> out.writeFloat((Float) v)),
-  WRITE_DOUBLE(Method.WRITE_DOUBLE, "writeDouble", (out, v) -> out.writeDouble((Double) v)),
+  WRITE_FLOAT(Method.WRITE_FLOAT, "writeFloat4", (out, v) -> out.writeFloat((Float) v)),
+  WRITE_DOUBLE(Method.WRITE_DOUBLE, "writeFloat8", (out, v) -> out.writeDouble((Double) v)),
   WRITE_BOOLEAN(Method.WRITE_BOOLEAN, "writeBoolean", (out, v) -> out.writeBoolean((Boolean) v)),
   WRITE_STRING(Method.WRITE_STRING, "writeString", (out, v) -> out.writeString((String) v)),
   WRITE_N_STRING(Method.WRITE_N_STRING, "writeNString", (out, v) -> out.writeNString((String) v)),

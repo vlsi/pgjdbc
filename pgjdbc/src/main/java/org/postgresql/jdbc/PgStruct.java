@@ -70,7 +70,7 @@ public class PgStruct extends org.postgresql.util.PGobject implements Struct {
    * @param connection the connection (used for type mapping)
    */
   public PgStruct(PgType pgType, @Nullable Object[] attributes, @Nullable BaseConnection connection) {
-    this(pgType.getFullName(), pgType, attributes, connection, null);
+    this(pgType.getFormattedName(), pgType, attributes, connection, null);
   }
 
   /**
@@ -88,7 +88,7 @@ public class PgStruct extends org.postgresql.util.PGobject implements Struct {
    */
   public static PgStruct withCodecContext(PgType pgType, @Nullable Object[] attributes,
       PgCodecContext codecContext) {
-    return new PgStruct(pgType.getFullName(), pgType, attributes, null, codecContext);
+    return new PgStruct(pgType.getFormattedName(), pgType, attributes, null, codecContext);
   }
 
   /**

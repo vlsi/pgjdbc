@@ -71,7 +71,7 @@ public class PgParameterMetaData implements ParameterMetaData {
     // Return the raw pg_type.typname (e.g. "timestamp", "_int4") rather than
     // format_type()'s pretty name ("timestamp without time zone", "integer[]"),
     // matching the legacy contract that callers rely on.
-    return connection.getTypeInfo().getPgTypeByOid(oids[param - 1]).getTypeName().getName();
+    return connection.getTypeInfo().getPgTypeByOid(oids[param - 1]).getName().getLocalName();
   }
 
   // we don't know this

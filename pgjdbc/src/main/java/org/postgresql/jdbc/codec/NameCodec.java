@@ -16,6 +16,5 @@ public final class NameCodec extends AbstractTextCodec {
   public static final NameCodec INSTANCE = new NameCodec();
 
   private NameCodec() {
-    super("name");
   }
 }

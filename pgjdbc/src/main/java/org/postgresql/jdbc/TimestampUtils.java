@@ -8,7 +8,7 @@ package org.postgresql.jdbc;
 import static org.postgresql.util.internal.Nullness.castNonNull;
 
 import org.postgresql.PGStatement;
-import org.postgresql.api.codec.BackpatchingBinarySink;
+import org.postgresql.api.codec.BackpatchingByteArrayOutputStream;
 import org.postgresql.core.JavaVersion;
 import org.postgresql.core.Oid;
 import org.postgresql.core.Provider;
@@ -167,7 +167,7 @@ public class TimestampUtils {
 
   /**
    * Whether the backend uses doubles (rather than longs) for time values. Read by
-   * {@link PgCodecContext#usesDoubleDateTime()} for connectionless test contexts.
+   * {@link PgCodecContext#usesIntegerDateTimes()} for connectionless test contexts.
    *
    * @return true if the backend uses doubles for time values
    */
@@ -2262,22 +2262,22 @@ public class TimestampUtils {
     return out;
   }
 
-  // ------------------- streaming binary encode (BackpatchingBinarySink) -------------------
+  // ------------------- streaming binary encode (BackpatchingByteArrayOutputStream) -------------------
   // These mirror the toBin*/writeBinDate byte[] encoders exactly, writing the same wire bytes
   // straight into the sink so container elements avoid a per-element scratch byte[].
 
   /** Streaming counterpart of {@link #infinityTimestamp(boolean, boolean)}. */
   static void writeInfinityTimestamp(boolean usesDouble, boolean positive,
-      BackpatchingBinarySink out) throws IOException {
+      BackpatchingByteArrayOutputStream out) throws IOException {
     if (usesDouble) {
-      out.writeDouble(positive ? Double.POSITIVE_INFINITY : Double.NEGATIVE_INFINITY);
+      out.writeFloat8(positive ? Double.POSITIVE_INFINITY : Double.NEGATIVE_INFINITY);
     } else {
       out.writeInt64(positive ? Long.MAX_VALUE : Long.MIN_VALUE);
     }
   }
 
   /** Streaming counterpart of {@link #writeBinDate(TimeZone, byte[], Date)}. */
-  static void writeBinDate(TimeZone tz, BackpatchingBinarySink out, Date value) throws IOException {
+  static void writeBinDate(TimeZone tz, BackpatchingByteArrayOutputStream out, Date value) throws IOException {
     long millis = value.getTime();
     millis += tz.getOffset(millis);
     long secs = toPgSecs(millis / 1000);
@@ -2285,20 +2285,20 @@ public class TimestampUtils {
   }
 
   /** Streaming counterpart of {@link #toBinTime(boolean, LocalTime)}. */
-  static void writeBinTime(boolean usesDouble, LocalTime value, BackpatchingBinarySink out)
+  static void writeBinTime(boolean usesDouble, LocalTime value, BackpatchingByteArrayOutputStream out)
       throws IOException {
     writeMicros(usesDouble, out, microsOfDay(value));
   }
 
   /** Streaming counterpart of {@link #toBinTimeTz(boolean, OffsetTime)}. */
-  static void writeBinTimeTz(boolean usesDouble, OffsetTime value, BackpatchingBinarySink out)
+  static void writeBinTimeTz(boolean usesDouble, OffsetTime value, BackpatchingByteArrayOutputStream out)
       throws IOException {
     writeMicros(usesDouble, out, microsOfDay(value.toLocalTime()));
     out.writeInt32(-value.getOffset().getTotalSeconds());
   }
 
   /** Streaming counterpart of {@link #toBinTimestamp(boolean, LocalDateTime)}. */
-  static void writeBinTimestamp(boolean usesDouble, LocalDateTime value, BackpatchingBinarySink out)
+  static void writeBinTimestamp(boolean usesDouble, LocalDateTime value, BackpatchingByteArrayOutputStream out)
       throws PSQLException, IOException {
     if (value.isAfter(MAX_LOCAL_DATETIME)) {
       writeInfinityTimestamp(usesDouble, true, out);
@@ -2318,7 +2318,7 @@ public class TimestampUtils {
   }
 
   /** Streaming counterpart of {@link #toBinTimestampTz(boolean, Instant)}. */
-  static void writeBinTimestampTz(boolean usesDouble, Instant value, BackpatchingBinarySink out)
+  static void writeBinTimestampTz(boolean usesDouble, Instant value, BackpatchingByteArrayOutputStream out)
       throws PSQLException, IOException {
     @SuppressWarnings("JavaLocalDateTimeGetNano")
     int nano = value.getNano();
@@ -2372,10 +2372,10 @@ public class TimestampUtils {
   }
 
   /** Streaming counterpart of {@link #writeMicros(boolean, byte[], int, long)}. */
-  private static void writeMicros(boolean usesDouble, BackpatchingBinarySink out, long micros)
+  private static void writeMicros(boolean usesDouble, BackpatchingByteArrayOutputStream out, long micros)
       throws IOException {
     if (usesDouble) {
-      out.writeDouble(micros / 1_000_000d);
+      out.writeFloat8(micros / 1_000_000d);
     } else {
       out.writeInt64(micros);
     }

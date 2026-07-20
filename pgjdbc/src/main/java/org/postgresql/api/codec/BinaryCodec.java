@@ -9,7 +9,6 @@ import org.postgresql.api.Experimental;
 
 import org.checkerframework.checker.nullness.qual.Nullable;
 
-import java.io.IOException;
 import java.sql.SQLException;
 
 /**
@@ -212,20 +211,6 @@ public interface BinaryCodec extends Codec {
     if (targetClass.isInstance(value)) {
       return targetClass.cast(value);
     }
-    throw Codecs.cannotDecode(getPrimaryTypeName(), targetClass.getName());
-  }
-
-  static void writeElement(BackpatchingBinarySink out, Object element, BinaryCodec codec, TypeDescriptor type,
-      CodecContext ctx) throws IOException, SQLException {
-    if (codec instanceof StreamingBinaryCodec) {
-      int lengthSlot = out.reserveInt32();
-      int startPos = out.position();
-      ((StreamingBinaryCodec) codec).encodeBinary(element, type, ctx, out);
-      out.setInt32At(lengthSlot, out.position() - startPos);
-    } else {
-      byte[] encoded = codec.encodeBinary(element, type, ctx);
-      out.writeInt32(encoded.length);
-      out.write(encoded);
-    }
+    throw Codecs.cannotDecode(type.getFormattedName(), targetClass.getName());
   }
 }

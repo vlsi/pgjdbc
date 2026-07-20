@@ -6,9 +6,9 @@
 package org.postgresql.fuzzkit;
 
 import org.postgresql.api.codec.CodecContext;
+import org.postgresql.api.codec.TypeName;
 import org.postgresql.core.Oid;
 import org.postgresql.fuzzkit.coercion.PgTypeDescriptors;
-import org.postgresql.jdbc.ObjectName;
 import org.postgresql.jdbc.OfflineCodecs;
 import org.postgresql.jdbc.PgType;
 
@@ -76,14 +76,14 @@ public final class ContainerDecodeTypes {
   // An offline int4range: a range type (typtype='r') carrying its subtype OID directly, so RangeCodec
   // resolves the int4 bound codec without a connection (pg_range.rngsubtype is normally loaded lazily).
   public static final PgType INT4RANGE =
-      new PgType(new ObjectName("pg_catalog", "int4range"), "pg_catalog.int4range",
+      new PgType(TypeName.of("pg_catalog", "int4range"), "pg_catalog.int4range",
           INT4RANGE_OID, 'r', 'R', -1, 0, 0, 0).withRangeSubtype(Oid.INT4);
   public static final CodecContext INT4RANGE_CONTEXT = OfflineCodecs.builder().type(INT4RANGE).build();
 
   // An offline int4multirange (typtype='m') over the int4range above; the context registers both so
   // MultirangeCodec resolves the element range codec, which in turn resolves the int4 bound codec.
   public static final PgType INT4MULTIRANGE =
-      new PgType(new ObjectName("pg_catalog", "int4multirange"), "pg_catalog.int4multirange",
+      new PgType(TypeName.of("pg_catalog", "int4multirange"), "pg_catalog.int4multirange",
           INT4MULTIRANGE_OID, 'm', 'R', -1, 0, 0, 0).withMultirangeRange(INT4RANGE_OID);
   public static final CodecContext INT4MULTIRANGE_CONTEXT =
       OfflineCodecs.builder().type(INT4RANGE).type(INT4MULTIRANGE).build();
@@ -91,7 +91,7 @@ public final class ContainerDecodeTypes {
   // An offline int4 domain (typtype='d') carrying its base type OID directly, so DomainCodec forwards the
   // decode -- offset and length included -- to the built-in int4 codec without a connection.
   public static final PgType INT4_DOMAIN =
-      new PgType(new ObjectName("public", "int4_domain"), "public.int4_domain",
+      new PgType(TypeName.of("public", "int4_domain"), "public.int4_domain",
           INT4_DOMAIN_OID, 'd', 'N', -1, 0, 0, Oid.INT4);
   public static final CodecContext INT4_DOMAIN_CONTEXT = OfflineCodecs.builder().type(INT4_DOMAIN).build();
 

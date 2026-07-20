@@ -15,7 +15,7 @@ import java.sql.SQLException;
 
 /**
  * Static dispatch for the primitive decode accessors (the read-side counterpart of
- * {@link TextSink}'s and {@link BackpatchingBinarySink}'s typed writers).
+ * {@link PrimitiveTextSink}'s and {@link BackpatchingByteArrayOutputStream}'s typed writers).
  *
  * <p>The primitive accessors ({@code decodeAsInt} and friends) live on the opt-in
  * {@link PrimitiveBinaryDecoder} / {@link PrimitiveTextDecoder} capabilities rather than on the base
@@ -38,42 +38,24 @@ public final class PrimitiveDecoders {
   // Binary
   // ===========================================================================
 
-  /** Decodes {@code data} as a int; see {@link #asInt(BinaryCodec, byte[], int, int, TypeDescriptor, CodecContext)}. */
-  public static int asInt(BinaryCodec codec, byte[] data, TypeDescriptor type, CodecContext ctx)
-      throws SQLException {
-    return asInt(codec, data, 0, data.length, type, ctx);
-  }
-
-  /** Decodes {@code data} as a long; see {@link #asLong(BinaryCodec, byte[], int, int, TypeDescriptor, CodecContext)}. */
-  public static long asLong(BinaryCodec codec, byte[] data, TypeDescriptor type, CodecContext ctx)
-      throws SQLException {
-    return asLong(codec, data, 0, data.length, type, ctx);
-  }
-
-  /** Decodes {@code data} as a float; see {@link #asFloat(BinaryCodec, byte[], int, int, TypeDescriptor, CodecContext)}. */
-  public static float asFloat(BinaryCodec codec, byte[] data, TypeDescriptor type, CodecContext ctx)
-      throws SQLException {
-    return asFloat(codec, data, 0, data.length, type, ctx);
-  }
-
-  /** Decodes {@code data} as a double; see {@link #asDouble(BinaryCodec, byte[], int, int, TypeDescriptor, CodecContext)}. */
-  public static double asDouble(BinaryCodec codec, byte[] data, TypeDescriptor type, CodecContext ctx)
-      throws SQLException {
-    return asDouble(codec, data, 0, data.length, type, ctx);
-  }
-
-  /** Decodes {@code data} as a boolean; see {@link #asBoolean(BinaryCodec, byte[], int, int, TypeDescriptor, CodecContext)}. */
-  public static boolean asBoolean(BinaryCodec codec, byte[] data, TypeDescriptor type, CodecContext ctx)
-      throws SQLException {
-    return asBoolean(codec, data, 0, data.length, type, ctx);
-  }
-
   // ---------------------------------------------------------------------------
   // Binary, slice form -- decode a value in place off a larger buffer. A wrapping
   // codec (a domain over its base type) forwards the slice straight through.
   // ---------------------------------------------------------------------------
 
-  /** Slice form of {@link #asInt(BinaryCodec, byte[], TypeDescriptor, CodecContext)}. */
+  /**
+   * Decodes binary data as an integer. If the provided codec implements {@code PrimitiveBinaryDecoder},
+   * it uses its native path for decoding. Otherwise, it converts the decoded binary result into an integer.
+   *
+   * @param codec the binary codec to be used for decoding
+   * @param data the binary data to decode
+   * @param offset the starting position in the data array
+   * @param length the number of bytes to decode
+   * @param type the type descriptor providing contextual information about the target type
+   * @param ctx the codec context containing additional decoding configurations
+   * @return the decoded integer value
+   * @throws SQLException if an error occurs during decoding
+   */
   public static int asInt(BinaryCodec codec, byte[] data, int offset, int length, TypeDescriptor type,
       CodecContext ctx) throws SQLException {
     if (codec instanceof PrimitiveBinaryDecoder) {
@@ -82,7 +64,19 @@ public final class PrimitiveDecoders {
     return boxToInt(codec.decodeBinary(data, offset, length, type, ctx));
   }
 
-  /** Slice form of {@link #asLong(BinaryCodec, byte[], TypeDescriptor, CodecContext)}. */
+  /**
+   * Decodes binary data as a long. If the provided codec implements {@code PrimitiveBinaryDecoder},
+   * it uses its native path for decoding. Otherwise, it converts the decoded binary result into a long.
+   *
+   * @param codec the binary codec to be used for decoding
+   * @param data the binary data to decode
+   * @param offset the starting position in the data array
+   * @param length the number of bytes to decode
+   * @param type the type descriptor providing contextual information about the target type
+   * @param ctx the codec context containing additional decoding configurations
+   * @return the decoded long value
+   * @throws SQLException if an error occurs during decoding
+   */
   public static long asLong(BinaryCodec codec, byte[] data, int offset, int length, TypeDescriptor type,
       CodecContext ctx) throws SQLException {
     if (codec instanceof PrimitiveBinaryDecoder) {
@@ -91,7 +85,19 @@ public final class PrimitiveDecoders {
     return boxToLong(codec.decodeBinary(data, offset, length, type, ctx));
   }
 
-  /** Slice form of {@link #asFloat(BinaryCodec, byte[], TypeDescriptor, CodecContext)}. */
+  /**
+   * Decodes binary data as a float. If the provided codec implements {@code PrimitiveBinaryDecoder},
+   * it uses its native decoding path. Otherwise, it converts the decoded binary result into a float.
+   *
+   * @param codec the binary codec to be used for decoding
+   * @param data the binary data to decode
+   * @param offset the starting position in the data array
+   * @param length the number of bytes to decode
+   * @param type the type descriptor providing contextual information about the target type
+   * @param ctx the codec context containing additional decoding configurations
+   * @return the decoded float value
+   * @throws SQLException if an error occurs during decoding
+   */
   public static float asFloat(BinaryCodec codec, byte[] data, int offset, int length, TypeDescriptor type,
       CodecContext ctx) throws SQLException {
     if (codec instanceof PrimitiveBinaryDecoder) {
@@ -100,7 +106,19 @@ public final class PrimitiveDecoders {
     return boxToFloat(codec.decodeBinary(data, offset, length, type, ctx));
   }
 
-  /** Slice form of {@link #asDouble(BinaryCodec, byte[], TypeDescriptor, CodecContext)}. */
+  /**
+   * Decodes binary data as a double. If the provided codec implements {@code PrimitiveBinaryDecoder},
+   * it uses its native decoding path. Otherwise, it converts the decoded binary result into a double.
+   *
+   * @param codec the binary codec to be used for decoding
+   * @param data the binary data to decode
+   * @param offset the starting position in the data array
+   * @param length the number of bytes to decode
+   * @param type the type descriptor providing contextual information about the target type
+   * @param ctx the codec context containing additional decoding configurations
+   * @return the decoded double value
+   * @throws SQLException if an error occurs during decoding
+   */
   public static double asDouble(BinaryCodec codec, byte[] data, int offset, int length, TypeDescriptor type,
       CodecContext ctx) throws SQLException {
     if (codec instanceof PrimitiveBinaryDecoder) {
@@ -109,7 +127,19 @@ public final class PrimitiveDecoders {
     return boxToDouble(codec.decodeBinary(data, offset, length, type, ctx));
   }
 
-  /** Slice form of {@link #asBoolean(BinaryCodec, byte[], TypeDescriptor, CodecContext)}. */
+  /**
+   * Decodes binary data as a boolean. If the provided codec implements {@code PrimitiveBinaryDecoder},
+   * it uses its native decoding path. Otherwise, it converts the decoded binary result into a boolean.
+   *
+   * @param codec the binary codec to be used for decoding
+   * @param data the binary data to decode
+   * @param offset the starting position in the data array
+   * @param length the number of bytes to decode
+   * @param type the type descriptor providing contextual information about the target type
+   * @param ctx the codec context containing additional decoding configurations
+   * @return the decoded boolean value
+   * @throws SQLException if an error occurs during decoding
+   */
   public static boolean asBoolean(BinaryCodec codec, byte[] data, int offset, int length,
       TypeDescriptor type, CodecContext ctx) throws SQLException {
     if (codec instanceof PrimitiveBinaryDecoder) {
@@ -139,16 +169,14 @@ public final class PrimitiveDecoders {
 
   /**
    * Decodes {@code data} as an int through {@code codec}'s native path when it implements
-   * {@link PrimitiveTextDecoder}, otherwise by boxing through {@link TextCodec#decodeText}. The
-   * {@code data} may be a {@code String} or a borrowed {@link CharArraySequence} slice; the boxing
-   * fallback copies it out with {@link CharSequence#toString()}.
+   * {@link PrimitiveTextDecoder}, otherwise by boxing through {@link TextCodec#decodeText}.
    */
   public static int asInt(TextCodec codec, CharSequence data, TypeDescriptor type, CodecContext ctx)
       throws SQLException {
     if (codec instanceof PrimitiveTextDecoder) {
       return ((PrimitiveTextDecoder) codec).decodeAsInt(data, type, ctx);
     }
-    return boxToInt(codec.decodeText(data.toString(), type, ctx));
+    return boxToInt(codec.decodeText(data, type, ctx));
   }
 
   /** Decodes {@code data} as a long; see {@link #asInt(TextCodec, CharSequence, TypeDescriptor, CodecContext)}. */
@@ -157,7 +185,7 @@ public final class PrimitiveDecoders {
     if (codec instanceof PrimitiveTextDecoder) {
       return ((PrimitiveTextDecoder) codec).decodeAsLong(data, type, ctx);
     }
-    return boxToLong(codec.decodeText(data.toString(), type, ctx));
+    return boxToLong(codec.decodeText(data, type, ctx));
   }
 
   /** Decodes {@code data} as a float; see {@link #asInt(TextCodec, CharSequence, TypeDescriptor, CodecContext)}. */
@@ -166,7 +194,7 @@ public final class PrimitiveDecoders {
     if (codec instanceof PrimitiveTextDecoder) {
       return ((PrimitiveTextDecoder) codec).decodeAsFloat(data, type, ctx);
     }
-    return boxToFloat(codec.decodeText(data.toString(), type, ctx));
+    return boxToFloat(codec.decodeText(data, type, ctx));
   }
 
   /** Decodes {@code data} as a double; see {@link #asInt(TextCodec, CharSequence, TypeDescriptor, CodecContext)}. */
@@ -175,7 +203,7 @@ public final class PrimitiveDecoders {
     if (codec instanceof PrimitiveTextDecoder) {
       return ((PrimitiveTextDecoder) codec).decodeAsDouble(data, type, ctx);
     }
-    return boxToDouble(codec.decodeText(data.toString(), type, ctx));
+    return boxToDouble(codec.decodeText(data, type, ctx));
   }
 
   /** Decodes {@code data} as a boolean; see {@link #asInt(TextCodec, CharSequence, TypeDescriptor, CodecContext)}. */
@@ -184,23 +212,20 @@ public final class PrimitiveDecoders {
     if (codec instanceof PrimitiveTextDecoder) {
       return ((PrimitiveTextDecoder) codec).decodeAsBoolean(data, type, ctx);
     }
-    String text = data.toString();
     return BooleanCoercion.castAndCheck(
-        codec.decodeText(text, type, ctx), () -> codec.decodeAsString(text, type, ctx));
+        codec.decodeText(data, type, ctx), () -> codec.decodeAsString(data, type, ctx));
   }
 
   /**
    * Decodes {@code data} as a {@link BigDecimal} through {@code codec}'s native path when it
    * implements {@link PrimitiveTextDecoder}, otherwise by boxing through {@link TextCodec#decodeText}.
-   * The {@code data} may be a {@code String} or a borrowed {@link CharArraySequence} slice; the boxing
-   * fallback copies it out with {@link CharSequence#toString()}.
    */
   public static @Nullable BigDecimal asBigDecimal(TextCodec codec, CharSequence data,
       TypeDescriptor type, CodecContext ctx) throws SQLException {
     if (codec instanceof PrimitiveTextDecoder) {
       return ((PrimitiveTextDecoder) codec).decodeAsBigDecimal(data, type, ctx);
     }
-    return boxToBigDecimal(codec.decodeText(data.toString(), type, ctx));
+    return boxToBigDecimal(codec.decodeText(data, type, ctx));
   }
 
   /**

@@ -9,7 +9,7 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 
 import org.postgresql.api.codec.CodecContext;
 import org.postgresql.api.codec.TypeDescriptor;
-import org.postgresql.jdbc.ObjectName;
+import org.postgresql.api.codec.TypeName;
 import org.postgresql.jdbc.PgType;
 import org.postgresql.jdbc.TestCodecContext;
 import org.postgresql.test.TestUtil;
@@ -156,7 +156,7 @@ class ServerCoercionTruthTest {
   // ---------------------------------------------------------------------------------------------
 
   private static final TypeDescriptor UNKNOWN_TYPE = new PgType(
-      new ObjectName("pg_catalog", "unknown_type"), "unknown_type", 99999, 'b', 'X', -1, 0, 0, 0);
+      TypeName.of("pg_catalog", "unknown_type"), "unknown_type", 99999, 'b', 'X', -1, 0, 0, 0);
   private static final CodecContext OFFLINE_CTX = TestCodecContext.create();
 
   static List<Arguments> fallbackFloatingCases() {

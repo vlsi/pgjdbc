@@ -35,11 +35,6 @@ public final class XmlCodec implements BinaryCodec, TextCodec {
   }
 
   @Override
-  public String getPrimaryTypeName() {
-    return "xml";
-  }
-
-  @Override
   public Class<?> getDefaultJavaType() {
     // SQLXML matches the legacy ResultSetMetaData contract; PgResultSet.getObject
     // produces the PgSQLXML wrapper via getSQLXML() rather than the codec's
@@ -60,8 +55,9 @@ public final class XmlCodec implements BinaryCodec, TextCodec {
   }
 
   @Override
-  public @Nullable Object decodeText(String data, TypeDescriptor type, CodecContext ctx) throws SQLException {
-    return data;
+  public @Nullable String decodeText(CharSequence data, TypeDescriptor type, CodecContext ctx) throws SQLException {
+    // The XML text is the value; materialize it, since the borrowed view goes stale on return.
+    return data.toString();
   }
 
   @Override
@@ -76,8 +72,9 @@ public final class XmlCodec implements BinaryCodec, TextCodec {
   }
 
   @Override
-  public String decodeAsString(String data, TypeDescriptor type, CodecContext ctx) throws SQLException {
-    return data;
+  public String decodeAsString(CharSequence data, TypeDescriptor type, CodecContext ctx) throws SQLException {
+    String text = data.toString();
+    return text;
   }
 
   @Override
@@ -92,10 +89,10 @@ public final class XmlCodec implements BinaryCodec, TextCodec {
 
   @Override
   @SuppressWarnings("unchecked")
-  public <T> @Nullable T decodeTextAs(String data, TypeDescriptor type, Class<T> targetClass, CodecContext ctx)
+  public <T> @Nullable T decodeTextAs(CharSequence data, TypeDescriptor type, Class<T> targetClass, CodecContext ctx)
       throws SQLException {
     if (targetClass == String.class || targetClass == Object.class) {
-      return (T) data;
+      return (T) data.toString();
     }
     throw Exceptions.cannotDecode("xml", targetClass.getName());
   }

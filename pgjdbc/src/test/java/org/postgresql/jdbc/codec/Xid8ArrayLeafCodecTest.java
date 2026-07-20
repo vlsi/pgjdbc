@@ -119,6 +119,6 @@ class Xid8ArrayLeafCodecTest {
   @Test
   void registry_xid8_isArrayElementCodec() {
     CodecRegistry registry = new CodecRegistry();
-    assertInstanceOf(ArrayElementCodec.class, registry.getByName("xid8"));
+    assertInstanceOf(ArrayElementCodec.class, registry.getByLocalName("xid8"));
   }
 }

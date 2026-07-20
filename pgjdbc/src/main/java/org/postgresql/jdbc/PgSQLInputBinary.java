@@ -11,6 +11,7 @@ import org.postgresql.api.codec.BinaryCodec;
 import org.postgresql.api.codec.PrimitiveDecoders;
 import org.postgresql.api.codec.TypeDescriptor;
 import org.postgresql.util.ByteConverter;
+import org.postgresql.util.internal.CompositeWireErrors;
 
 import org.checkerframework.checker.nullness.qual.Nullable;
 
@@ -92,13 +93,13 @@ public final class PgSQLInputBinary extends PgSQLInput {
       throws SQLException {
     super(type, ctx);
     if (length < 4) {
-      throw Exceptions.invalidCompositeTooShort();
+      throw CompositeWireErrors.tooShort();
     }
     this.source = source;
     this.end = offset + length;
     int count = ByteConverter.int4(source, offset);
     if (count < 0) {
-      throw Exceptions.invalidCompositeNegativeFieldCount(count);
+      throw CompositeWireErrors.negativeFieldCount(count);
     }
     this.wireFieldCount = count;
     this.pos = offset + 4;
@@ -115,7 +116,7 @@ public final class PgSQLInputBinary extends PgSQLInput {
     // Field header: int4 oid, int4 length. Bound every read against `end` so a truncated or sub-sliced
     // buffer fails cleanly instead of reading past the composite into neighbouring bytes.
     if (end - pos < 8) {
-      throw Exceptions.invalidCompositeUnexpectedEnd(fieldIndex - 1);
+      throw CompositeWireErrors.unexpectedEnd(fieldIndex - 1);
     }
     // The declared field type drives decoding, so the wire OID is skipped.
     pos += 4;
@@ -126,10 +127,10 @@ public final class PgSQLInputBinary extends PgSQLInput {
       return true;
     }
     if (length < 0) {
-      throw Exceptions.invalidCompositeFieldLength(length, fieldIndex - 1);
+      throw CompositeWireErrors.fieldLength(length, fieldIndex - 1);
     }
     if (end - pos < length) {
-      throw Exceptions.invalidCompositeNotEnoughData(fieldIndex - 1);
+      throw CompositeWireErrors.notEnoughData(fieldIndex - 1);
     }
     curOffset = pos;
     curLength = length;
@@ -226,6 +227,6 @@ public final class PgSQLInputBinary extends PgSQLInput {
     // field bytes must be copied out because the PgArray outlives this reader and owns its own buffer.
     byte[] arrayBytes = Arrays.copyOfRange(source, curOffset, curOffset + curLength);
     return new PgArray(ctx.requireConnection(getCurrentType()), getCurrentType().getOid(),
-        getCurrentType().getTypmod(), arrayBytes);
+        getCurrentType().getAppliedTypmod(), arrayBytes);
   }
 }

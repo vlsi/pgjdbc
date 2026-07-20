@@ -11,12 +11,14 @@ import static org.junit.jupiter.api.Assertions.assertInstanceOf;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 
+import org.postgresql.api.codec.BackpatchingByteArrayOutputStream;
 import org.postgresql.api.codec.BinaryCodec;
 import org.postgresql.api.codec.CodecContext;
 import org.postgresql.api.codec.Codecs;
 import org.postgresql.api.codec.Format;
-import org.postgresql.api.codec.RawValue;
 import org.postgresql.api.codec.StreamingBinaryCodec;
+import org.postgresql.api.codec.TypeName;
+import org.postgresql.api.codec.WireValueSlice;
 import org.postgresql.core.Oid;
 import org.postgresql.geometric.PGcircle;
 import org.postgresql.geometric.PGline;
@@ -24,7 +26,6 @@ import org.postgresql.geometric.PGlseg;
 import org.postgresql.geometric.PGpath;
 import org.postgresql.geometric.PGpoint;
 import org.postgresql.geometric.PGpolygon;
-import org.postgresql.jdbc.ObjectName;
 import org.postgresql.jdbc.OfflineCodecs;
 import org.postgresql.jdbc.PgField;
 import org.postgresql.jdbc.PgStruct;
@@ -68,19 +69,19 @@ class OfflineContainerRoundtripTest {
   private static final int POINT_ARRAY_OID = 90_004;
 
   private static final PgType TEXT_ARRAY = new PgType(
-      new ObjectName("pg_catalog", "_text"), "text[]", Oid.TEXT_ARRAY, 'b', 'A', -1,
+      TypeName.of("pg_catalog", "_text"), "text[]", Oid.TEXT_ARRAY, 'b', 'A', -1,
       Oid.TEXT, 0, 0);
 
   private static final PgType INT4_ARRAY = new PgType(
-      new ObjectName("pg_catalog", "_int4"), "int4[]", Oid.INT4_ARRAY, 'b', 'A', -1,
+      TypeName.of("pg_catalog", "_int4"), "int4[]", Oid.INT4_ARRAY, 'b', 'A', -1,
       Oid.INT4, 0, 0);
 
   private static final PgType BYTEA_ARRAY = new PgType(
-      new ObjectName("pg_catalog", "_bytea"), "bytea[]", Oid.BYTEA_ARRAY, 'b', 'A', -1,
+      TypeName.of("pg_catalog", "_bytea"), "bytea[]", Oid.BYTEA_ARRAY, 'b', 'A', -1,
       Oid.BYTEA, 0, 0);
 
   private static final PgType NUMERIC_ARRAY = new PgType(
-      new ObjectName("pg_catalog", "_numeric"), "numeric[]", Oid.NUMERIC_ARRAY, 'b', 'A', -1,
+      TypeName.of("pg_catalog", "_numeric"), "numeric[]", Oid.NUMERIC_ARRAY, 'b', 'A', -1,
       Oid.NUMERIC, 0, 0);
 
   private static PgField field(String name, int oid, int position) {
@@ -88,12 +89,12 @@ class OfflineContainerRoundtripTest {
   }
 
   private static PgType composite(String simpleName, int oid, PgField... fields) {
-    return new PgType(new ObjectName("public", simpleName), "public." + simpleName, oid, 'c', 'C',
+    return new PgType(TypeName.of("public", simpleName), "public." + simpleName, oid, 'c', 'C',
         -1, 0, 0, 0, ',', Arrays.asList(fields));
   }
 
   private static PgType anonymousRecord(PgField... fields) {
-    return new PgType(new ObjectName("pg_catalog", "record"), "record", Oid.RECORD, 'c', 'C',
+    return new PgType(TypeName.of("pg_catalog", "record"), "record", Oid.RECORD, 'c', 'C',
         -1, 0, 0, 0, ',', Arrays.asList(fields));
   }
 
@@ -114,7 +115,7 @@ class OfflineContainerRoundtripTest {
 
     for (Format format : Format.values()) {
       // Built-in field types (int4, text) resolve through the driver catalog with no registration.
-      RawValue raw = Codecs.encode(new PgStruct(type, attributes, null), type, ctx, format);
+      WireValueSlice raw = Codecs.encode(new PgStruct(type, attributes, null), type, ctx, format);
       Struct decoded = Codecs.decode(raw, type, ctx, Struct.class);
       assertNotNull(decoded, "composite " + format);
       assertArrayEquals(attributes, decoded.getAttributes(), "composite " + format);
@@ -136,7 +137,7 @@ class OfflineContainerRoundtripTest {
     for (Format format : Format.values()) {
       // Struct.class decode never records the raw literal, so getValue() must rebuild it from the
       // attributes through the carried offline context.
-      RawValue raw = Codecs.encode(new PgStruct(type, attributes, null), type, ctx, format);
+      WireValueSlice raw = Codecs.encode(new PgStruct(type, attributes, null), type, ctx, format);
       PgStruct decoded = (PgStruct) Codecs.decode(raw, type, ctx, Struct.class);
       assertNotNull(decoded, "struct " + format);
 
@@ -171,7 +172,7 @@ class OfflineContainerRoundtripTest {
     PgStruct nested = new PgStruct(inner, new Object[]{2, 3}, null);
     PgStruct value = new PgStruct(outer, new Object[]{1, nested}, null);
 
-    RawValue raw = Codecs.encode(value, outer, ctx, Format.BINARY);
+    WireValueSlice raw = Codecs.encode(value, outer, ctx, Format.BINARY);
     PgStruct decoded = (PgStruct) Codecs.decode(raw, outer, ctx, Struct.class);
     assertNotNull(decoded, "nested anonymous record");
     Object[] attributes = decoded.getAttributes();
@@ -197,7 +198,7 @@ class OfflineContainerRoundtripTest {
         new PgStruct(level2, new Object[]{
             new PgStruct(level3, new Object[]{1}, null)}, null)}, null);
 
-    RawValue raw = Codecs.encode(value, level1, ctx, Format.BINARY);
+    WireValueSlice raw = Codecs.encode(value, level1, ctx, Format.BINARY);
     PgStruct decoded = (PgStruct) Codecs.decode(raw, level1, ctx, Struct.class);
     Struct l2 = assertInstanceOf(Struct.class, decoded.getAttributes()[0], "level 2 record");
     Struct l3 = assertInstanceOf(Struct.class, l2.getAttributes()[0], "level 3 record");
@@ -223,7 +224,7 @@ class OfflineContainerRoundtripTest {
     PgStruct value = new PgStruct(outer,
         new Object[]{1, new PgStruct(inner, new Object[]{2, 3}, null)}, null);
 
-    RawValue raw = Codecs.encode(value, outer, ctx, Format.BINARY);
+    WireValueSlice raw = Codecs.encode(value, outer, ctx, Format.BINARY);
     PgStruct decoded = (PgStruct) Codecs.decode(raw, outer, ctx, Struct.class);
     assertNotNull(decoded, "named record with nested anonymous record");
     Object[] attributes = decoded.getAttributes();
@@ -234,11 +235,11 @@ class OfflineContainerRoundtripTest {
   }
 
   private static final PgType NUMERIC = new PgType(
-      new ObjectName("pg_catalog", "numeric"), "numeric", Oid.NUMERIC, 'b', 'N', -1, 0, 0, 0);
+      TypeName.of("pg_catalog", "numeric"), "numeric", Oid.NUMERIC, 'b', 'N', -1, 0, 0, 0);
 
   private int getIntOffline(String literal, Format format) throws SQLException {
     CodecContext ctx = OfflineCodecs.builder().type(NUMERIC).build();
-    RawValue raw = Codecs.encode(new BigDecimal(literal), NUMERIC, ctx, format);
+    WireValueSlice raw = Codecs.encode(new BigDecimal(literal), NUMERIC, ctx, format);
     Integer decoded = Codecs.decode(raw, NUMERIC, ctx, Integer.class);
     assertNotNull(decoded, () -> "getInt offline " + format + " " + literal);
     return decoded;
@@ -265,10 +266,10 @@ class OfflineContainerRoundtripTest {
   }
 
   private static final PgType FLOAT4 = new PgType(
-      new ObjectName("pg_catalog", "float4"), "float4", Oid.FLOAT4, 'b', 'N', -1, 0, 0, 0);
+      TypeName.of("pg_catalog", "float4"), "float4", Oid.FLOAT4, 'b', 'N', -1, 0, 0, 0);
 
   private static final PgType FLOAT8 = new PgType(
-      new ObjectName("pg_catalog", "float8"), "float8", Oid.FLOAT8, 'b', 'N', -1, 0, 0, 0);
+      TypeName.of("pg_catalog", "float8"), "float8", Oid.FLOAT8, 'b', 'N', -1, 0, 0, 0);
 
   // Runs the primitive getInt path (ResultSet.getInt -> decodeAsInt) offline for both wire formats.
   private static int float4AsInt(float value, Format format) throws SQLException {
@@ -377,12 +378,12 @@ class OfflineContainerRoundtripTest {
     // The getObject(Integer.class)/getObject(Long.class) path shares the same range checks; NaN must
     // not decode to a boxed 0.
     for (Format format : Format.values()) {
-      RawValue f4 = Codecs.encode(Float.NaN, FLOAT4, offlineCtx(FLOAT4), format);
+      WireValueSlice f4 = Codecs.encode(Float.NaN, FLOAT4, offlineCtx(FLOAT4), format);
       assertOutOfRange("float4 getObject(Integer) NaN " + format,
           () -> Codecs.decode(f4, FLOAT4, offlineCtx(FLOAT4), Integer.class));
       assertOutOfRange("float4 getObject(Long) NaN " + format,
           () -> Codecs.decode(f4, FLOAT4, offlineCtx(FLOAT4), Long.class));
-      RawValue f8 = Codecs.encode(Double.NaN, FLOAT8, offlineCtx(FLOAT8), format);
+      WireValueSlice f8 = Codecs.encode(Double.NaN, FLOAT8, offlineCtx(FLOAT8), format);
       assertOutOfRange("float8 getObject(Integer) NaN " + format,
           () -> Codecs.decode(f8, FLOAT8, offlineCtx(FLOAT8), Integer.class));
       assertOutOfRange("float8 getObject(Long) NaN " + format,
@@ -395,7 +396,7 @@ class OfflineContainerRoundtripTest {
   }
 
   private static final PgType OID = new PgType(
-      new ObjectName("pg_catalog", "oid"), "oid", Oid.OID, 'b', 'N', -1, 0, 0, 0);
+      TypeName.of("pg_catalog", "oid"), "oid", Oid.OID, 'b', 'N', -1, 0, 0, 0);
 
   // Runs the primitive getInt path (ResultSet.getInt -> decodeAsInt) offline for both wire formats.
   private static int oidAsInt(long value, Format format) throws SQLException {
@@ -440,7 +441,7 @@ class OfflineContainerRoundtripTest {
     // wrapped bit pattern rather than throwing. getObject(Long.class) keeps the full unsigned value,
     // and getObject(String.class) renders it unsigned (never negative).
     for (Format format : Format.values()) {
-      RawValue raw = Codecs.encode(4294967295L, OID, offlineCtx(OID), format);
+      WireValueSlice raw = Codecs.encode(4294967295L, OID, offlineCtx(OID), format);
       assertEquals(-1, Codecs.decode(raw, OID, offlineCtx(OID), Integer.class),
           () -> "oid getObject(Integer) 4294967295 " + format);
       assertEquals(4294967295L, Codecs.decode(raw, OID, offlineCtx(OID), Long.class),
@@ -462,7 +463,7 @@ class OfflineContainerRoundtripTest {
   }
 
   private static final PgType INTERVAL = new PgType(
-      new ObjectName("pg_catalog", "interval"), "interval", Oid.INTERVAL, 'b', 'T', -1, 0, 0, 0);
+      TypeName.of("pg_catalog", "interval"), "interval", Oid.INTERVAL, 'b', 'T', -1, 0, 0, 0);
 
   /**
    * A binary {@code interval} at the far end of its microsecond range ({@code '2562047788:00:54.775807'},
@@ -477,7 +478,7 @@ class OfflineContainerRoundtripTest {
     CodecContext ctx = OfflineCodecs.builder().type(INTERVAL).build();
     byte[] wire = new byte[16];
     ByteConverter.int8(wire, 0, Long.MAX_VALUE); // microseconds; days and months stay zero
-    RawValue raw = RawValue.binary(wire);
+    WireValueSlice raw = WireValueSlice.binary(wire);
 
     // getString renders the server's default (postgres) text form with no connection.
     assertEquals("2562047788:00:54.775807", Codecs.decode(raw, INTERVAL, ctx, String.class),
@@ -495,7 +496,7 @@ class OfflineContainerRoundtripTest {
   // routes to RangeCodec by typtype rather than by a name alias.
   private static final int TSRANGE_OID = 90_005;
   private static final PgType TSRANGE =
-      new PgType(new ObjectName("pg_catalog", "tsrange"), "pg_catalog.tsrange",
+      new PgType(TypeName.of("pg_catalog", "tsrange"), "pg_catalog.tsrange",
           TSRANGE_OID, 'r', 'R', -1, 0, 0, 0).withRangeSubtype(Oid.TIMESTAMP);
 
   /**
@@ -532,7 +533,7 @@ class OfflineContainerRoundtripTest {
   }
 
   private static PgType geometric(String name, int oid) {
-    return new PgType(new ObjectName("pg_catalog", name), name, oid, 'b', 'G', -1, 0, 0, 0);
+    return new PgType(TypeName.of("pg_catalog", name), name, oid, 'b', 'G', -1, 0, 0, 0);
   }
 
   /**
@@ -608,7 +609,7 @@ class OfflineContainerRoundtripTest {
 
   @Test
   void structFastPathStreamingMatchesMaterializedBytesOffline() throws SQLException, IOException {
-    // The Struct fast path streams each attribute straight into a BackpatchingBinarySink,
+    // The Struct fast path streams each attribute straight into a BackpatchingByteArrayOutputStream,
     // back-patching per-field length prefixes. Assert it produces the SAME bytes as the
     // materializing byte[] path. This proves output equivalence only — not the absence of an
     // intermediate byte[] (that would need an allocation-counting sink).
@@ -618,7 +619,7 @@ class OfflineContainerRoundtripTest {
     PgStruct value = new PgStruct(type, new Object[]{10, 20, "hello, struct"}, null);
 
     byte[] materialized = CompositeCodec.INSTANCE.encodeBinary(value, type, ctx);
-    BackpatchByteArrayOutputStream streamed = new BackpatchByteArrayOutputStream();
+    BackpatchingByteArrayOutputStream streamed = new BackpatchingByteArrayOutputStream();
     CompositeCodec.INSTANCE.encodeBinary(value, type, ctx, streamed);
     assertArrayEquals(materialized, streamed.toByteArray(), "Struct fast path");
   }
@@ -636,7 +637,7 @@ class OfflineContainerRoundtripTest {
     Point value = point(3, 4, "corner");
 
     byte[] materialized = CompositeCodec.INSTANCE.encodeBinary(value, type, ctx);
-    BackpatchByteArrayOutputStream streamed = new BackpatchByteArrayOutputStream();
+    BackpatchingByteArrayOutputStream streamed = new BackpatchingByteArrayOutputStream();
     CompositeCodec.INSTANCE.encodeBinary(value, type, ctx, streamed);
     assertArrayEquals(materialized, streamed.toByteArray(), "SQLData fallback");
   }
@@ -646,7 +647,7 @@ class OfflineContainerRoundtripTest {
   private static void assertStreamMatchesMaterialized(BinaryCodec codec, PgType type, Object value,
       CodecContext ctx) throws SQLException, IOException {
     byte[] materialized = codec.encodeBinary(value, type, ctx);
-    BackpatchByteArrayOutputStream sink = new BackpatchByteArrayOutputStream();
+    BackpatchingByteArrayOutputStream sink = new BackpatchingByteArrayOutputStream();
     ((StreamingBinaryCodec) codec).encodeBinary(value, type, ctx, sink);
     assertArrayEquals(materialized, sink.toByteArray());
   }
@@ -656,7 +657,7 @@ class OfflineContainerRoundtripTest {
     // PGobjectCodec forwards to its delegate; with a streaming delegate (int4) the sink path must
     // match the materialised bytes.
     CodecContext ctx = OfflineCodecs.builder().build();
-    PgType int4 = new PgType(new ObjectName("pg_catalog", "int4"), "int4", Oid.INT4, 'b', 'N', -1,
+    PgType int4 = new PgType(TypeName.of("pg_catalog", "int4"), "int4", Oid.INT4, 'b', 'N', -1,
         0, 0, 0);
     PGobjectCodec codec = new PGobjectCodec(PGobject.class, Int4Codec.INSTANCE);
     assertStreamMatchesMaterialized(codec, int4, 42, ctx);
@@ -665,7 +666,7 @@ class OfflineContainerRoundtripTest {
   @Test
   void domainDelegateStreamingMatchesMaterializedOffline() throws SQLException, IOException {
     // DomainCodec resolves its base type (int4, a streaming codec) and forwards to it.
-    PgType domain = new PgType(new ObjectName("public", "dom_int"), "public.dom_int", 90_010,
+    PgType domain = new PgType(TypeName.of("public", "dom_int"), "public.dom_int", 90_010,
         'd', 'N', -1, 0, 0, Oid.INT4);
     CodecContext ctx = OfflineCodecs.builder().type(domain).build();
     assertStreamMatchesMaterialized(DomainCodec.INSTANCE, domain, 7, ctx);
@@ -679,7 +680,7 @@ class OfflineContainerRoundtripTest {
     Point corner = point(3, 4, "corner");
 
     for (Format format : Format.values()) {
-      RawValue raw = Codecs.encode(corner, type, ctx, format);
+      WireValueSlice raw = Codecs.encode(corner, type, ctx, format);
       Point back = Codecs.decode(raw, type, ctx, Point.class);
       assertEquals(corner, back, "SQLData " + format);
     }
@@ -689,7 +690,7 @@ class OfflineContainerRoundtripTest {
   void hstoreRoundtripsOffline() throws SQLException {
     // hstore decodes from bytes through the wire encoding; offline that encoding is derived from the
     // context charset, so the binary path works without a connection.
-    PgType type = new PgType(new ObjectName("public", "hstore"), "hstore", HSTORE_OID, 'b', 'U', -1,
+    PgType type = new PgType(TypeName.of("public", "hstore"), "hstore", HSTORE_OID, 'b', 'U', -1,
         0, 0, 0);
     CodecContext ctx = OfflineCodecs.builder().type(type).build();
     Map<String, String> value = new LinkedHashMap<>();
@@ -697,7 +698,7 @@ class OfflineContainerRoundtripTest {
     value.put("two", "2");
 
     for (Format format : Format.values()) {
-      RawValue raw = Codecs.encode(value, type, ctx, format);
+      WireValueSlice raw = Codecs.encode(value, type, ctx, format);
       Object back = Codecs.decode(raw, type, ctx, Map.class);
       assertEquals(value, back, "hstore " + format);
     }
@@ -709,7 +710,7 @@ class OfflineContainerRoundtripTest {
     String[] value = {"a", "b,c", "d e"};
 
     for (Format format : Format.values()) {
-      RawValue raw = Codecs.encode(value, TEXT_ARRAY, ctx, format);
+      WireValueSlice raw = Codecs.encode(value, TEXT_ARRAY, ctx, format);
       assertArrayEquals(value, Codecs.decode(raw, TEXT_ARRAY, ctx, String[].class),
           "text[] " + format);
     }
@@ -728,8 +729,8 @@ class OfflineContainerRoundtripTest {
     CodecContext ctx = OfflineCodecs.builder().build();
 
     for (Format format : Format.values()) {
-      RawValue int4Raw = Codecs.encode(new Integer[]{1, 2, 3}, INT4_ARRAY, ctx, format);
-      RawValue textRaw = Codecs.encode(new String[]{"a", "b"}, TEXT_ARRAY, ctx, format);
+      WireValueSlice int4Raw = Codecs.encode(new Integer[]{1, 2, 3}, INT4_ARRAY, ctx, format);
+      WireValueSlice textRaw = Codecs.encode(new String[]{"a", "b"}, TEXT_ARRAY, ctx, format);
       PSQLException int4Ex = assertThrows(PSQLException.class,
           () -> Codecs.decode(int4Raw, INT4_ARRAY, ctx, byte[].class),
           () -> "int4[] as byte[] " + format);
@@ -754,7 +755,7 @@ class OfflineContainerRoundtripTest {
     byte[][] value = {{1, 2}, {(byte) 0xff}};
 
     for (Format format : Format.values()) {
-      RawValue raw = Codecs.encode(value, BYTEA_ARRAY, ctx, format);
+      WireValueSlice raw = Codecs.encode(value, BYTEA_ARRAY, ctx, format);
       byte[][] back = Codecs.decode(raw, BYTEA_ARRAY, ctx, byte[][].class);
       assertNotNull(back, () -> "bytea[] as byte[][] " + format);
       assertArrayEquals(value[0], back[0], () -> "bytea[] element 0 " + format);
@@ -777,11 +778,11 @@ class OfflineContainerRoundtripTest {
 
     for (Format format : Format.values()) {
       for (double value : nonFinite) {
-        RawValue dim1 = Codecs.encode(new Double[]{value}, NUMERIC_ARRAY, ctx, format);
+        WireValueSlice dim1 = Codecs.encode(new Double[]{value}, NUMERIC_ARRAY, ctx, format);
         assertOutOfRange("numeric[] {" + value + "} " + format,
             () -> Codecs.decode(dim1, NUMERIC_ARRAY, ctx, Object.class));
 
-        RawValue dim2 = Codecs.encode(new Double[][]{{value}}, NUMERIC_ARRAY, ctx, format);
+        WireValueSlice dim2 = Codecs.encode(new Double[][]{{value}}, NUMERIC_ARRAY, ctx, format);
         assertOutOfRange("numeric[][] {{" + value + "}} " + format,
             () -> Codecs.decode(dim2, NUMERIC_ARRAY, ctx, Object.class));
       }
@@ -795,7 +796,7 @@ class OfflineContainerRoundtripTest {
     BigDecimal[] value = {new BigDecimal("1.5"), new BigDecimal("-2.25")};
 
     for (Format format : Format.values()) {
-      RawValue raw = Codecs.encode(value, NUMERIC_ARRAY, ctx, format);
+      WireValueSlice raw = Codecs.encode(value, NUMERIC_ARRAY, ctx, format);
       BigDecimal[] back = Codecs.decode(raw, NUMERIC_ARRAY, ctx, BigDecimal[].class);
       assertArrayEquals(value, back, "numeric[] " + format);
     }
@@ -813,12 +814,12 @@ class OfflineContainerRoundtripTest {
     Double[] value = {Double.NaN, Double.POSITIVE_INFINITY, Double.NEGATIVE_INFINITY, 1.5};
 
     for (Format format : Format.values()) {
-      RawValue dim1 = Codecs.encode(value, NUMERIC_ARRAY, ctx, format);
+      WireValueSlice dim1 = Codecs.encode(value, NUMERIC_ARRAY, ctx, format);
       assertArrayEquals(value, Codecs.decode(dim1, NUMERIC_ARRAY, ctx, Double[].class),
           "numeric[] as Double[] " + format);
 
       Double[][] nested = {{Double.NaN}, {Double.POSITIVE_INFINITY}};
-      RawValue dim2 = Codecs.encode(nested, NUMERIC_ARRAY, ctx, format);
+      WireValueSlice dim2 = Codecs.encode(nested, NUMERIC_ARRAY, ctx, format);
       Double[][] back = Codecs.decode(dim2, NUMERIC_ARRAY, ctx, Double[][].class);
       assertNotNull(back, "numeric[][] as Double[][] " + format);
       assertArrayEquals(nested[0], back[0], "numeric[][] as Double[][] row 0 " + format);
@@ -829,7 +830,7 @@ class OfflineContainerRoundtripTest {
   @Test
   void compositeArrayDecodesToStructsOffline() throws SQLException {
     PgType element = composite("pt2", POINT_OID, field("x", Oid.INT4, 1), field("y", Oid.INT4, 2));
-    PgType arrayType = new PgType(new ObjectName("public", "_pt2"), "public.pt2[]", POINT_ARRAY_OID,
+    PgType arrayType = new PgType(TypeName.of("public", "_pt2"), "public.pt2[]", POINT_ARRAY_OID,
         'b', 'A', -1, POINT_OID, 0, 0);
     CodecContext ctx = OfflineCodecs.builder().type(element).type(arrayType).build();
     PgStruct[] structs = {
@@ -838,7 +839,7 @@ class OfflineContainerRoundtripTest {
     };
 
     for (Format format : Format.values()) {
-      RawValue raw = Codecs.encode(structs, arrayType, ctx, format);
+      WireValueSlice raw = Codecs.encode(structs, arrayType, ctx, format);
       // An array of composites decodes offline to an Object[] of connectionless structs.
       Object[] decoded = (Object[]) Codecs.decode(raw, arrayType, ctx, Object.class);
       assertNotNull(decoded, "array-of-struct " + format);
@@ -854,14 +855,14 @@ class OfflineContainerRoundtripTest {
   void sqlDataArrayRoundtripsOffline() throws SQLException {
     PgType element = composite("point_t", POINT_OID,
         field("x", Oid.INT4, 1), field("y", Oid.INT4, 2), field("label", Oid.TEXT, 3));
-    PgType arrayType = new PgType(new ObjectName("public", "_point_t"), "public.point_t[]",
+    PgType arrayType = new PgType(TypeName.of("public", "_point_t"), "public.point_t[]",
         POINT_ARRAY_OID, 'b', 'A', -1, POINT_OID, 0, 0);
     CodecContext ctx = OfflineCodecs.builder().type(element).type(arrayType).build();
     Point[] points = {point(1, 2, "a"), point(3, 4, "b,c")};
 
     for (Format format : Format.values()) {
       // A typed CustomDto[] target decodes each element to the SQLData class — no connection.
-      RawValue raw = Codecs.encode(points, arrayType, ctx, format);
+      WireValueSlice raw = Codecs.encode(points, arrayType, ctx, format);
       Point[] back = Codecs.decode(raw, arrayType, ctx, Point[].class);
       assertArrayEquals(points, back, "CustomDto[] " + format);
     }
@@ -872,7 +873,7 @@ class OfflineContainerRoundtripTest {
     PgType type = composite("has_array", HAS_ARRAY_OID, field("arr", Oid.INT4_ARRAY, 1));
     CodecContext ctx = OfflineCodecs.builder().type(type).build();
     // Encode a struct whose only attribute is an int4[]; the binary wire form is connectionless.
-    RawValue raw = Codecs.encode(
+    WireValueSlice raw = Codecs.encode(
         new PgStruct(type, new Object[]{new Integer[]{1, 2}}, null), type, ctx, Format.BINARY);
 
     // Decoding it as an SQLData object that calls readArray() needs a connection-bound PgArray.
@@ -884,19 +885,19 @@ class OfflineContainerRoundtripTest {
   @Test
   void offlineCompositeWithoutFieldsReportsClearError() {
     // A composite registered without its attributes cannot be materialized as a struct offline.
-    PgType fieldless = new PgType(new ObjectName("public", "bare"), "public.bare", POINT_OID, 'c',
+    PgType fieldless = new PgType(TypeName.of("public", "bare"), "public.bare", POINT_OID, 'c',
         'C', -1, 0, 0, 0);
     CodecContext ctx = OfflineCodecs.builder().type(fieldless).build();
 
     PSQLException ex = assertThrows(PSQLException.class,
-        () -> Codecs.decode(RawValue.binary(new byte[]{0, 0, 0, 0}), fieldless, ctx, Point.class));
+        () -> Codecs.decode(WireValueSlice.binary(new byte[]{0, 0, 0, 0}), fieldless, ctx, Point.class));
     assertEquals(PSQLState.INVALID_PARAMETER_TYPE.getState(), ex.getSQLState());
   }
 
   // ------------------------------------------------------------------------ money
 
   private static final PgType MONEY = new PgType(
-      new ObjectName("pg_catalog", "money"), "money", Oid.MONEY, 'b', 'N', -1, 0, 0, 0);
+      TypeName.of("pg_catalog", "money"), "money", Oid.MONEY, 'b', 'N', -1, 0, 0, 0);
 
   /** Builds the 8-byte binary wire form of a {@code money} value: an int64 count of minor units. */
   private static byte[] moneyWire(long cents) {

@@ -11,8 +11,8 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 import org.postgresql.api.codec.BinaryCodec;
 import org.postgresql.api.codec.CodecContext;
 import org.postgresql.api.codec.TypeDescriptor;
+import org.postgresql.api.codec.TypeName;
 import org.postgresql.core.Oid;
-import org.postgresql.jdbc.ObjectName;
 import org.postgresql.jdbc.PgType;
 import org.postgresql.jdbc.TestCodecContext;
 import org.postgresql.util.ByteConverter;
@@ -34,7 +34,7 @@ import java.util.UUID;
 class BinaryCodecSliceTest {
 
   private static final PgType ANY = new PgType(
-      new ObjectName("pg_catalog", "int4"), "integer", Oid.INT4, 'b', 'N', -1, 0, 0, 0);
+      TypeName.of("pg_catalog", "int4"), "integer", Oid.INT4, 'b', 'N', -1, 0, 0, 0);
   private static final CodecContext CTX = TestCodecContext.create();
 
   /** Embeds {@code value} at offset 5 of a noise-filled buffer with trailing padding. */
@@ -149,10 +149,6 @@ class BinaryCodecSliceTest {
     // A codec that overrides only the slice form: the whole-array decodeBinary(byte[], ...)
     // convenience default must delegate to it.
     BinaryCodec stub = new BinaryCodec() {
-      @Override
-      public String getPrimaryTypeName() {
-        return "stub";
-      }
 
       @Override
       public Class<?> getDefaultJavaType() {

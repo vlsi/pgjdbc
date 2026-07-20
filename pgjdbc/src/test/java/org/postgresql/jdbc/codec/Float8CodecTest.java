@@ -9,12 +9,12 @@ import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 
-import org.postgresql.api.codec.CharArraySequence;
+import org.postgresql.api.codec.BinaryCodec;
 import org.postgresql.api.codec.CodecContext;
 import org.postgresql.api.codec.PrimitiveDecoders;
 import org.postgresql.api.codec.TypeDescriptor;
+import org.postgresql.api.codec.TypeName;
 import org.postgresql.core.Oid;
-import org.postgresql.jdbc.ObjectName;
 import org.postgresql.jdbc.PgType;
 import org.postgresql.util.ByteConverter;
 import org.postgresql.util.PSQLException;
@@ -24,6 +24,7 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
 import java.math.BigDecimal;
+import java.nio.CharBuffer;
 import java.sql.SQLException;
 
 class Float8CodecTest {
@@ -35,7 +36,7 @@ class Float8CodecTest {
   void setUp() {
     codec = Float8Codec.INSTANCE;
     float8Type = new PgType(
-        new ObjectName("pg_catalog", "float8"),
+        TypeName.of("pg_catalog", "float8"),
         "double precision",
         Oid.FLOAT8,
         'b', 'N', -1, 0, 0, 0
@@ -108,7 +109,7 @@ class Float8CodecTest {
   void decodeAsDouble_binary() throws SQLException {
     byte[] data = new byte[8];
     ByteConverter.float8(data, 0, 3.14);
-    double result = PrimitiveDecoders.asDouble(codec, data, float8Type, null);
+    double result = PrimitiveDecoders.asDouble(codec, data, 0, data.length, float8Type, null);
     assertEquals(3.14, result);
   }
 
@@ -116,7 +117,7 @@ class Float8CodecTest {
   void decodeAsFloat_binary() throws SQLException {
     byte[] data = new byte[8];
     ByteConverter.float8(data, 0, 3.14);
-    float result = PrimitiveDecoders.asFloat(codec, data, float8Type, null);
+    float result = PrimitiveDecoders.asFloat(codec, data, 0, data.length, float8Type, null);
     assertEquals(3.14f, result, 0.001f);
   }
 
@@ -127,7 +128,7 @@ class Float8CodecTest {
     byte[] data = new byte[8];
     ByteConverter.float8(data, 0, 1e300);
     PSQLException e = assertThrows(PSQLException.class,
-        () -> PrimitiveDecoders.asFloat(codec, data, float8Type, null));
+        () -> PrimitiveDecoders.asFloat((BinaryCodec) codec, data, 0, data.length, (TypeDescriptor) float8Type, (CodecContext) null));
     assertEquals(PSQLState.NUMERIC_VALUE_OUT_OF_RANGE.getState(), e.getSQLState());
   }
 
@@ -137,7 +138,7 @@ class Float8CodecTest {
     byte[] data = new byte[8];
     ByteConverter.float8(data, 0, 1e-300);
     PSQLException e = assertThrows(PSQLException.class,
-        () -> PrimitiveDecoders.asFloat(codec, data, float8Type, null));
+        () -> PrimitiveDecoders.asFloat((BinaryCodec) codec, data, 0, data.length, (TypeDescriptor) float8Type, (CodecContext) null));
     assertEquals(PSQLState.NUMERIC_VALUE_OUT_OF_RANGE.getState(), e.getSQLState());
   }
 
@@ -153,7 +154,7 @@ class Float8CodecTest {
     // Float.MAX_VALUE as a double casts back exactly -- inside range, must not refuse.
     byte[] data = new byte[8];
     ByteConverter.float8(data, 0, (double) Float.MAX_VALUE);
-    assertEquals(Float.MAX_VALUE, PrimitiveDecoders.asFloat(codec, data, float8Type, null));
+    assertEquals(Float.MAX_VALUE, PrimitiveDecoders.asFloat(codec, data, 0, data.length, float8Type, null));
   }
 
   @Test
@@ -163,7 +164,7 @@ class Float8CodecTest {
     byte[] data = new byte[8];
     ByteConverter.float8(data, 0, Double.NaN);
     assertEquals(Float.floatToRawIntBits(Float.NaN),
-        Float.floatToRawIntBits(PrimitiveDecoders.asFloat(codec, data, float8Type, null)));
+        Float.floatToRawIntBits(PrimitiveDecoders.asFloat(codec, data, 0, data.length, float8Type, null)));
   }
 
   // The class-targeted decode (getObject(Float.class)) narrows through NumberDecoders.decodeFloatingAs,
@@ -206,7 +207,7 @@ class Float8CodecTest {
   void binaryRoundtrip() throws SQLException {
     double original = 123456.789;
     byte[] encoded = codec.encodeBinary(original, float8Type, null);
-    double decoded = PrimitiveDecoders.asDouble(codec, encoded, float8Type, null);
+    double decoded = PrimitiveDecoders.asDouble(codec, encoded, 0, encoded.length, float8Type, null);
     assertEquals(original, decoded);
   }
 
@@ -246,11 +247,6 @@ class Float8CodecTest {
   }
 
   @Test
-  void getPrimaryTypeName() {
-    assertEquals("float8", codec.getPrimaryTypeName());
-  }
-
-  @Test
   void getDefaultJavaType() {
     assertEquals(Double.class, codec.getDefaultJavaType());
   }
@@ -260,16 +256,16 @@ class Float8CodecTest {
   @Test
   void decodeAsInt_charArray_roundsLikeString() throws SQLException {
     char[] chars = "0.6".toCharArray();
-    assertEquals(1, codec.decodeAsInt(new CharArraySequence(chars, 0, chars.length), float8Type, null));
+    assertEquals(1, codec.decodeAsInt(CharBuffer.wrap(chars, 0, chars.length), float8Type, null));
     assertEquals(codec.decodeAsInt("0.6", float8Type, null),
-        codec.decodeAsInt(new CharArraySequence(chars, 0, chars.length), float8Type, null));
+        codec.decodeAsInt(CharBuffer.wrap(chars, 0, chars.length), float8Type, null));
   }
 
   @Test
   void decodeAsLong_charArray_roundsLikeString() throws SQLException {
     char[] chars = "1.5".toCharArray();
-    assertEquals(2L, codec.decodeAsLong(new CharArraySequence(chars, 0, chars.length), float8Type, null));
+    assertEquals(2L, codec.decodeAsLong(CharBuffer.wrap(chars, 0, chars.length), float8Type, null));
     assertEquals(codec.decodeAsLong("1.5", float8Type, null),
-        codec.decodeAsLong(new CharArraySequence(chars, 0, chars.length), float8Type, null));
+        codec.decodeAsLong(CharBuffer.wrap(chars, 0, chars.length), float8Type, null));
   }
 }

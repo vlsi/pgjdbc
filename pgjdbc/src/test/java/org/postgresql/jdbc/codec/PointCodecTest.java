@@ -8,9 +8,9 @@ package org.postgresql.jdbc.codec;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 
+import org.postgresql.api.codec.TypeName;
 import org.postgresql.core.Oid;
 import org.postgresql.geometric.PGpoint;
-import org.postgresql.jdbc.ObjectName;
 import org.postgresql.jdbc.PgType;
 import org.postgresql.util.ByteConverter;
 import org.postgresql.util.PSQLException;
@@ -29,7 +29,7 @@ class PointCodecTest {
   void setUp() {
     codec = PointCodec.INSTANCE;
     pointType = new PgType(
-        new ObjectName("pg_catalog", "point"),
+        TypeName.of("pg_catalog", "point"),
         "point",
         Oid.POINT,
         'b', 'G', -1, 0, 0, 0
@@ -105,11 +105,6 @@ class PointCodecTest {
   void decodeTextAs_unsupported() {
     assertThrows(PSQLException.class,
         () -> codec.decodeTextAs("(1,2)", pointType, String.class, null));
-  }
-
-  @Test
-  void getPrimaryTypeName() {
-    assertEquals("point", codec.getPrimaryTypeName());
   }
 
   @Test

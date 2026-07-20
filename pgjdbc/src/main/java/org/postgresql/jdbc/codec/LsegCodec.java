@@ -5,7 +5,7 @@
 
 package org.postgresql.jdbc.codec;
 
-import org.postgresql.api.codec.BackpatchingBinarySink;
+import org.postgresql.api.codec.BackpatchingByteArrayOutputStream;
 import org.postgresql.api.codec.CodecContext;
 import org.postgresql.api.codec.StreamingBinaryCodec;
 import org.postgresql.api.codec.TextCodec;
@@ -30,11 +30,6 @@ public final class LsegCodec implements StreamingBinaryCodec, TextCodec {
 
   private LsegCodec() {
     // Singleton
-  }
-
-  @Override
-  public String getPrimaryTypeName() {
-    return "lseg";
   }
 
   @Override
@@ -64,12 +59,12 @@ public final class LsegCodec implements StreamingBinaryCodec, TextCodec {
 
   @Override
   public void encodeBinary(Object value, TypeDescriptor type, CodecContext ctx,
-      BackpatchingBinarySink out) throws SQLException, IOException {
+      BackpatchingByteArrayOutputStream out) throws SQLException, IOException {
     PGpoint[] point = toPoints(value);
-    out.writeDouble(point[0].x);
-    out.writeDouble(point[0].y);
-    out.writeDouble(point[1].x);
-    out.writeDouble(point[1].y);
+    out.writeFloat8(point[0].x);
+    out.writeFloat8(point[0].y);
+    out.writeFloat8(point[1].x);
+    out.writeFloat8(point[1].y);
   }
 
   @Override
@@ -89,8 +84,9 @@ public final class LsegCodec implements StreamingBinaryCodec, TextCodec {
   }
 
   @Override
-  public @Nullable Object decodeText(String data, TypeDescriptor type, CodecContext ctx) throws SQLException {
-    PGtokenizer t = new PGtokenizer(PGtokenizer.removeBox(data), ',');
+  public @Nullable Object decodeText(CharSequence data, TypeDescriptor type, CodecContext ctx) throws SQLException {
+    String text = data.toString();
+    PGtokenizer t = new PGtokenizer(PGtokenizer.removeBox(text), ',');
     try {
       if (t.getSize() != 2) {
         throw new NumberFormatException("expected 2 points, got " + t.getSize());
@@ -99,7 +95,7 @@ public final class LsegCodec implements StreamingBinaryCodec, TextCodec {
       double[] p2 = PGpointFormat.parseText(t.getToken(1));
       return new PGlseg(new PGpoint(p1[0], p1[1]), new PGpoint(p2[0], p2[1]));
     } catch (NumberFormatException e) {
-      throw Exceptions.cannotConvertValue("lseg", data, PSQLState.DATA_TYPE_MISMATCH, e);
+      throw Exceptions.cannotConvertValue("lseg", text, PSQLState.DATA_TYPE_MISMATCH, e);
     }
   }
 

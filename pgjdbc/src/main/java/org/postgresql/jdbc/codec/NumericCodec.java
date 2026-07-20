@@ -40,11 +40,6 @@ public final class NumericCodec implements PrimitiveBinaryDecoder, PrimitiveText
   }
 
   @Override
-  public String getPrimaryTypeName() {
-    return "numeric";
-  }
-
-  @Override
   public boolean mayRequireQuoting() {
     // Output is digits/sign/dot/e or NaN — never needs composite/array quoting.
     return false;
@@ -75,7 +70,7 @@ public final class NumericCodec implements PrimitiveBinaryDecoder, PrimitiveText
     // getObject rescales to the column's declared scale (e.g. the negative scale of numeric(2,-2)),
     // which the wire dscale alone does not carry. getBigDecimal (decodeAsBigDecimal) stays
     // wire-faithful, so the rescale lives here rather than in the shared bigDecimalFromWire.
-    return applyTypmodScale(bd, type.getTypmod());
+    return applyTypmodScale(bd, type.getAppliedTypmod());
   }
 
   @Override
@@ -92,14 +87,12 @@ public final class NumericCodec implements PrimitiveBinaryDecoder, PrimitiveText
   }
 
   @Override
-  public @Nullable Object decodeText(String data, TypeDescriptor type, CodecContext ctx) throws SQLException {
-    if (data == null) {
-      return null;
-    }
+  public @Nullable Object decodeText(CharSequence data, TypeDescriptor type, CodecContext ctx) throws SQLException {
+    String text = data.toString();
     // PostgreSQL numeric supports NaN / ±Infinity (the latter since v14).
     // BigDecimal can't represent them, so surface those literals as Double
     // sentinels — matches the legacy driver's getObject contract.
-    String trimmed = data.trim();
+    String trimmed = text.trim();
     if ("NaN".equalsIgnoreCase(trimmed)) {
       return Double.NaN;
     }
@@ -110,7 +103,7 @@ public final class NumericCodec implements PrimitiveBinaryDecoder, PrimitiveText
       return Double.NEGATIVE_INFINITY;
     }
     // decodeAsBigDecimal applies the descriptor's modifier, so getObject on a text numeric rescales.
-    return decodeAsBigDecimal(data, type, ctx);
+    return decodeAsBigDecimal(text, type, ctx);
   }
 
   @Override
@@ -142,7 +135,7 @@ public final class NumericCodec implements PrimitiveBinaryDecoder, PrimitiveText
   }
 
   @Override
-  public @Nullable String decodeAsString(String data, TypeDescriptor type, CodecContext ctx)
+  public @Nullable String decodeAsString(CharSequence data, TypeDescriptor type, CodecContext ctx)
       throws SQLException {
     return plainString(decodeText(data, type, ctx));
   }
@@ -168,7 +161,7 @@ public final class NumericCodec implements PrimitiveBinaryDecoder, PrimitiveText
     // Honour the descriptor's applied modifier so a numeric(p,s)[] element decodes to its declared
     // scale. A plain column's getBigDecimal stays wire-faithful because the ResultSet hands this a
     // descriptor without a modifier; only a stamped one (an array element) rescales.
-    return bd == null ? null : applyTypmodScale(bd, type.getTypmod());
+    return bd == null ? null : applyTypmodScale(bd, type.getAppliedTypmod());
   }
 
   private static @Nullable BigDecimal bigDecimalFromWire(byte[] data, int offset, int length)
@@ -213,7 +206,7 @@ public final class NumericCodec implements PrimitiveBinaryDecoder, PrimitiveText
     // several times while allocating, so it does not move the needle.
     try {
       NumberDecoders.requireAsciiLiteral(trimmed);
-      return applyTypmodScale(new BigDecimal(trimmed), type.getTypmod());
+      return applyTypmodScale(new BigDecimal(trimmed), type.getAppliedTypmod());
     } catch (NumberFormatException e) {
       throw Exceptions.cannotConvertValue("numeric", trimmed, e);
     }
@@ -394,7 +387,7 @@ public final class NumericCodec implements PrimitiveBinaryDecoder, PrimitiveText
 
   @Override
   @SuppressWarnings("unchecked")
-  public <T> @Nullable T decodeTextAs(String data, TypeDescriptor type, Class<T> targetClass, CodecContext ctx)
+  public <T> @Nullable T decodeTextAs(CharSequence data, TypeDescriptor type, Class<T> targetClass, CodecContext ctx)
       throws SQLException {
     // Decode straight from the text form. This previously round-tripped through
     // ByteConverter.numeric and decodeBinaryAs; the binary re-encode then re-decode was pure

@@ -16,6 +16,5 @@ public final class VarcharCodec extends AbstractTextCodec {
   public static final VarcharCodec INSTANCE = new VarcharCodec();
 
   private VarcharCodec() {
-    super("varchar");
   }
 }

@@ -11,11 +11,12 @@ import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import org.postgresql.api.codec.BinaryCodec;
 import org.postgresql.api.codec.CodecContext;
 import org.postgresql.api.codec.PrimitiveDecoders;
 import org.postgresql.api.codec.TypeDescriptor;
+import org.postgresql.api.codec.TypeName;
 import org.postgresql.core.Oid;
-import org.postgresql.jdbc.ObjectName;
 import org.postgresql.jdbc.PgType;
 import org.postgresql.jdbc.TestCodecContext;
 import org.postgresql.util.PSQLException;
@@ -37,7 +38,7 @@ class BoolCodecTest {
   void setUp() {
     codec = BoolCodec.INSTANCE;
     boolType = new PgType(
-        new ObjectName("pg_catalog", "bool"),
+        TypeName.of("pg_catalog", "bool"),
         "boolean",
         Oid.BOOL,
         'b', 'B', -1, 0, 0, 0
@@ -115,13 +116,13 @@ class BoolCodecTest {
   @Test
   void decodeAsBoolean_binary_true() throws SQLException {
     byte[] data = new byte[]{1};
-    assertTrue(PrimitiveDecoders.asBoolean(codec, data, boolType, null));
+    assertTrue(PrimitiveDecoders.asBoolean(codec, data, 0, data.length, boolType, null));
   }
 
   @Test
   void decodeAsBoolean_binary_false() throws SQLException {
     byte[] data = new byte[]{0};
-    assertFalse(PrimitiveDecoders.asBoolean(codec, data, boolType, null));
+    assertFalse(PrimitiveDecoders.asBoolean(codec, data, 0, data.length, boolType, null));
   }
 
   @Test
@@ -137,20 +138,23 @@ class BoolCodecTest {
   @Test
   void decodeAsInt_binary_true() throws SQLException {
     byte[] data = new byte[]{1};
-    assertEquals(1, PrimitiveDecoders.asInt(codec, data, boolType, ctxConvert));
+    assertEquals(1, PrimitiveDecoders.asInt(codec, data, 0, data.length, boolType, ctxConvert));
   }
 
   @Test
   void decodeAsInt_binary_false() throws SQLException {
     byte[] data = new byte[]{0};
-    assertEquals(0, PrimitiveDecoders.asInt(codec, data, boolType, ctxConvert));
+    assertEquals(0, PrimitiveDecoders.asInt(codec, data, 0, data.length, boolType, ctxConvert));
   }
 
   @Test
   void decodeAsInt_binary_throwsWhenConvertDisabled() {
     // convertBooleanToNumeric=false → BOOL→int is unsupported
     assertThrows(PSQLException.class,
-        () -> PrimitiveDecoders.asInt(codec, new byte[]{1}, boolType, ctxNoConvert));
+        () -> {
+            byte[] data = new byte[]{1};
+            PrimitiveDecoders.asInt((BinaryCodec) codec, data, 0, data.length, (TypeDescriptor) boolType, ctxNoConvert);
+        });
   }
 
   @Test
@@ -172,7 +176,10 @@ class BoolCodecTest {
   @Test
   void decodeAsLong_throwsWhenConvertDisabled() {
     assertThrows(PSQLException.class,
-        () -> PrimitiveDecoders.asLong(codec, new byte[]{1}, boolType, ctxNoConvert));
+        () -> {
+          byte[] data = new byte[]{1};
+          PrimitiveDecoders.asLong((BinaryCodec) codec, data, 0, data.length, (TypeDescriptor) boolType, ctxNoConvert);
+        });
     assertThrows(PSQLException.class,
         () -> codec.decodeAsLong("t", boolType, ctxNoConvert));
   }
@@ -180,7 +187,10 @@ class BoolCodecTest {
   @Test
   void decodeAsFloat_throwsWhenConvertDisabled() {
     assertThrows(PSQLException.class,
-        () -> PrimitiveDecoders.asFloat(codec, new byte[]{1}, boolType, ctxNoConvert));
+        () -> {
+          byte[] data = new byte[]{1};
+          PrimitiveDecoders.asFloat((BinaryCodec) codec, data, 0, data.length, (TypeDescriptor) boolType, ctxNoConvert);
+        });
     assertThrows(PSQLException.class,
         () -> codec.decodeAsFloat("t", boolType, ctxNoConvert));
   }
@@ -188,7 +198,10 @@ class BoolCodecTest {
   @Test
   void decodeAsDouble_throwsWhenConvertDisabled() {
     assertThrows(PSQLException.class,
-        () -> PrimitiveDecoders.asDouble(codec, new byte[]{1}, boolType, ctxNoConvert));
+        () -> {
+          byte[] data = new byte[]{1};
+          PrimitiveDecoders.asDouble((BinaryCodec) codec, data, 0, data.length, (TypeDescriptor) boolType, ctxNoConvert);
+        });
     assertThrows(PSQLException.class,
         () -> codec.decodeAsDouble("t", boolType, ctxNoConvert));
   }
@@ -222,20 +235,15 @@ class BoolCodecTest {
   @Test
   void binaryRoundtrip_true() throws SQLException {
     byte[] encoded = codec.encodeBinary(true, boolType, null);
-    boolean decoded = PrimitiveDecoders.asBoolean(codec, encoded, boolType, null);
+    boolean decoded = PrimitiveDecoders.asBoolean(codec, encoded, 0, encoded.length, boolType, null);
     assertTrue(decoded);
   }
 
   @Test
   void binaryRoundtrip_false() throws SQLException {
     byte[] encoded = codec.encodeBinary(false, boolType, null);
-    boolean decoded = PrimitiveDecoders.asBoolean(codec, encoded, boolType, null);
+    boolean decoded = PrimitiveDecoders.asBoolean(codec, encoded, 0, encoded.length, boolType, null);
     assertFalse(decoded);
-  }
-
-  @Test
-  void getPrimaryTypeName() {
-    assertEquals("bool", codec.getPrimaryTypeName());
   }
 
   @Test

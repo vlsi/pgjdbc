@@ -8,9 +8,9 @@ package org.postgresql.fuzzkit;
 import org.postgresql.api.codec.Codecs;
 import org.postgresql.api.codec.Format;
 import org.postgresql.api.codec.PrefersJavaTime;
-import org.postgresql.api.codec.RawValue;
+import org.postgresql.api.codec.TypeName;
+import org.postgresql.api.codec.WireValueSlice;
 import org.postgresql.fuzzkit.coercion.CoercionOutcome;
-import org.postgresql.jdbc.ObjectName;
 import org.postgresql.jdbc.PgCodecContext;
 import org.postgresql.jdbc.PgSQLInputBinary;
 import org.postgresql.jdbc.PgSQLInputText;
@@ -48,7 +48,7 @@ public final class CoercionFuzzSupport {
   }
 
   private static PgType scalar(int oid) {
-    return new PgType(new ObjectName("pg_catalog", "t" + oid), "t" + oid, oid, 'b', 'N', -1, 0, 0, 0);
+    return new PgType(TypeName.of("pg_catalog", "t" + oid), "t" + oid, oid, 'b', 'N', -1, 0, 0, 0);
   }
 
   public static void run(CoercionCase c) throws SQLException {
@@ -60,7 +60,7 @@ public final class CoercionFuzzSupport {
     Map<String, String> config = ReadOracle.configFor(p);
     PgCodecContext ctx = (PgCodecContext) OfflineCodecContexts.offlineBuilder()
         .type(comp)
-        .timeZone(TimeZone.getDefault())
+        .clientTimeZone(TimeZone.getDefault())
         .prefersJavaTime(p)
         .build();
 
@@ -79,7 +79,7 @@ public final class CoercionFuzzSupport {
   private static SQLInput openReader(CoercionCase c, int oid, PgType comp, PgCodecContext ctx,
       Format format) throws SQLException {
     // Server-realistic wire: the field's own codec, handed pre-split to the reader adapter.
-    RawValue field = Codecs.encode(c.value, scalar(oid), ctx, format);
+    WireValueSlice field = Codecs.encode(c.value, scalar(oid), ctx, format);
     return format == Format.TEXT
         ? new PgSQLInputText(new String[]{field.asString(StandardCharsets.UTF_8)}, comp, ctx)
         : new PgSQLInputBinary(singleFieldComposite(oid, field.toByteArray()), comp, ctx);

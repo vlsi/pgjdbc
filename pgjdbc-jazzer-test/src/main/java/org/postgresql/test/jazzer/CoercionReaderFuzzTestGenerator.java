@@ -90,7 +90,7 @@ public final class CoercionReaderFuzzTestGenerator {
 
     int classes = 0;
     for (ScalarDescriptor descriptor : PgTypeDescriptors.readScalars()) {
-      String className = className(descriptor.pgType().getFullName());
+      String className = className(descriptor.pgType().getFormattedName());
       String source = render(descriptor, className, objectSuffixes);
       Files.write(packageDir.resolve(className + ".java"), source.getBytes(StandardCharsets.UTF_8));
       classes++;
@@ -203,7 +203,7 @@ public final class CoercionReaderFuzzTestGenerator {
         .append(" * GENERATED with {@link CoercionReaderFuzzTestGenerator} -- do not edit. Regenerate with"
             + " {@code ./gradlew :pgjdbc-jazzer-test:generateJazzerFuzzTargets}.").append(NL)
         .append(" *").append(NL)
-        .append(" * <p>The coercion-reader cells for {@code ").append(descriptor.pgType().getFullName())
+        .append(" * <p>The coercion-reader cells for {@code ").append(descriptor.pgType().getFormattedName())
         .append("} (OID ").append(descriptor.oid()).append("): one test method per {@link"
             + " org.postgresql.fuzzkit.SqlInputReader}, plus one per {@code readObject(Class)} target"
             + " class,").append(NL)

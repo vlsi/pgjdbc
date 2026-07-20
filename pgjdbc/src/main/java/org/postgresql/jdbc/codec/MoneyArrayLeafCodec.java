@@ -5,7 +5,7 @@
 
 package org.postgresql.jdbc.codec;
 
-import org.postgresql.api.codec.BackpatchingBinarySink;
+import org.postgresql.api.codec.BackpatchingByteArrayOutputStream;
 import org.postgresql.api.codec.CodecContext;
 import org.postgresql.core.Oid;
 import org.postgresql.util.ByteConverter;
@@ -60,7 +60,7 @@ final class MoneyArrayLeafCodec implements ArrayLeafCodec {
   }
 
   @Override
-  public boolean writeLeaf(Object leaf, BackpatchingBinarySink out, CodecContext ctx)
+  public boolean writeLeaf(Object leaf, BackpatchingByteArrayOutputStream out, CodecContext ctx)
       throws IOException, SQLException {
     if (!(leaf instanceof Object[])) {
       throw unsupportedLeaf(leaf, ctx);
@@ -134,7 +134,7 @@ final class MoneyArrayLeafCodec implements ArrayLeafCodec {
       if (!cur.tokenWasQuoted() && cur.tokenEquals("NULL")) {
         arr[i] = null;
       } else {
-        String token = new String(cur.tokenChars(), cur.tokenOffset(), cur.tokenLength());
+        String token = cur.getToken().toString();
         arr[i] = new PGmoney(token).val;
       }
     }

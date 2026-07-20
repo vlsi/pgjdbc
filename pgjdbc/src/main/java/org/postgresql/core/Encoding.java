@@ -158,6 +158,19 @@ public class Encoding {
   }
 
   /**
+   * Construct an Encoding for a {@link Charset} already in hand.
+   *
+   * <p>This is the entry point for code that reaches the connection's character set through the
+   * public codec API, which exposes a {@code Charset} rather than this class.</p>
+   *
+   * @param charset the character set
+   * @return an Encoding over {@code charset}
+   */
+  public static Encoding fromCharset(Charset charset) {
+    return StandardCharsets.UTF_8.equals(charset) ? UTF8_ENCODING : new Encoding(charset);
+  }
+
+  /**
    * Construct an Encoding for a given database encoding.
    *
    * @param databaseEncoding the name of the database encoding

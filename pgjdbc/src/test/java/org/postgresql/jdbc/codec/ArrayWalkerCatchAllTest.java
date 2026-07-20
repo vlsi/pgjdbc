@@ -70,7 +70,7 @@ public class ArrayWalkerCatchAllTest {
     // bit/varbit decode to PGobject[] via the walker (BitCodec parses the binary form).
     assertTrue(walks(Oid.BIT_ARRAY), "bit[] should decode via the codec walker");
     assertTrue(walks(Oid.VARBIT_ARRAY), "varbit[] should decode via the codec walker");
-    // json/jsonb decode to String[] via the walker (JsonArrayLeafCodec).
+    // json/jsonb decode to String[] via the walker (GenericArrayLeafCodec targeting String).
     assertTrue(walks(Oid.JSON_ARRAY), "json[] should decode via the codec walker");
     assertTrue(walks(Oid.JSONB_ARRAY), "jsonb[] should decode via the codec walker");
     // money decodes to Double[] via the walker (MoneyArrayLeafCodec).

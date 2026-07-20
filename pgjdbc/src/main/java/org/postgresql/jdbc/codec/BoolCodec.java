@@ -5,7 +5,7 @@
 
 package org.postgresql.jdbc.codec;
 
-import org.postgresql.api.codec.BackpatchingBinarySink;
+import org.postgresql.api.codec.BackpatchingByteArrayOutputStream;
 import org.postgresql.api.codec.CodecContext;
 import org.postgresql.api.codec.PrimitiveBinaryDecoder;
 import org.postgresql.api.codec.PrimitiveBinaryEncoder;
@@ -32,11 +32,6 @@ public final class BoolCodec implements PrimitiveBinaryEncoder, PrimitiveBinaryD
 
   private BoolCodec() {
     // Singleton
-  }
-
-  @Override
-  public String getPrimaryTypeName() {
-    return "bool";
   }
 
   @Override
@@ -72,12 +67,12 @@ public final class BoolCodec implements PrimitiveBinaryEncoder, PrimitiveBinaryD
 
   @Override
   public void encodeBinary(Object value, TypeDescriptor type, CodecContext ctx,
-      BackpatchingBinarySink out) throws SQLException, IOException {
+      BackpatchingByteArrayOutputStream out) throws SQLException, IOException {
     out.writeByte(toBoolean(value) ? 1 : 0);
   }
 
   @Override
-  public @Nullable Object decodeText(String data, TypeDescriptor type, CodecContext ctx) throws SQLException {
+  public @Nullable Object decodeText(CharSequence data, TypeDescriptor type, CodecContext ctx) throws SQLException {
     return decodeAsBoolean(data, type, ctx);
   }
 
@@ -174,7 +169,7 @@ public final class BoolCodec implements PrimitiveBinaryEncoder, PrimitiveBinaryD
    */
   private static void requireBooleanToNumeric(CodecContext ctx, String targetType)
       throws SQLException {
-    if (!ctx.getConvertBooleanToNumeric()) {
+    if (!ctx.convertsBooleanToNumeric()) {
       throw Exceptions.cannotConvertColumn("bool", targetType);
     }
   }
@@ -187,7 +182,7 @@ public final class BoolCodec implements PrimitiveBinaryEncoder, PrimitiveBinaryD
   }
 
   @Override
-  public <T> @Nullable T decodeTextAs(String data, TypeDescriptor type, Class<T> targetClass, CodecContext ctx)
+  public <T> @Nullable T decodeTextAs(CharSequence data, TypeDescriptor type, Class<T> targetClass, CodecContext ctx)
       throws SQLException {
     boolean value = decodeAsBoolean(data, type, ctx);
     return decodeBoolAs(value, targetClass);

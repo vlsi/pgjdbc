@@ -5,7 +5,7 @@
 
 package org.postgresql.jdbc.codec;
 
-import org.postgresql.api.codec.BackpatchingBinarySink;
+import org.postgresql.api.codec.BackpatchingByteArrayOutputStream;
 import org.postgresql.api.codec.CodecContext;
 import org.postgresql.core.Oid;
 import org.postgresql.util.ByteConverter;
@@ -48,13 +48,13 @@ final class Float8ArrayLeafCodec implements ArrayLeafCodec {
   }
 
   @Override
-  public boolean writeLeaf(Object leaf, BackpatchingBinarySink out, CodecContext ctx)
+  public boolean writeLeaf(Object leaf, BackpatchingByteArrayOutputStream out, CodecContext ctx)
       throws IOException, SQLException {
     if (leaf instanceof double[]) {
       double[] arr = (double[]) leaf;
       for (double v : arr) {
         out.writeInt32(8);
-        out.writeDouble(v);
+        out.writeFloat8(v);
       }
       return false;
     }
@@ -67,7 +67,7 @@ final class Float8ArrayLeafCodec implements ArrayLeafCodec {
           hasNulls = true;
         } else {
           out.writeInt32(8);
-          out.writeDouble(Float8Codec.toDouble(element));
+          out.writeFloat8(Float8Codec.toDouble(element));
         }
       }
       return hasNulls;
@@ -176,7 +176,7 @@ final class Float8ArrayLeafCodec implements ArrayLeafCodec {
   }
 
   private static double parseDouble(LiteralCursor cur) throws SQLException {
-    String s = new String(cur.tokenChars(), cur.tokenOffset(), cur.tokenLength());
+    String s = cur.getToken().toString();
     try {
       return Double.parseDouble(s);
     } catch (NumberFormatException e) {

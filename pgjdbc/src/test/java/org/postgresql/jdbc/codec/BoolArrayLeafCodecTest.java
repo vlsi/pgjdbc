@@ -141,6 +141,6 @@ class BoolArrayLeafCodecTest {
   @Test
   void registry_bool_isArrayElementCodec() {
     CodecRegistry registry = new CodecRegistry();
-    assertInstanceOf(ArrayElementCodec.class, registry.getByName("bool"));
+    assertInstanceOf(ArrayElementCodec.class, registry.getByLocalName("bool"));
   }
 }

@@ -5,7 +5,7 @@
 
 package org.postgresql.jdbc.codec;
 
-import org.postgresql.api.codec.BackpatchingBinarySink;
+import org.postgresql.api.codec.BackpatchingByteArrayOutputStream;
 import org.postgresql.api.codec.CodecContext;
 import org.postgresql.core.Oid;
 import org.postgresql.util.ByteConverter;
@@ -48,7 +48,7 @@ final class Xid8ArrayLeafCodec implements ArrayLeafCodec {
   }
 
   @Override
-  public boolean writeLeaf(Object leaf, BackpatchingBinarySink out, CodecContext ctx)
+  public boolean writeLeaf(Object leaf, BackpatchingByteArrayOutputStream out, CodecContext ctx)
       throws IOException, SQLException {
     if (leaf instanceof long[]) {
       long[] arr = (long[]) leaf;
@@ -176,10 +176,7 @@ final class Xid8ArrayLeafCodec implements ArrayLeafCodec {
   }
 
   private static long parseUnsignedLong(LiteralCursor cur) throws SQLException {
-    char[] chars = cur.tokenChars();
-    int off = cur.tokenOffset();
-    int len = cur.tokenLength();
-    String text = new String(chars, off, len);
+    String text = cur.getToken().toString();
     try {
       NumberDecoders.requireAsciiLiteral(text);
       return Long.parseUnsignedLong(text);

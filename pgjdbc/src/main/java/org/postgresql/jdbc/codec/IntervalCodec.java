@@ -5,7 +5,7 @@
 
 package org.postgresql.jdbc.codec;
 
-import org.postgresql.api.codec.BackpatchingBinarySink;
+import org.postgresql.api.codec.BackpatchingByteArrayOutputStream;
 import org.postgresql.api.codec.CodecContext;
 import org.postgresql.api.codec.IntervalStyle;
 import org.postgresql.api.codec.StreamingBinaryCodec;
@@ -31,11 +31,6 @@ public final class IntervalCodec implements StreamingBinaryCodec, TextCodec {
   public static final IntervalCodec INSTANCE = new IntervalCodec();
 
   private IntervalCodec() {
-  }
-
-  @Override
-  public String getPrimaryTypeName() {
-    return "interval";
   }
 
   @Override
@@ -94,18 +89,18 @@ public final class IntervalCodec implements StreamingBinaryCodec, TextCodec {
 
   @Override
   public byte[] encodeBinary(Object value, TypeDescriptor type, CodecContext ctx) throws SQLException {
-    BackpatchByteArrayOutputStream out = new BackpatchByteArrayOutputStream(16);
+    BackpatchingByteArrayOutputStream out = new BackpatchingByteArrayOutputStream(16);
     try {
       encodeBinary(value, type, ctx, out);
     } catch (IOException e) {
-      throw new AssertionError(e); // BackpatchByteArrayOutputStream never throws
+      throw new AssertionError(e); // BackpatchingByteArrayOutputStream never throws
     }
     return out.toByteArray();
   }
 
   @Override
   public void encodeBinary(Object value, TypeDescriptor type, CodecContext ctx,
-      BackpatchingBinarySink out) throws SQLException, IOException {
+      BackpatchingByteArrayOutputStream out) throws SQLException, IOException {
     PGInterval interval = toInterval(value);
 
     // Convert to binary format. Keep the hours and minutes terms in long arithmetic (they are exact),
@@ -135,11 +130,12 @@ public final class IntervalCodec implements StreamingBinaryCodec, TextCodec {
   }
 
   @Override
-  public @Nullable Object decodeText(String data, TypeDescriptor type, CodecContext ctx) throws SQLException {
-    if (data == null || data.isEmpty()) {
+  public @Nullable Object decodeText(CharSequence data, TypeDescriptor type, CodecContext ctx) throws SQLException {
+    String text = data.toString();
+    if (text == null || text.isEmpty()) {
       return null;
     }
-    return new PGInterval(data);
+    return new PGInterval(text);
   }
 
   @Override
@@ -458,8 +454,8 @@ public final class IntervalCodec implements StreamingBinaryCodec, TextCodec {
   }
 
   @Override
-  public String decodeAsString(String data, TypeDescriptor type, CodecContext ctx) throws SQLException {
-    return data;
+  public String decodeAsString(CharSequence data, TypeDescriptor type, CodecContext ctx) throws SQLException {
+    return data.toString();
   }
 
   @Override
@@ -487,15 +483,16 @@ public final class IntervalCodec implements StreamingBinaryCodec, TextCodec {
 
   @Override
   @SuppressWarnings("unchecked")
-  public <T> @Nullable T decodeTextAs(String data, TypeDescriptor type, Class<T> targetClass, CodecContext ctx)
+  public <T> @Nullable T decodeTextAs(CharSequence data, TypeDescriptor type, Class<T> targetClass, CodecContext ctx)
       throws SQLException {
-    if (data == null || data.isEmpty()) {
+    String text = data.toString();
+    if (text.isEmpty()) {
       return null;
     }
     if (targetClass == String.class) {
-      return (T) data;
+      return (T) text;
     }
-    PGInterval interval = new PGInterval(data);
+    PGInterval interval = new PGInterval(text);
     if (targetClass == PGInterval.class || targetClass == Object.class) {
       return (T) interval;
     }

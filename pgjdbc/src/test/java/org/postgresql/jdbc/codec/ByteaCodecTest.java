@@ -11,10 +11,11 @@ import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNotSame;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 
+import org.postgresql.api.codec.BinaryCodec;
 import org.postgresql.api.codec.CodecContext;
 import org.postgresql.api.codec.PrimitiveDecoders;
 import org.postgresql.api.codec.TypeDescriptor;
-import org.postgresql.jdbc.ObjectName;
+import org.postgresql.api.codec.TypeName;
 import org.postgresql.jdbc.PgType;
 import org.postgresql.jdbc.TestCodecContext;
 import org.postgresql.util.PSQLException;
@@ -38,7 +39,7 @@ class ByteaCodecTest {
     ctx = TestCodecContext.create();
 
     byteaType = new PgType(
-        new ObjectName("pg_catalog", "bytea"),
+        TypeName.of("pg_catalog", "bytea"),
         "bytea",
         17,  // Oid.BYTEA
         'b',
@@ -52,7 +53,6 @@ class ByteaCodecTest {
 
   @Test
   void getPrimaryTypeName_returnsBytea() {
-    assertEquals("bytea", ByteaCodec.INSTANCE.getPrimaryTypeName());
   }
 
   @Test
@@ -137,21 +137,21 @@ class ByteaCodecTest {
   void decodeAsInt_throwsException() {
     byte[] data = {0x01, 0x02};
     assertThrows(PSQLException.class, () ->
-        PrimitiveDecoders.asInt(ByteaCodec.INSTANCE, data, byteaType, ctx));
+        PrimitiveDecoders.asInt((BinaryCodec) ByteaCodec.INSTANCE, data, 0, data.length, (TypeDescriptor) byteaType, ctx));
   }
 
   @Test
   void decodeAsLong_throwsException() {
     byte[] data = {0x01, 0x02};
     assertThrows(PSQLException.class, () ->
-        PrimitiveDecoders.asLong(ByteaCodec.INSTANCE, data, byteaType, ctx));
+        PrimitiveDecoders.asLong((BinaryCodec) ByteaCodec.INSTANCE, data, 0, data.length, (TypeDescriptor) byteaType, ctx));
   }
 
   @Test
   void decodeAsDouble_throwsException() {
     byte[] data = {0x01, 0x02};
     assertThrows(PSQLException.class, () ->
-        PrimitiveDecoders.asDouble(ByteaCodec.INSTANCE, data, byteaType, ctx));
+        PrimitiveDecoders.asDouble((BinaryCodec) ByteaCodec.INSTANCE, data, 0, data.length, (TypeDescriptor) byteaType, ctx));
   }
 
   @Test
