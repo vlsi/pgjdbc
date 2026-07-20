@@ -147,15 +147,31 @@ public class ConnectionFactoryImpl extends ConnectionFactory {
     }
 
     /**
+     * Returns whether {@code extra_float_digits} goes in the startup packet. It does when the
+     * assumed version is at least 9.0 and below 12: an 8.x server accepts at most 2, and from v12
+     * the default of 1 already prints floats in the shortest form that reads back exactly. Putting
+     * the value in the packet spares a post-authentication {@code SET}, which a session that
+     * rejects arbitrary SQL, such as Greenplum retrieve mode, cannot run (discussion #4306).
+     */
+    private boolean extraFloatDigitsInStartupPacket() {
+      int assumeVersionNum = assumeVersion.getVersionNum();
+      return assumeVersionNum >= ServerVersion.v9_0.getVersionNum()
+          && assumeVersionNum < ServerVersion.v12.getVersionNum();
+    }
+
+    /**
      * Returns the parameters to place in the startup packet, decided before the connection exists
-     * from {@code assumeMinServerVersion}. Placing {@code application_name} here rather than in a
-     * later {@code SET} gets it to the server in the first message, in time for the server to log
-     * the connection under it.
+     * from {@code assumeMinServerVersion}. Each one placed here costs no post-authentication round
+     * trip, and {@code application_name} reaches the server in the first message, in time for the
+     * server to log the connection under it.
      *
-     * @return the parameters for the startup packet, empty when nothing belongs there
+     * @return the parameters for the startup packet, empty when neither parameter belongs there
      */
     List<StartupParam> startupPacketParameters() {
-      List<StartupParam> params = new ArrayList<>(1);
+      List<StartupParam> params = new ArrayList<>(2);
+      if (extraFloatDigitsInStartupPacket()) {
+        params.add(new StartupParam("extra_float_digits", "3"));
+      }
       if (applicationNameInStartupPacket()) {
         params.add(new StartupParam("application_name", castNonNull(applicationName)));
       }
@@ -181,7 +197,7 @@ public class ConnectionFactoryImpl extends ConnectionFactory {
       // A pre-v12 server rounds float output to a precision that does not read back exactly
       // unless extra_float_digits is raised; from v12 the default of 1 already prints the shortest
       // exact form.
-      if (serverVersionNum < ServerVersion.v12.getVersionNum()) {
+      if (!extraFloatDigitsInStartupPacket() && serverVersionNum < ServerVersion.v12.getVersionNum()) {
         if (serverVersionNum < ServerVersion.v9_0.getVersionNum()) {
           // 2 is the maximum an 8.x server accepts
           sb.append("SET extra_float_digits = 2");
