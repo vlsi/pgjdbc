@@ -433,11 +433,13 @@ public final class CompositeCodec implements StreamingBinaryCodec, StreamingText
   @Override
   public byte[] encodeBinary(Object value, TypeDescriptor type, CodecContext ctx) throws SQLException {
     BackpatchingByteArrayOutputStream out = new BackpatchingByteArrayOutputStream();
-    if (value instanceof SQLData) {
-      ctx.getValueFactory().writeSQLData(type, (SQLData) value, out);
-      return out.toByteArray();
-    } else if (value instanceof Struct) {
+    // Struct before SQLData: a value that is both exposes its attributes declaratively, so prefer the
+    // introspectable representation the negotiation already reasoned about over the writeSQL callback.
+    if (value instanceof Struct) {
       encodeAttributes(((Struct) value).getAttributes(), type, ctx, out);
+      return out.toByteArray();
+    } else if (value instanceof SQLData) {
+      ctx.getValueFactory().writeSQLData(type, (SQLData) value, out);
       return out.toByteArray();
     }
     throw Exceptions.cannotEncodeCompositeBinary(value);
@@ -503,8 +505,14 @@ public final class CompositeCodec implements StreamingBinaryCodec, StreamingText
       // PGobject (or a nested Struct with one) negotiates text rather than failing at encodeAttributes.
       return structAttributesBinaryEncodable((Struct) value, type, ctx);
     }
-    // A SQLData's attribute values are only known inside writeSQL, which must not run twice; its field
-    // types are vetted by canEncodeBinaryType. A plain PGobject binds as text.
+    // A SQLData is an active callback, not declarative data: its attribute values exist only inside
+    // writeSQL, which must run exactly once (it may have side effects), so they cannot be inspected to
+    // negotiate the format. Its field types are vetted by canEncodeBinaryType and it negotiates binary
+    // optimistically; if writeSQL then writes a value a field cannot binary-encode, the enforcement
+    // gate refuses it with a clear SQLException before any wire byte — a safe error, not corruption.
+    // A caller that needs the format to follow the nested values (text fallback instead of the error)
+    // should bind a Struct (Connection.createStruct) instead, whose attributes are introspectable. A
+    // plain PGobject binds as text.
     return canEncodeBinary(value, type, ctx);
   }
 
@@ -633,18 +641,18 @@ public final class CompositeCodec implements StreamingBinaryCodec, StreamingText
 
   @Override
   public String encodeText(Object value, TypeDescriptor type, CodecContext ctx) throws SQLException {
+    // Struct before SQLData (and before PGobject): a value that is both prefers its declarative
+    // attributes; PgStruct extends PGobject AND implements Struct, and the PGobject view's value field
+    // is intentionally null, so the PGobject branch would bind an empty string the server rejects as a
+    // malformed record literal.
+    if (value instanceof Struct) {
+      Struct struct = (Struct) value;
+      return encodeAttributesAsText(struct.getAttributes(), type, ctx);
+    }
     if (value instanceof SQLData) {
       StringBuilder sb = new StringBuilder();
       ctx.getValueFactory().writeSQLData(type, (SQLData) value, sb);
       return sb.toString();
-    }
-    if (value instanceof Struct) {
-      // Check Struct before PGobject: PgStruct extends PGobject AND implements
-      // Struct, and the PGobject view's value field is intentionally null —
-      // taking the PGobject branch would bind an empty string and the server
-      // would reject it as a malformed record literal.
-      Struct struct = (Struct) value;
-      return encodeAttributesAsText(struct.getAttributes(), type, ctx);
     }
     if (value instanceof PGobject) {
       String strValue = ((PGobject) value).getValue();
@@ -675,12 +683,13 @@ public final class CompositeCodec implements StreamingBinaryCodec, StreamingText
   @Override
   public void encodeText(Object value, TypeDescriptor type, CodecContext ctx, Appendable out)
       throws SQLException, IOException {
-    if (value instanceof SQLData) {
-      ctx.getValueFactory().writeSQLData(type, (SQLData) value, out);
-      return;
-    }
+    // Struct before SQLData: prefer the declarative attributes when a value is both.
     if (value instanceof Struct) {
       encodeAttributes(((Struct) value).getAttributes(), type, ctx, out);
+      return;
+    }
+    if (value instanceof SQLData) {
+      ctx.getValueFactory().writeSQLData(type, (SQLData) value, out);
       return;
     }
     if (value instanceof PGobject) {
@@ -739,14 +748,15 @@ public final class CompositeCodec implements StreamingBinaryCodec, StreamingText
   @Override
   public void encodeBinary(Object value, TypeDescriptor type, CodecContext ctx,
       BackpatchingByteArrayOutputStream out) throws SQLException, IOException {
-    if (value instanceof SQLData) {
-      ctx.getValueFactory().writeSQLData(type, (SQLData) value, out);
+    if (value instanceof Struct) {
+      // Struct before SQLData (prefer the declarative attributes when a value is both), and the
+      // Struct fast path streams each attribute straight into the sink, back-patching per-field length
+      // prefixes, so no per-field byte[] is materialized.
+      encodeAttributes(((Struct) value).getAttributes(), type, ctx, out);
       return;
     }
-    if (value instanceof Struct) {
-      // Struct fast path: stream each attribute straight into the sink, back-patching
-      // per-field length prefixes, so no per-field byte[] is materialized.
-      encodeAttributes(((Struct) value).getAttributes(), type, ctx, out);
+    if (value instanceof SQLData) {
+      ctx.getValueFactory().writeSQLData(type, (SQLData) value, out);
       return;
     }
     // Plain PGobject values never reach here: canEncodeBinary() gates them out and they bind as
