@@ -142,6 +142,30 @@ public interface BinaryCodec extends Codec {
   }
 
   /**
+   * Whether {@code value} and every value nested inside it can be binary-encoded — the recursive,
+   * value-level companion to {@link #canEncodeBinaryType}, used only by the once-per-bind negotiation
+   * ({@link CodecFormatSupport#canWriteBinary}). A delegating codec overrides it to descend into the
+   * value it will embed: a composite into its {@link java.sql.Struct} attributes, a range into its
+   * bounds, a multirange into its ranges, an array into its leaves — each calling this method on the
+   * child, so a plain {@link org.postgresql.util.PGobject} nested anywhere makes the whole value
+   * negotiate text. A leaf keeps the default, which is exactly the local {@link #canEncodeBinary}.
+   *
+   * <p>This is kept out of the enforcement gate ({@link CodecFormatSupport#requireBinaryEncoder}),
+   * which stays local: as the encode recurses, each level runs its own local
+   * {@link #canEncodeBinary}, so the tree is covered one frame at a time without this recursive walk
+   * repeating per element.
+   *
+   * @param value the value to be encoded
+   * @param type the target type metadata
+   * @param ctx the codec context, used to resolve nested type metadata and codecs
+   * @return true if {@code value} and all values nested inside it can be binary-encoded
+   * @throws SQLException if type metadata cannot be resolved
+   */
+  default boolean canEncodeBinaryValue(Object value, TypeDescriptor type, CodecContext ctx) throws SQLException {
+    return canEncodeBinary(value, type, ctx);
+  }
+
+  /**
    * Whether {@link #decodeBinary} reads the real PostgreSQL binary wire format for this type. This
    * is the read-side counterpart to {@link #encodesBinary()}, and the capability the driver
    * gates binary <em>receive</em> on: only a type whose codec returns {@code true} is requested in

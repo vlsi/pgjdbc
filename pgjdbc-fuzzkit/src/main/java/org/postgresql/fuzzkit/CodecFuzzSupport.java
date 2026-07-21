@@ -1377,6 +1377,11 @@ public final class CodecFuzzSupport {
     }
 
     @Override
+    public boolean canEncodeBinaryValue(Object value, TypeDescriptor type, CodecContext ctx) throws SQLException {
+      return bin.canEncodeBinaryValue(value, type, ctx);
+    }
+
+    @Override
     public boolean canEncodeBinary(Object value, TypeDescriptor type, CodecContext ctx) throws SQLException {
       return bin.canEncodeBinary(value, type, ctx);
     }

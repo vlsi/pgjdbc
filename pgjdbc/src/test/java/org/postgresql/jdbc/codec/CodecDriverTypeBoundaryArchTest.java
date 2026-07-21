@@ -73,7 +73,7 @@ class CodecDriverTypeBoundaryArchTest {
       // so the bind path can reuse it instead of re-encoding. This is an encode-side optimization,
       // not a decode downcast, and needs a new capability rather than a cleanup.
       "ArrayCodec#encodeBinary -> PgArray",
-      "ArrayCodec#canEncodeBinary -> PgArray",
+      "ArrayCodec#arrayBinaryEncodable -> PgArray",
       "MultiDimArraySupport#unwrapArrayValue -> PgArray"));
 
   @Test

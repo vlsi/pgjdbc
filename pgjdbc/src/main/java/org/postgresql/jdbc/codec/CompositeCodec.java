@@ -490,9 +490,62 @@ public final class CompositeCodec implements StreamingBinaryCodec, StreamingText
 
   @Override
   public boolean canEncodeBinary(Object value, TypeDescriptor type, CodecContext ctx) {
-    // encodeBinary serializes a Struct/SQLData attribute-by-attribute; a plain PGobject carries
-    // only the composite text literal and must bind as text.
+    // Local (enforcement): encodeBinary serializes a Struct/SQLData attribute-by-attribute; a plain
+    // PGobject carries only the composite text literal and must bind as text. Each attribute's own
+    // binary-encodability is enforced as encodeAttributes recurses.
     return value instanceof Struct || value instanceof SQLData;
+  }
+
+  @Override
+  public boolean canEncodeBinaryValue(Object value, TypeDescriptor type, CodecContext ctx) throws SQLException {
+    if (value instanceof Struct) {
+      // Negotiation: recurse into the attribute values so a Struct whose attribute is itself a plain
+      // PGobject (or a nested Struct with one) negotiates text rather than failing at encodeAttributes.
+      return structAttributesBinaryEncodable((Struct) value, type, ctx);
+    }
+    // A SQLData's attribute values are only known inside writeSQL, which must not run twice; its field
+    // types are vetted by canEncodeBinaryType. A plain PGobject binds as text.
+    return canEncodeBinary(value, type, ctx);
+  }
+
+  /**
+   * Whether every non-null attribute of {@code struct} can be binary-encoded by its field codec,
+   * recursively (via {@link BinaryCodec#canEncodeBinaryValue}) — the value-level counterpart to
+   * {@link #canEncodeBinaryType}, mirroring {@link #encodeAttributes}. Called only from the
+   * negotiation, never from the enforcement gate, so its {@link CodecDepth} guard against a cyclic
+   * value graph does not stack on the encode recursion.
+   */
+  private static boolean structAttributesBinaryEncodable(Struct struct, TypeDescriptor type,
+      CodecContext ctx) throws SQLException {
+    CodecDepth.enter();
+    try {
+      List<? extends CompositeAttribute> fields = resolveFields(type, ctx);
+      if (fields.isEmpty()) {
+        // An anonymous RECORD carries no catalog attributes to check the values against; defer to the
+        // enforcement gate, which refuses a specific non-binary attribute as encodeAttributes recurses.
+        return true;
+      }
+      @Nullable Object[] attributes = struct.getAttributes();
+      if (attributes.length != fields.size()) {
+        // A shape mismatch is not binary-bindable; encodeAttributes surfaces the precise error.
+        return false;
+      }
+      for (int i = 0; i < attributes.length; i++) {
+        Object attr = attributes[i];
+        if (attr == null) {
+          continue;
+        }
+        CompositeAttribute field = fields.get(i);
+        BinaryCodec fieldCodec = ctx.resolveBinaryCodec(field.getTypeOid());
+        if (fieldCodec == null
+            || !fieldCodec.canEncodeBinaryValue(attr, attributeType(field, ctx), ctx)) {
+          return false;
+        }
+      }
+      return true;
+    } finally {
+      CodecDepth.exit();
+    }
   }
 
   @Override

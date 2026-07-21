@@ -165,6 +165,11 @@ public final class PGobjectCodec implements StreamingBinaryCodec, StreamingTextC
   }
 
   @Override
+  public boolean canEncodeBinaryValue(Object value, TypeDescriptor type, CodecContext ctx) throws SQLException {
+    return delegate instanceof BinaryCodec && ((BinaryCodec) delegate).canEncodeBinaryValue(value, type, ctx);
+  }
+
+  @Override
   public boolean canEncodeBinary(Object value, TypeDescriptor type, CodecContext ctx) throws SQLException {
     return delegate instanceof BinaryCodec && ((BinaryCodec) delegate).canEncodeBinary(value, type, ctx);
   }

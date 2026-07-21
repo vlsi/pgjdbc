@@ -83,6 +83,40 @@ public final class RangeCodec implements StreamingBinaryCodec, TextCodec {
     }
   }
 
+  @Override
+  public boolean canEncodeBinaryValue(Object value, TypeDescriptor type, CodecContext ctx) throws SQLException {
+    if (!(value instanceof PGRange)) {
+      return canEncodeBinary(value, type, ctx);
+    }
+    PGRange<?> range = (PGRange<?>) value;
+    if (range.isEmpty()) {
+      // An empty range is a single flags byte with no bounds to encode, so its subtype is irrelevant.
+      return true;
+    }
+    // Negotiation: recurse into each present bound so a bound the subtype codec cannot binary-encode
+    // (a plain PGobject over a composite subtype, say) makes the range negotiate text.
+    CodecDepth.enter();
+    try {
+      int subtypeOid = type.getRangeSubtype();
+      if (subtypeOid == 0) {
+        return false;
+      }
+      BinaryCodec subtypeCodec = ctx.resolveBinaryCodec(subtypeOid);
+      if (subtypeCodec == null) {
+        return false;
+      }
+      TypeDescriptor subtypeType = ctx.resolveType(subtypeOid);
+      if (range.hasLowerBound()
+          && !subtypeCodec.canEncodeBinaryValue(castNonNull(range.getLower()), subtypeType, ctx)) {
+        return false;
+      }
+      return !range.hasUpperBound()
+          || subtypeCodec.canEncodeBinaryValue(castNonNull(range.getUpper()), subtypeType, ctx);
+    } finally {
+      CodecDepth.exit();
+    }
+  }
+
   // ==================== Binary Codec Methods ====================
 
   @Override

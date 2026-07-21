@@ -183,6 +183,25 @@ public final class ArrayCodec implements StreamingBinaryCodec, StreamingTextCode
    */
   @Override
   public boolean canEncodeBinary(Object value, TypeDescriptor type, CodecContext ctx) throws SQLException {
+    // Local (enforcement): each leaf is checked with the element codec's local canEncodeBinary.
+    return arrayBinaryEncodable(value, type, ctx, false);
+  }
+
+  @Override
+  public boolean canEncodeBinaryValue(Object value, TypeDescriptor type, CodecContext ctx) throws SQLException {
+    // Negotiation: each leaf is checked recursively (canEncodeBinaryValue), so a composite leaf whose
+    // own attribute is a plain PGobject makes the array negotiate text.
+    return arrayBinaryEncodable(value, type, ctx, true);
+  }
+
+  /**
+   * Whether {@code value}'s array binds binary: its element type is binary-capable and every non-null
+   * leaf is binary-encodable by that element codec. When {@code recursive}, each leaf is checked with
+   * {@link BinaryCodec#canEncodeBinaryValue} (the negotiation walk); otherwise with the local
+   * {@link BinaryCodec#canEncodeBinary} (the enforcement check).
+   */
+  private static boolean arrayBinaryEncodable(Object value, TypeDescriptor type, CodecContext ctx,
+      boolean recursive) throws SQLException {
     Object javaArray;
     if (value instanceof PgArray) {
       PgArray pgArray = (PgArray) value;
@@ -210,7 +229,7 @@ public final class ArrayCodec implements StreamingBinaryCodec, StreamingTextCode
     if (elementCodec == null || !elementCodec.encodesBinary()) {
       return false;
     }
-    return leavesBinaryEncodable(javaArray, elementType, elementCodec, ctx);
+    return leavesBinaryEncodable(javaArray, elementType, elementCodec, ctx, recursive);
   }
 
   /**
@@ -219,14 +238,15 @@ public final class ArrayCodec implements StreamingBinaryCodec, StreamingTextCode
    * {@code Object[]} view. A primitive leaf array (for example {@code int[]} bound to
    * {@code numeric[]}) is homogeneous, so its first boxed element decides: when the element codec
    * cannot binary-encode that boxed value (a type with no real binary codec, such as {@code money}
-   * via the fallback codec), the array binds as text instead.
+   * via the fallback codec), the array binds as text instead. Each leaf is checked recursively when
+   * {@code recursive}, otherwise with the element codec's local {@link BinaryCodec#canEncodeBinary}.
    */
   private static boolean leavesBinaryEncodable(Object value, TypeDescriptor elementType,
-      BinaryCodec elementCodec, CodecContext ctx) throws SQLException {
+      BinaryCodec elementCodec, CodecContext ctx, boolean recursive) throws SQLException {
     if (value instanceof Object[]) {
       for (Object element : (Object[]) value) {
         if (element != null
-            && !leavesBinaryEncodable(element, elementType, elementCodec, ctx)) {
+            && !leavesBinaryEncodable(element, elementType, elementCodec, ctx, recursive)) {
           return false;
         }
       }
@@ -236,10 +256,17 @@ public final class ArrayCodec implements StreamingBinaryCodec, StreamingTextCode
       // Primitive leaf array (int[], double[], ...): empty binds fine; otherwise the homogeneous
       // first boxed element is representative of the whole leaf.
       int len = java.lang.reflect.Array.getLength(value);
-      return len == 0
-          || elementCodec.canEncodeBinary(java.lang.reflect.Array.get(value, 0), elementType, ctx);
+      return len == 0 || leafBinaryEncodable(java.lang.reflect.Array.get(value, 0), elementType,
+          elementCodec, ctx, recursive);
     }
-    return elementCodec.canEncodeBinary(value, elementType, ctx);
+    return leafBinaryEncodable(value, elementType, elementCodec, ctx, recursive);
+  }
+
+  private static boolean leafBinaryEncodable(Object leaf, TypeDescriptor elementType,
+      BinaryCodec elementCodec, CodecContext ctx, boolean recursive) throws SQLException {
+    return recursive
+        ? elementCodec.canEncodeBinaryValue(leaf, elementType, ctx)
+        : elementCodec.canEncodeBinary(leaf, elementType, ctx);
   }
 
   private static GenericArrayLeafCodec getGenericArrayLeafCodec(TypeDescriptor arrayType, CodecContext ctx) throws SQLException {

@@ -51,12 +51,14 @@ public final class CodecFormatSupport {
   /**
    * Whether {@code value} can be bound as a real binary payload for {@code type}, end to end: it is a
    * {@link BinaryCodec}, {@code type} and every type nested inside it are binary-capable
-   * ({@link BinaryCodec#canEncodeBinaryType}), and the value-level {@link BinaryCodec#canEncodeBinary}
-   * accepts this value. This is the negotiation check — {@code chooseBindFormat} and
-   * {@link org.postgresql.jdbc.PgArray#toBytes()} gate the binary path on it, so a container over a
-   * text-only child (a {@code time} subtype in a range, say) binds as text rather than failing at
-   * encode. The recursive type walk runs once per bind here, not per element: the enforcement gate
-   * {@link #requireBinaryEncoder} checks each level locally as the encode recurses.
+   * ({@link BinaryCodec#canEncodeBinaryType}), and {@code value} and every value nested inside it are
+   * binary-encodable ({@link BinaryCodec#canEncodeBinaryValue}). Both walks are recursive, so a
+   * text-only child <em>type</em> (a {@code time} subtype in a range) and a text-only nested
+   * <em>value</em> (a plain {@code PGobject} attribute in a composite) both make the value bind as
+   * text rather than fail at encode. This is the negotiation check — {@code chooseBindFormat} and
+   * {@link org.postgresql.jdbc.PgArray#toBytes()} gate the binary path on it. The recursive walks run
+   * once per bind here, not per element: the enforcement gate {@link #requireBinaryEncoder} checks
+   * each level locally as the encode recurses.
    *
    * @param codec the codec to inspect
    * @param value the value to be encoded
@@ -71,7 +73,7 @@ public final class CodecFormatSupport {
       return false;
     }
     BinaryCodec binary = (BinaryCodec) codec;
-    return binary.canEncodeBinaryType(type, ctx) && binary.canEncodeBinary(value, type, ctx);
+    return binary.canEncodeBinaryType(type, ctx) && binary.canEncodeBinaryValue(value, type, ctx);
   }
 
   /**
