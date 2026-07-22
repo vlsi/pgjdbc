@@ -35,7 +35,7 @@ public final class BoolCodec implements PrimitiveBinaryEncoder, PrimitiveBinaryD
   }
 
   @Override
-  public boolean mayRequireQuoting() {
+  public boolean mayRequireQuoting(TypeDescriptor type, CodecContext ctx) {
     // Output is t or f — never needs composite/array quoting.
     return false;
   }

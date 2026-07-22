@@ -65,16 +65,26 @@ public interface TextCodec extends Codec {
   String encodeText(Object value, TypeDescriptor type, CodecContext ctx) throws SQLException;
 
   /**
-   * Whether this codec's {@link #encodeText} output can contain characters that require quoting
-   * when embedded in a composite or array literal (a comma, parenthesis, brace, double quote,
-   * backslash, leading/trailing whitespace, or the empty string). Numeric and boolean codecs emit
-   * only quote-safe characters (digits, sign, dot, {@code e}, {@code t}/{@code f}, {@code NaN},
-   * {@code Infinity}) and return {@code false}, letting a container stream such a field straight
-   * into the literal without quoting. The default is {@code true} — assume quoting may be needed.
+   * Whether this codec's {@link #encodeText} output for {@code type} can contain characters that
+   * require quoting when embedded in a composite or array literal (a comma, parenthesis, brace,
+   * double quote, backslash, leading/trailing whitespace, or the empty string). Numeric and boolean
+   * codecs emit only quote-safe characters (digits, sign, dot, {@code e}, {@code t}/{@code f},
+   * {@code NaN}, {@code Infinity}) and return {@code false}, letting a container stream such a field
+   * straight into the literal without quoting.
    *
-   * @return true if the text output may need composite/array quoting
+   * <p>The {@code type} argument matters for a delegating codec whose output depends on the concrete
+   * type it wraps: a domain has no text of its own and renders as its base type, so a domain over
+   * {@code int4} is quote-safe while a domain over {@code text} is not — a distinction the shared
+   * {@link org.postgresql.jdbc.codec.DomainCodec} singleton can only make once it resolves the base
+   * type from {@code type}. A leaf codec whose answer is type-independent ignores the argument. The
+   * default is {@code true} — assume quoting may be needed.
+   *
+   * @param type the concrete type whose value is being embedded in a composite or array literal
+   * @param ctx the codec context, used to resolve a delegating codec's underlying type
+   * @return true if the text output for {@code type} may need composite/array quoting
+   * @throws SQLException if resolving the underlying type fails
    */
-  default boolean mayRequireQuoting() {
+  default boolean mayRequireQuoting(TypeDescriptor type, CodecContext ctx) throws SQLException {
     return true;
   }
 

@@ -194,7 +194,7 @@ final class GenericArrayLeafCodec implements ArrayLeafCodec {
       out.append("NULL");
     } else if (codec instanceof StreamingTextCodec) {
       StreamingTextCodec streamingCodec = (StreamingTextCodec) codec;
-      if (!codec.mayRequireQuoting()) {
+      if (!codec.mayRequireQuoting(elementType, ctx)) {
         streamingCodec.encodeText(element, elementType, ctx, out);
       } else {
         out.append('"');

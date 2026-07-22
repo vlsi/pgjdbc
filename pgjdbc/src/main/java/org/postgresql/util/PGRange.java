@@ -51,6 +51,13 @@ public class PGRange<T> extends PGobject implements Serializable, Cloneable {
   private boolean lowerInclusive;
   private boolean upperInclusive;
   private boolean isEmpty;
+  // Server-faithful text form of each present bound, supplied by the codec at decode time (see
+  // #setBoundTexts). The codec renders a bound the way the backend's range_out does — a timestamptz
+  // bound, for instance, keeps its session-zone offset, which the decoded java.sql.Timestamp's own
+  // toString() drops. A mutating setter clears the affected side so toString() falls back to rendering
+  // the current bound. Null for a range built in user code, whose bounds toString() renders directly.
+  private @Nullable String lowerText;
+  private @Nullable String upperText;
 
   /**
    * Creates an empty range.
@@ -153,6 +160,7 @@ public class PGRange<T> extends PGobject implements Serializable, Cloneable {
    */
   public void setLower(@Nullable T lower) {
     this.lower = lower;
+    this.lowerText = null;
     this.isEmpty = false;
   }
 
@@ -172,7 +180,24 @@ public class PGRange<T> extends PGobject implements Serializable, Cloneable {
    */
   public void setUpper(@Nullable T upper) {
     this.upper = upper;
+    this.upperText = null;
     this.isEmpty = false;
+  }
+
+  /**
+   * Records the server-faithful text form of each present bound, as the codec renders it. The codec
+   * calls this after decoding a range so {@link #toString()} reproduces the backend's {@code range_out}
+   * — most importantly a {@code tstzrange} bound keeps its session-zone offset, which the decoded
+   * {@link java.sql.Timestamp}'s own {@code toString()} would drop. A {@code null} argument leaves that
+   * side to render from its bound value. This is an internal hook for the driver's codecs; user code
+   * has no reason to call it.
+   *
+   * @param lowerText text form of the lower bound, or {@code null} to render it from the bound value
+   * @param upperText text form of the upper bound, or {@code null} to render it from the bound value
+   */
+  public void setBoundTexts(@Nullable String lowerText, @Nullable String upperText) {
+    this.lowerText = lowerText;
+    this.upperText = upperText;
   }
 
   /**
@@ -230,6 +255,8 @@ public class PGRange<T> extends PGobject implements Serializable, Cloneable {
     if (empty) {
       lower = null;
       upper = null;
+      lowerText = null;
+      upperText = null;
     }
   }
 
@@ -325,11 +352,11 @@ public class PGRange<T> extends PGobject implements Serializable, Cloneable {
     StringBuilder sb = new StringBuilder();
     sb.append(lowerInclusive ? '[' : '(');
     if (lower != null) {
-      appendBound(sb, formatBound(lower));
+      appendBound(sb, lowerText != null ? lowerText : formatBound(lower));
     }
     sb.append(',');
     if (upper != null) {
-      appendBound(sb, formatBound(upper));
+      appendBound(sb, upperText != null ? upperText : formatBound(upper));
     }
     sb.append(upperInclusive ? ']' : ')');
     return sb.toString();

@@ -16,6 +16,8 @@ import java.time.LocalDateTime;
 import java.time.LocalTime;
 import java.time.OffsetDateTime;
 import java.time.OffsetTime;
+import java.util.GregorianCalendar;
+import java.util.TimeZone;
 import java.util.UUID;
 
 /**
@@ -174,7 +176,34 @@ public enum Accessor {
     @Nullable Object get(ResultSet rs, int column) throws SQLException {
       return rs.getObject(column, byte[].class);
     }
+  },
+  GET_DATE_CAL {
+    @Override
+    @Nullable Object get(ResultSet rs, int column) throws SQLException {
+      return rs.getDate(column, calendar());
+    }
+  },
+  GET_TIME_CAL {
+    @Override
+    @Nullable Object get(ResultSet rs, int column) throws SQLException {
+      return rs.getTime(column, calendar());
+    }
+  },
+  GET_TIMESTAMP_CAL {
+    @Override
+    @Nullable Object get(ResultSet rs, int column) throws SQLException {
+      return rs.getTimestamp(column, calendar());
+    }
   };
+
+  /**
+   * A calendar in a fixed non-UTC, non-JVM-default zone. The temporal-with-calendar getters must honour
+   * it, so a fresh instance is handed out per call: the JDBC drivers may mutate a calendar passed to a
+   * getter, and the current and baseline drivers must not share one.
+   */
+  private static GregorianCalendar calendar() {
+    return new GregorianCalendar(TimeZone.getTimeZone("GMT+05:00"));
+  }
 
   abstract @Nullable Object get(ResultSet rs, int column) throws SQLException;
 }

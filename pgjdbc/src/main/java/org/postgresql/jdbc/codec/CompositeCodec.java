@@ -457,7 +457,7 @@ public final class CompositeCodec implements StreamingBinaryCodec, StreamingText
       TextCodec codec, CodecContext ctx) throws SQLException, IOException {
     if (codec instanceof StreamingTextCodec) {
       StreamingTextCodec streamingTextCodec = (StreamingTextCodec) codec;
-      if (!codec.mayRequireQuoting()) {
+      if (!codec.mayRequireQuoting(fieldType, ctx)) {
         streamingTextCodec.encodeText(value, fieldType, ctx, out);
       } else {
         out.append('"');

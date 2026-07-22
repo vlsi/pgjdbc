@@ -1402,8 +1402,8 @@ public final class CodecFuzzSupport {
     }
 
     @Override
-    public boolean mayRequireQuoting() {
-      return txt.mayRequireQuoting();
+    public boolean mayRequireQuoting(TypeDescriptor type, CodecContext ctx) throws SQLException {
+      return txt.mayRequireQuoting(type, ctx);
     }
 
     @Override

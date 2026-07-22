@@ -36,7 +36,7 @@ public final class Int4Codec implements PrimitiveBinaryEncoder, PrimitiveBinaryD
   }
 
   @Override
-  public boolean mayRequireQuoting() {
+  public boolean mayRequireQuoting(TypeDescriptor type, CodecContext ctx) {
     // Output is digits with an optional leading sign — never needs composite/array quoting.
     return false;
   }

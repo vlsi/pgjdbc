@@ -46,7 +46,7 @@ public final class Xid8Codec implements StreamingBinaryCodec, PrimitiveBinaryDec
   }
 
   @Override
-  public boolean mayRequireQuoting() {
+  public boolean mayRequireQuoting(TypeDescriptor type, CodecContext ctx) {
     // Output is digits — never needs composite/array quoting.
     return false;
   }

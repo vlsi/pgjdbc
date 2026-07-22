@@ -20,11 +20,14 @@ import org.postgresql.test.data.DateRangeEdgeCases;
 import org.postgresql.test.data.EdgeCase;
 import org.postgresql.test.data.Float4EdgeCases;
 import org.postgresql.test.data.Float8EdgeCases;
+import org.postgresql.test.data.HstoreEdgeCases;
 import org.postgresql.test.data.InetEdgeCases;
 import org.postgresql.test.data.Int2EdgeCases;
 import org.postgresql.test.data.Int4EdgeCases;
+import org.postgresql.test.data.Int4MultirangeEdgeCases;
 import org.postgresql.test.data.Int4RangeEdgeCases;
 import org.postgresql.test.data.Int8EdgeCases;
+import org.postgresql.test.data.Int8RangeEdgeCases;
 import org.postgresql.test.data.IntArrayEdgeCases;
 import org.postgresql.test.data.IntervalEdgeCases;
 import org.postgresql.test.data.JsonEdgeCases;
@@ -46,6 +49,7 @@ import org.postgresql.test.data.TimeTzEdgeCases;
 import org.postgresql.test.data.TimestampEdgeCases;
 import org.postgresql.test.data.TimestampTzEdgeCases;
 import org.postgresql.test.data.TsRangeEdgeCases;
+import org.postgresql.test.data.TstzRangeEdgeCases;
 import org.postgresql.test.data.UuidEdgeCases;
 import org.postgresql.test.data.VarbitEdgeCases;
 
@@ -60,8 +64,13 @@ import java.math.BigDecimal;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.sql.Connection;
+import java.sql.ResultSet;
+import java.sql.SQLException;
+import java.sql.Statement;
 import java.sql.Types;
 import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.EnumSet;
 import java.util.List;
 import java.util.Properties;
 
@@ -108,6 +117,16 @@ class BackwardCompatMatrixTest {
       {"textarr", "'{a,b}'::text[]"},
   };
 
+  /**
+   * The accessors swept over every fixed {@link #READ_TYPES} value. Derived from {@link Accessor#values()}
+   * minus the Calendar getters: those are wired only into the temporal edge axes (below), so a Calendar
+   * getter does not run against, say, an {@code int4} column where it only adds noise. Deriving it — rather
+   * than listing the members by hand — keeps a newly added accessor in the fixed sweep automatically.
+   */
+  private static final Accessor[] FIXED_MATRIX_ACCESSORS =
+      EnumSet.complementOf(EnumSet.of(Accessor.GET_DATE_CAL, Accessor.GET_TIME_CAL,
+          Accessor.GET_TIMESTAMP_CAL)).toArray(new Accessor[0]);
+
   /** Accessors exercised against numeric/int edge cases: the numeric-relevant getters. */
   private static final Accessor[] NUMERIC_EDGE_ACCESSORS = {
       Accessor.GET_BYTE, Accessor.GET_SHORT, Accessor.GET_INT, Accessor.GET_LONG,
@@ -126,34 +145,37 @@ class BackwardCompatMatrixTest {
       Accessor.GET_STRING, Accessor.GET_OBJECT, Accessor.GET_BYTES,
   };
 
-  /** Accessors for timestamp edge cases: the temporal getters and the JSR-310 targets. */
+  /** Accessors for timestamp edge cases: the temporal getters, their Calendar variants, and JSR-310. */
   private static final Accessor[] TIMESTAMP_EDGE_ACCESSORS = {
       Accessor.GET_STRING, Accessor.GET_OBJECT, Accessor.GET_DATE, Accessor.GET_TIME,
-      Accessor.GET_TIMESTAMP, Accessor.GET_OBJECT_LOCAL_DATE_TIME, Accessor.GET_OBJECT_INSTANT,
-      Accessor.GET_OBJECT_LOCAL_DATE,
+      Accessor.GET_TIMESTAMP, Accessor.GET_DATE_CAL, Accessor.GET_TIME_CAL, Accessor.GET_TIMESTAMP_CAL,
+      Accessor.GET_OBJECT_LOCAL_DATE_TIME, Accessor.GET_OBJECT_INSTANT, Accessor.GET_OBJECT_LOCAL_DATE,
   };
 
-  /** Accessors for date edge cases. */
+  /** Accessors for date edge cases: the temporal getters, their Calendar variants, and JSR-310. */
   private static final Accessor[] DATE_EDGE_ACCESSORS = {
       Accessor.GET_STRING, Accessor.GET_OBJECT, Accessor.GET_DATE, Accessor.GET_TIMESTAMP,
+      Accessor.GET_DATE_CAL, Accessor.GET_TIMESTAMP_CAL,
       Accessor.GET_OBJECT_LOCAL_DATE, Accessor.GET_OBJECT_LOCAL_DATE_TIME,
   };
 
-  /** Accessors for time edge cases. */
+  /** Accessors for time edge cases: the temporal getters, their Calendar variants, and JSR-310. */
   private static final Accessor[] TIME_EDGE_ACCESSORS = {
       Accessor.GET_STRING, Accessor.GET_OBJECT, Accessor.GET_TIME, Accessor.GET_TIMESTAMP,
-      Accessor.GET_OBJECT_LOCAL_TIME,
+      Accessor.GET_TIME_CAL, Accessor.GET_TIMESTAMP_CAL, Accessor.GET_OBJECT_LOCAL_TIME,
   };
 
-  /** Accessors for timetz edge cases. */
+  /** Accessors for timetz edge cases: string/object, the time getter and its Calendar variant, JSR-310. */
   private static final Accessor[] TIMETZ_EDGE_ACCESSORS = {
-      Accessor.GET_STRING, Accessor.GET_OBJECT, Accessor.GET_TIME, Accessor.GET_OBJECT_OFFSET_TIME,
+      Accessor.GET_STRING, Accessor.GET_OBJECT, Accessor.GET_TIME, Accessor.GET_TIME_CAL,
+      Accessor.GET_OBJECT_OFFSET_TIME,
   };
 
-  /** Accessors for timestamptz edge cases: temporal getters plus the offset/instant JSR-310 targets. */
+  /** Accessors for timestamptz edge cases: temporal getters, their Calendar variants, and JSR-310. */
   private static final Accessor[] TIMESTAMPTZ_EDGE_ACCESSORS = {
       Accessor.GET_STRING, Accessor.GET_OBJECT, Accessor.GET_DATE, Accessor.GET_TIME,
-      Accessor.GET_TIMESTAMP, Accessor.GET_OBJECT_OFFSET_DATE_TIME, Accessor.GET_OBJECT_INSTANT,
+      Accessor.GET_TIMESTAMP, Accessor.GET_DATE_CAL, Accessor.GET_TIME_CAL, Accessor.GET_TIMESTAMP_CAL,
+      Accessor.GET_OBJECT_OFFSET_DATE_TIME, Accessor.GET_OBJECT_INSTANT,
       Accessor.GET_OBJECT_LOCAL_DATE_TIME,
   };
 
@@ -236,11 +258,40 @@ class BackwardCompatMatrixTest {
       {"interval", "1 day 02:03:04"},
   };
 
+  /** Schema holding the bespoke composite/domain/enum types; dropped as a whole in teardown. */
+  private static final String UDT_SCHEMA = "compat_udt";
+
+  /**
+   * Read cases for the {@code compat_udt.dcomp} composite (domain + {@code numeric(10,2)} + text). {@code
+   * normal} is the plain shape; {@code null_field} leaves the numeric attribute NULL so the binary decoder
+   * must step over a missing field; {@code text_special} carries a comma, an embedded double quote and a
+   * backslash in the text attribute to exercise the composite text parser. Read-only, so {@code value} is
+   * {@code null}.
+   */
+  private static final List<EdgeCase> DCOMP_CASES = Arrays.asList(
+      new EdgeCase("normal", "(5,12345.67,hi)", null),
+      new EdgeCase("null_field", "(5,,plain)", null),
+      new EdgeCase("text_special", "(5,12345.67,\"a,b\"\"c\\\\d\")", null));
+
+  /** Read cases for the {@code compat_udt.posint} domain over {@code int4}. */
+  private static final List<EdgeCase> POSINT_CASES = Arrays.asList(
+      new EdgeCase("small", "5", null),
+      new EdgeCase("max", "2147483647", null));
+
+  /** Read cases for the {@code compat_udt.mood} enum. */
+  private static final List<EdgeCase> MOOD_CASES = Arrays.asList(
+      new EdgeCase("first", "happy", null),
+      new EdgeCase("last", "neutral", null));
+
   private LegacyDriverLoader baseline;
   private Connection currentText;
   private Connection currentBinary;
   private Connection baselineText;
   private Connection baselineBinary;
+  /** Whether the server has multirange types (PostgreSQL 14+); gates the int4multirange axis. */
+  private boolean multirangeSupported;
+  /** Whether the hstore extension is installed; gates the hstore axis (never created by this test). */
+  private boolean hstoreAvailable;
 
   @BeforeAll
   void openConnections() throws Exception {
@@ -260,6 +311,17 @@ class BackwardCompatMatrixTest {
       this.baselineBinary = baseline.connect(url, props(true));
       for (Connection c : new Connection[]{currentText, currentBinary, baselineText, baselineBinary}) {
         DifferentialProbe.createEchoFunction(c);
+      }
+      // Container types read by the matrix. The UDTs are database-level, so creating them once (on any
+      // connection) makes them visible to all four sessions. Multirange and hstore are gated, not created.
+      createContainerTypes(currentText);
+      this.multirangeSupported = probeMultirangeSupported(currentText);
+      this.hstoreAvailable = probeHstoreAvailable(currentText);
+      if (!multirangeSupported) {
+        System.out.println("[compat] int4multirange axis skipped: server is older than PostgreSQL 14");
+      }
+      if (!hstoreAvailable) {
+        System.out.println("[compat] hstore axis skipped: the hstore extension is not installed");
       }
     } catch (Exception e) {
       // The property/jar checks above already made the oracle inert when it is not configured to run.
@@ -290,6 +352,55 @@ class BackwardCompatMatrixTest {
     return p;
   }
 
+  /**
+   * Creates the bespoke composite/domain/enum types in a dedicated schema. The composite {@code dcomp}
+   * nests a domain attribute and a {@code numeric(p,s)} attribute, which is the shape that exercises the
+   * domain-inside-composite binary decode. The schema is dropped first so a previous interrupted run does
+   * not leave it behind, and dropped again as a whole in teardown.
+   */
+  private static void createContainerTypes(Connection c) throws SQLException {
+    try (Statement st = c.createStatement()) {
+      st.execute("DROP SCHEMA IF EXISTS " + UDT_SCHEMA + " CASCADE");
+      st.execute("CREATE SCHEMA " + UDT_SCHEMA);
+      st.execute("CREATE DOMAIN " + UDT_SCHEMA + ".posint AS int4 CHECK (VALUE > 0)");
+      st.execute("CREATE TYPE " + UDT_SCHEMA + ".dcomp AS (a " + UDT_SCHEMA + ".posint, "
+          + "b numeric(10,2), c text)");
+      st.execute("CREATE TYPE " + UDT_SCHEMA + ".mood AS ENUM ('happy', 'sad', 'neutral')");
+    }
+  }
+
+  /** True when the server has multirange types (PostgreSQL 14+), read through a version probe. */
+  private static boolean probeMultirangeSupported(Connection c) throws SQLException {
+    try (Statement st = c.createStatement();
+         ResultSet rs = st.executeQuery("SELECT current_setting('server_version_num')::int >= 140000")) {
+      return rs.next() && rs.getBoolean(1);
+    }
+  }
+
+  /**
+   * True when the hstore extension is installed, tested by casting a literal. The connection is in
+   * autocommit mode, so a failed cast does not poison a transaction. This test never runs {@code CREATE
+   * EXTENSION}: installing it would leave server state behind and needs privileges that differ across
+   * environments, so an absent hstore simply makes the axis inert.
+   */
+  private static boolean probeHstoreAvailable(Connection c) {
+    try (Statement st = c.createStatement();
+         ResultSet rs = st.executeQuery("SELECT 'a=>1'::hstore::text")) {
+      return rs.next();
+    } catch (SQLException notInstalled) {
+      return false;
+    }
+  }
+
+  /**
+   * Renders a value as a single-quoted SQL string literal, doubling any embedded apostrophe. The edge-case
+   * literals can carry quotes (for example an {@code hstore} key such as {@code it's}), so they must be
+   * escaped before they are spliced into {@code SELECT '...'::type}.
+   */
+  private static String sqlLiteral(String literal) {
+    return "'" + literal.replace("'", "''") + "'";
+  }
+
   /** Extracts the {@link BigDecimal} from a {@code '<value>'::numeric} read expression. */
   private static BigDecimal numericLiteralValue(String selectExpr) {
     int start = selectExpr.indexOf('\'') + 1;
@@ -310,7 +421,7 @@ class BackwardCompatMatrixTest {
       for (String[] type : READ_TYPES) {
         String typeName = type[0];
         String selectSql = "SELECT " + type[1];
-        for (Accessor accessor : Accessor.values()) {
+        for (Accessor accessor : FIXED_MATRIX_ACCESSORS) {
           ObservableOutcome curOutcome = DifferentialProbe.read(cur, selectSql, accessor);
           ObservableOutcome baseOutcome = DifferentialProbe.read(base, selectSql, accessor);
           String diff = OutcomeComparator.compare(curOutcome, baseOutcome);
@@ -428,6 +539,30 @@ class BackwardCompatMatrixTest {
           TsRangeEdgeCases.ALL, STRING_OBJECT_BYTES_ACCESSORS);
       runEdgeAxis(unexpected, "daterange-edge", format, cur, base, "daterange",
           DateRangeEdgeCases.ALL, STRING_OBJECT_BYTES_ACCESSORS);
+      runEdgeAxis(unexpected, "int8range-edge", format, cur, base, "int8range",
+          Int8RangeEdgeCases.ALL, STRING_OBJECT_BYTES_ACCESSORS);
+      runEdgeAxis(unexpected, "tstzrange-edge", format, cur, base, "tstzrange",
+          TstzRangeEdgeCases.ALL, STRING_OBJECT_BYTES_ACCESSORS);
+
+      // Container/UDT axes. The composite nests a domain attribute, the shape that exercises the
+      // domain-inside-composite binary decode; domain-over-scalar and enum round out the UDT surface.
+      runEdgeAxis(unexpected, "composite-edge", format, cur, base, UDT_SCHEMA + ".dcomp",
+          DCOMP_CASES, STRING_OBJECT_BYTES_ACCESSORS);
+      runEdgeAxis(unexpected, "domain-edge", format, cur, base, UDT_SCHEMA + ".posint",
+          POSINT_CASES, NUMERIC_EDGE_ACCESSORS);
+      runEdgeAxis(unexpected, "enum-edge", format, cur, base, UDT_SCHEMA + ".mood",
+          MOOD_CASES, STRING_OBJECT_BYTES_ACCESSORS);
+
+      // Multirange (PostgreSQL 14+) and hstore (extension) axes, each inert when the server lacks them.
+      // The multirange axis is named "*range-edge" so the existing range-getObject rule can cover it.
+      if (multirangeSupported) {
+        runEdgeAxis(unexpected, "int4multirange-edge", format, cur, base, "int4multirange",
+            Int4MultirangeEdgeCases.ALL, STRING_OBJECT_BYTES_ACCESSORS);
+      }
+      if (hstoreAvailable) {
+        runEdgeAxis(unexpected, "hstore-edge", format, cur, base, "hstore",
+            HstoreEdgeCases.ALL, STRING_OBJECT_BYTES_ACCESSORS);
+      }
 
       // Array-wrapping axis: wrap each scalar edge value in a 1-D and a 2-D array and check the two
       // ways of reading it back (getArray, getObject) still agree between the drivers.
@@ -518,7 +653,7 @@ class BackwardCompatMatrixTest {
   private static void runEdgeAxis(List<String> unexpected, String axis, String format,
       Connection cur, Connection base, String pgType, List<EdgeCase> cases, Accessor[] accessors) {
     for (EdgeCase edge : cases) {
-      String selectSql = "SELECT '" + edge.literal() + "'::" + pgType;
+      String selectSql = "SELECT " + sqlLiteral(edge.literal()) + "::" + pgType;
       BigDecimal roundingValue = edge.value() instanceof BigDecimal ? (BigDecimal) edge.value() : null;
       for (Accessor accessor : accessors) {
         ObservableOutcome curOutcome = DifferentialProbe.read(cur, selectSql, accessor);
@@ -546,7 +681,7 @@ class BackwardCompatMatrixTest {
   private static void runArrayAxis(List<String> unexpected, String axis, String format,
       Connection cur, Connection base, String elemType, List<EdgeCase> cases) {
     for (EdgeCase edge : cases) {
-      String element = "'" + edge.literal() + "'::" + elemType;
+      String element = sqlLiteral(edge.literal()) + "::" + elemType;
       runArrayCell(unexpected, axis, format, cur, base, "ARRAY[" + element + "]", "dim1-" + edge.name());
       runArrayCell(unexpected, axis, format, cur, base,
           "ARRAY[ARRAY[" + element + "]]", "dim2-" + edge.name());
@@ -571,12 +706,28 @@ class BackwardCompatMatrixTest {
 
   @AfterAll
   void closeConnections() throws Exception {
-    closeQuietly(currentText);
-    closeQuietly(currentBinary);
-    closeQuietly(baselineText);
-    closeQuietly(baselineBinary);
-    if (baseline != null) {
-      baseline.close();
+    try {
+      dropContainerTypes(currentText);
+    } finally {
+      closeQuietly(currentText);
+      closeQuietly(currentBinary);
+      closeQuietly(baselineText);
+      closeQuietly(baselineBinary);
+      if (baseline != null) {
+        baseline.close();
+      }
+    }
+  }
+
+  /** Drops the bespoke UDT schema as a whole. Runs before the connections close so nothing is left behind. */
+  private static void dropContainerTypes(Connection c) {
+    if (c == null) {
+      return;
+    }
+    try (Statement st = c.createStatement()) {
+      st.execute("DROP SCHEMA IF EXISTS " + UDT_SCHEMA + " CASCADE");
+    } catch (SQLException ignore) {
+      // best-effort teardown; the idempotent DROP in setup recovers on the next run
     }
   }
 

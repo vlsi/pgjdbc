@@ -34,7 +34,7 @@ public final class Float8Codec implements PrimitiveBinaryEncoder, PrimitiveBinar
   }
 
   @Override
-  public boolean mayRequireQuoting() {
+  public boolean mayRequireQuoting(TypeDescriptor type, CodecContext ctx) {
     // Output is digits/sign/dot/e or NaN/Infinity — never needs composite/array quoting.
     return false;
   }

@@ -37,7 +37,7 @@ public final class OidCodec implements StreamingBinaryCodec, PrimitiveBinaryDeco
   }
 
   @Override
-  public boolean mayRequireQuoting() {
+  public boolean mayRequireQuoting(TypeDescriptor type, CodecContext ctx) {
     // Output is digits — never needs composite/array quoting.
     return false;
   }

@@ -296,19 +296,22 @@ public final class KnownDifferences {
       return null;
     });
 
-    // Intended new type: range getObject returns a typed org.postgresql.util.PGRange where the baseline
-    // returned a generic PGobject. Accept only when the rendered value is otherwise identical, so a value
-    // change (for example a tsrange bound formatted differently) is still reported.
+    // Intended new type: range getObject returns a typed org.postgresql.util.PGRange (and multirange a
+    // PGmultirange) where the baseline returned a generic PGobject. Accept only when the rendered value is
+    // otherwise identical, so a value change (for example a tsrange bound formatted differently) is still
+    // reported. Multirange is folded in here rather than in its own rule so that a server without
+    // multirange (before PostgreSQL 14, where the axis is skipped) does not leave a dead rule behind.
     RULES.add((label, current, baseline) -> {
       if (label.contains("range-edge|") && label.endsWith("|GET_OBJECT")
           && !current.threw() && !baseline.threw()) {
         String c = current.value();
         String b = baseline.value();
         if (c != null && b != null
-            && c.startsWith("org.postgresql.util.PGRange:")
+            && (c.startsWith("org.postgresql.util.PGRange:")
+                || c.startsWith("org.postgresql.util.PGmultirange:"))
             && b.startsWith("org.postgresql.util.PGobject:")
             && c.substring(c.indexOf(':') + 1).equals(b.substring(b.indexOf(':') + 1))) {
-          return "range getObject returns the new typed PGRange instead of the generic PGobject";
+          return "range/multirange getObject returns the new typed value instead of the generic PGobject";
         }
       }
       return null;
@@ -323,6 +326,35 @@ public final class KnownDifferences {
           || label.startsWith("circle-edge|") || label.contains("range-edge|");
       if (geomOrRange && label.endsWith("|GET_BYTES")) {
         return "getBytes on a geometric/range type returns raw wire bytes; it now transfers in binary "
+            + "(see #4277)";
+      }
+      return null;
+    });
+
+    // Intended new type: composite getObject returns a typed org.postgresql.jdbc.PgStruct where the
+    // baseline returned a generic PGobject. Accept only when the rendered value is otherwise identical, so
+    // a value change (for example a composite field rendered differently) is still reported.
+    RULES.add((label, current, baseline) -> {
+      if (label.startsWith("composite-edge|") && label.endsWith("|GET_OBJECT")
+          && !current.threw() && !baseline.threw()) {
+        String c = current.value();
+        String b = baseline.value();
+        if (c != null && b != null
+            && c.startsWith("org.postgresql.jdbc.PgStruct:")
+            && b.startsWith("org.postgresql.util.PGobject:")
+            && c.substring(c.indexOf(':') + 1).equals(b.substring(b.indexOf(':') + 1))) {
+          return "composite getObject returns the new typed Struct instead of the generic PGobject";
+        }
+      }
+      return null;
+    });
+
+    // Wire-format-dependent getBytes (issue #4277) on the composite and hstore axes: both now transfer in
+    // binary, so getBytes returns the raw wire value instead of the text rendering.
+    RULES.add((label, current, baseline) -> {
+      if ((label.startsWith("composite-edge|") || label.startsWith("hstore-edge|"))
+          && label.endsWith("|GET_BYTES")) {
+        return "getBytes on a composite/hstore value returns raw wire bytes; it now transfers in binary "
             + "(see #4277)";
       }
       return null;

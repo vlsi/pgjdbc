@@ -159,6 +159,11 @@ public final class RangeCodec implements StreamingBinaryCodec, TextCodec {
       int offset = 1;
       Object lower = null;
       Object upper = null;
+      // The bound's server-faithful text, rendered from the same wire slice through the subtype's
+      // decodeAsString so a timestamptz bound keeps its session-zone offset (range_send stores the
+      // instant, and the decoded Timestamp's own toString() would drop it). PGRange.toString() uses it.
+      @Nullable String lowerText = null;
+      @Nullable String upperText = null;
 
       // Read lower bound if not infinite
       if (!lowerInfinite) {
@@ -172,6 +177,7 @@ public final class RangeCodec implements StreamingBinaryCodec, TextCodec {
             throw Exceptions.invalidRangeLowerBoundTruncated();
           }
           lower = subtypeCodec.decodeBinary(data, offset, lowerLen, subtypeType, ctx);
+          lowerText = subtypeCodec.decodeAsString(data, offset, lowerLen, subtypeType, ctx);
           offset += lowerLen;
         }
       }
@@ -188,11 +194,13 @@ public final class RangeCodec implements StreamingBinaryCodec, TextCodec {
             throw Exceptions.invalidRangeUpperBoundTruncated();
           }
           upper = subtypeCodec.decodeBinary(data, offset, upperLen, subtypeType, ctx);
+          upperText = subtypeCodec.decodeAsString(data, offset, upperLen, subtypeType, ctx);
         }
       }
 
       PGRange<Object> range = new PGRange<>(lower, upper, lowerInclusive, upperInclusive);
       range.setType(type.getFormattedName());
+      range.setBoundTexts(lowerText, upperText);
       return range;
     } finally {
       CodecDepth.exit();
@@ -340,13 +348,17 @@ public final class RangeCodec implements StreamingBinaryCodec, TextCodec {
       }
       cur.expect(open);
 
-      // Lower bound, terminated by the ',' separator.
+      // Lower bound, terminated by the ',' separator. The token text is the bound's server-faithful
+      // form (record_out unescaped it, range_out re-quotes it), so keep it for PGRange.toString(): a
+      // typed bound value would otherwise re-render, dropping a timestamptz bound's offset.
       cur.readVerbatim(',', ']', ')');
+      @Nullable String lowerText = boundTokenText(cur);
       Object lower = decodeBound(cur, boundCodec, subtypeType, ctx);
       cur.expect(',');
 
       // Upper bound, terminated by the ']' or ')' closing bracket.
       cur.readVerbatim(',', ']', ')');
+      @Nullable String upperText = boundTokenText(cur);
       Object upper = decodeBound(cur, boundCodec, subtypeType, ctx);
 
       char close = cur.peek();
@@ -362,6 +374,7 @@ public final class RangeCodec implements StreamingBinaryCodec, TextCodec {
 
       PGRange<Object> range = new PGRange<>(lower, upper, lowerInclusive, upperInclusive);
       range.setType(type.getFormattedName());
+      range.setBoundTexts(lowerText, upperText);
       return range;
     } finally {
       CodecDepth.exit();
@@ -375,6 +388,19 @@ public final class RangeCodec implements StreamingBinaryCodec, TextCodec {
    * Whitespace is part of the bound, as it is for {@code range_parse_bound}, so
    * {@code [ ,b)} has a lower bound of one space rather than an infinite one.
    */
+  /**
+   * Materializes the cursor's current bound token as its literal text, or {@code null} for an
+   * unbounded bound (the same empty-and-unquoted test {@link #decodeBound} uses). Read before
+   * {@code decodeBound} decodes the token, while the borrowed view still points at it; the string is
+   * the bound's server-faithful form, which {@link PGRange#setBoundTexts} keeps for rendering.
+   */
+  private static @Nullable String boundTokenText(LiteralCursor cur) {
+    if (!cur.tokenWasQuoted() && cur.tokenLength() == 0) {
+      return null; // infinite / unbounded
+    }
+    return cur.getToken().toString();
+  }
+
   private static @Nullable Object decodeBound(LiteralCursor cur, @Nullable TextCodec boundCodec,
       @Nullable TypeDescriptor subtypeType, CodecContext ctx) throws SQLException {
     if (!cur.tokenWasQuoted() && cur.tokenLength() == 0) {

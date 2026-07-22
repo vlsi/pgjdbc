@@ -184,8 +184,8 @@ public final class PGobjectCodec implements StreamingBinaryCodec, StreamingTextC
   }
 
   @Override
-  public boolean mayRequireQuoting() {
-    return !(delegate instanceof TextCodec) || ((TextCodec) delegate).mayRequireQuoting();
+  public boolean mayRequireQuoting(TypeDescriptor type, CodecContext ctx) throws SQLException {
+    return !(delegate instanceof TextCodec) || ((TextCodec) delegate).mayRequireQuoting(type, ctx);
   }
 
   @Override

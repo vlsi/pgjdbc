@@ -190,6 +190,21 @@ public final class DomainCodec implements StreamingBinaryCodec, StreamingTextCod
   }
 
   @Override
+  public boolean mayRequireQuoting(TypeDescriptor type, CodecContext ctx) throws SQLException {
+    // A domain is transparent: its rendered text is its base type's, so its composite/array quoting
+    // need is the base's rather than the pessimistic default. Without this a domain over a quote-safe
+    // base (int4, numeric) is quoted inside a record -- ("5",...) where the server writes (5,...).
+    CodecDepth.enter();
+    try {
+      Codec baseCodec = getBaseCodec(type, ctx);
+      return !(baseCodec instanceof TextCodec)
+          || ((TextCodec) baseCodec).mayRequireQuoting(getBaseType(type, ctx), ctx);
+    } finally {
+      CodecDepth.exit();
+    }
+  }
+
+  @Override
   public @Nullable Object decodeText(CharSequence data, TypeDescriptor type, CodecContext ctx) throws SQLException {
     CodecDepth.enter();
     try {

@@ -40,7 +40,7 @@ public final class NumericCodec implements PrimitiveBinaryDecoder, PrimitiveText
   }
 
   @Override
-  public boolean mayRequireQuoting() {
+  public boolean mayRequireQuoting(TypeDescriptor type, CodecContext ctx) {
     // Output is digits/sign/dot/e or NaN — never needs composite/array quoting.
     return false;
   }

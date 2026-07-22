@@ -63,11 +63,9 @@ public final class HstoreCodec implements BinaryCodec, TextCodec {
 
   @Override
   public @Nullable Object decodeText(CharSequence data, TypeDescriptor type, CodecContext ctx) throws SQLException {
-    String text = data.toString();
-    if (text == null || text.isEmpty()) {
-      return null;
-    }
-    return HStoreConverter.fromString(text);
+    // An empty hstore ('') is a valid empty map, not SQL NULL: NULL never reaches decode. Passing the
+    // empty text through HStoreConverter yields an empty map, matching the server and the pre-codec driver.
+    return HStoreConverter.fromString(data.toString());
   }
 
   @Override

@@ -105,7 +105,7 @@ public final class PgSQLOutputText extends PgSQLOutput {
   protected void writeFieldInt(int value) throws SQLException, IOException {
     TextCodec codec = getCodec();
     separator();
-    if (codec instanceof PrimitiveTextEncoder && !codec.mayRequireQuoting()) {
+    if (codec instanceof PrimitiveTextEncoder && !codec.mayRequireQuoting(getCurrentType(), ctx)) {
       ((PrimitiveTextEncoder) codec).encodeInt(value, getCurrentType(), ctx, out);
     } else {
       CompositeCodec.writeTextFieldValue(out, value, getCurrentType(), codec, ctx);
@@ -116,7 +116,7 @@ public final class PgSQLOutputText extends PgSQLOutput {
   protected void writeFieldLong(long value) throws SQLException, IOException {
     TextCodec codec = getCodec();
     separator();
-    if (codec instanceof PrimitiveTextEncoder && !codec.mayRequireQuoting()) {
+    if (codec instanceof PrimitiveTextEncoder && !codec.mayRequireQuoting(getCurrentType(), ctx)) {
       ((PrimitiveTextEncoder) codec).encodeLong(value, getCurrentType(), ctx, out);
     } else {
       CompositeCodec.writeTextFieldValue(out, value, getCurrentType(), codec, ctx);
@@ -127,7 +127,7 @@ public final class PgSQLOutputText extends PgSQLOutput {
   protected void writeFieldFloat(float value) throws SQLException, IOException {
     TextCodec codec = getCodec();
     separator();
-    if (codec instanceof PrimitiveTextEncoder && !codec.mayRequireQuoting()) {
+    if (codec instanceof PrimitiveTextEncoder && !codec.mayRequireQuoting(getCurrentType(), ctx)) {
       ((PrimitiveTextEncoder) codec).encodeFloat(value, getCurrentType(), ctx, out);
     } else {
       CompositeCodec.writeTextFieldValue(out, value, getCurrentType(), codec, ctx);
@@ -138,7 +138,7 @@ public final class PgSQLOutputText extends PgSQLOutput {
   protected void writeFieldDouble(double value) throws SQLException, IOException {
     TextCodec codec = getCodec();
     separator();
-    if (codec instanceof PrimitiveTextEncoder && !codec.mayRequireQuoting()) {
+    if (codec instanceof PrimitiveTextEncoder && !codec.mayRequireQuoting(getCurrentType(), ctx)) {
       ((PrimitiveTextEncoder) codec).encodeDouble(value, getCurrentType(), ctx, out);
     } else {
       CompositeCodec.writeTextFieldValue(out, value, getCurrentType(), codec, ctx);
