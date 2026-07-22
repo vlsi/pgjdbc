@@ -48,6 +48,7 @@ import org.postgresql.test.data.TimestampTzEdgeCases;
 import org.postgresql.test.data.TsRangeEdgeCases;
 import org.postgresql.test.data.UuidEdgeCases;
 import org.postgresql.test.data.VarbitEdgeCases;
+import org.postgresql.util.ByteConverter;
 import org.postgresql.util.PGInterval;
 import org.postgresql.util.PGRange;
 
@@ -57,6 +58,7 @@ import org.junit.jupiter.api.DynamicTest;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.TestFactory;
 
+import java.io.ByteArrayOutputStream;
 import java.math.BigDecimal;
 import java.math.BigInteger;
 import java.sql.Connection;
@@ -98,6 +100,7 @@ class ServerTruthOracleTest {
   private static int addrArrayOid;
   private static int textrangeOid;
   private static boolean haveRanges;
+  private static boolean haveMultirange;
   private static boolean haveNumericInfinity;
   private static boolean haveXml;
   private static int int4rangeOid;
@@ -105,6 +108,7 @@ class ServerTruthOracleTest {
   private static int numrangeOid;
   private static int daterangeOid;
   private static int tsrangeOid;
+  private static int int4multirangeOid;
 
   @BeforeAll
   static void setUpClass() throws Exception {
@@ -114,6 +118,7 @@ class ServerTruthOracleTest {
     addrOid = (int) addr[0];
     addrArrayOid = (int) addr[1];
     haveRanges = TestUtil.haveMinimumServerVersion(con, ServerVersion.v9_2);
+    haveMultirange = TestUtil.haveMinimumServerVersion(con, ServerVersion.v14);
     haveNumericInfinity = TestUtil.haveMinimumServerVersion(con, ServerVersion.v14);
     if (haveRanges) {
       // Range OIDs are installation-assigned, not Oid constants, so resolve them by name.
@@ -122,6 +127,9 @@ class ServerTruthOracleTest {
       numrangeOid = (int) ParityHarness.oidAndArray(con, "numrange")[0];
       daterangeOid = (int) ParityHarness.oidAndArray(con, "daterange")[0];
       tsrangeOid = (int) ParityHarness.oidAndArray(con, "tsrange")[0];
+      if (haveMultirange) {
+        int4multirangeOid = (int) ParityHarness.oidAndArray(con, "int4multirange")[0];
+      }
       // No TestUtil creator for a range type; drop first so a run that died mid-test does not
       // leave the type behind, the way every TestUtil creator does.
       TestUtil.dropType(con, TEXTRANGE);
@@ -466,6 +474,93 @@ class ServerTruthOracleTest {
             new PGRange<>(new BigDecimal("1.50"), new BigDecimal("2.500"), true, false),
             "[1.50,2.500)")));
     return t;
+  }
+
+  /**
+   * Binary-wire refusal parity: the server's {@code range_recv} / {@code multirange_recv} and the
+   * driver's binary decoder must refuse the same hand-built wire images. The offline
+   * {@link RangeCodecBinaryDecodeTest} and {@link MultirangeCodecBinaryDecodeTest} pin the driver's
+   * refusals shape by shape; this factory supplies the reference, proving the server refuses those
+   * same shapes so the driver is strict against PostgreSQL rather than against a guess at the wire.
+   *
+   * <p>Two shapes are left to the offline net on purpose. A zero-length image cannot travel this path:
+   * {@code setPGobject} binds a zero-length {@link org.postgresql.util.PGBinaryObject} as SQL NULL (the
+   * empty-bytea note in {@link #scalars()}), so it never reaches {@code range_recv}. A negative range
+   * count is refused by both sides too, but the server refuses it through a memory-allocation guard
+   * whose message is beside the point here, so it stays in the offline test.</p>
+   */
+  @TestFactory
+  List<DynamicTest> binaryWireRefused() {
+    List<DynamicTest> t = new ArrayList<>();
+    if (!haveRanges) {
+      return t;
+    }
+    // int4range over int4: flags byte, then each finite bound as a 4-byte length plus its int4 body.
+    byte[] exclusiveBoth = concat(new byte[]{0x00}, bound(1), bound(10));
+    addBinaryRefused(t, "int4range/trailing-after-upper", int4rangeOid, "int4range",
+        concat(exclusiveBoth, new byte[]{0x7F}));
+    addBinaryRefused(t, "int4range/trailing-after-empty", int4rangeOid, "int4range",
+        new byte[]{0x01, 0x00}); // empty flag, then a stray byte
+    addBinaryRefused(t, "int4range/missing-lower-length", int4rangeOid, "int4range",
+        new byte[]{0x00}); // finite lower promised, no length header follows
+    addBinaryRefused(t, "int4range/lower-length-negative", int4rangeOid, "int4range",
+        concat(new byte[]{0x00}, int4Bytes(-1)));
+    addBinaryRefused(t, "int4range/lower-truncated", int4rangeOid, "int4range",
+        concat(new byte[]{0x00}, int4Bytes(4), new byte[]{0x11, 0x22}));
+
+    if (haveMultirange) {
+      byte[] closedOpen = concat(new byte[]{0x02}, bound(1), bound(5)); // [1,5)
+      addBinaryRefused(t, "int4multirange/trailing-after-last-range", int4multirangeOid,
+          "int4multirange", concat(multirangeOf(closedOpen), new byte[]{0x7F}));
+      addBinaryRefused(t, "int4multirange/missing-range-length", int4multirangeOid,
+          "int4multirange", int4Bytes(1)); // count says one range, no length header follows
+      addBinaryRefused(t, "int4multirange/range-truncated", int4multirangeOid,
+          "int4multirange", concat(int4Bytes(1), int4Bytes(100), new byte[]{0x02}));
+      addBinaryRefused(t, "int4multirange/malformed-inner-range", int4multirangeOid,
+          "int4multirange", concat(int4Bytes(1), int4Bytes(1), new byte[]{0x00}));
+    }
+    return t;
+  }
+
+  private void addBinaryRefused(List<DynamicTest> t, String name, int oid, String typeName,
+      byte[] wire) {
+    t.add(DynamicTest.dynamicTest(name, () ->
+        ServerTruthOracle.assertBinaryRefused(con, oid, typeName, wire)));
+  }
+
+  /** A finite int4 bound on the wire: a 4-byte length header of 4, then the int4 value. */
+  private static byte[] bound(int value) {
+    return concat(int4Bytes(4), int4Bytes(value));
+  }
+
+  /** Frames a multirange: an int4 range count, then each range as an int4 length plus its payload. */
+  private static byte[] multirangeOf(byte[]... ranges) {
+    ByteArrayOutputStream out = new ByteArrayOutputStream();
+    write(out, int4Bytes(ranges.length));
+    for (byte[] range : ranges) {
+      write(out, int4Bytes(range.length));
+      write(out, range);
+    }
+    return out.toByteArray();
+  }
+
+  /** Big-endian int4; the count, the length headers, and the int4 payloads all use this encoding. */
+  private static byte[] int4Bytes(int value) {
+    byte[] b = new byte[4];
+    ByteConverter.int4(b, 0, value);
+    return b;
+  }
+
+  private static byte[] concat(byte[]... parts) {
+    ByteArrayOutputStream out = new ByteArrayOutputStream();
+    for (byte[] part : parts) {
+      write(out, part);
+    }
+    return out.toByteArray();
+  }
+
+  private static void write(ByteArrayOutputStream out, byte[] bytes) {
+    out.write(bytes, 0, bytes.length);
   }
 
   /**

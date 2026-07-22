@@ -275,7 +275,58 @@ final class ServerTruthOracle {
   }
 
   /**
-   * Decodes {@code literal} through the type's text codec, as the driver would.
+   * Pins that the server's binary receive function refuses a hand-built wire image, and that the
+   * driver's binary decoder refuses the very same bytes.
+   *
+   * <p>The offline {@code RangeCodecBinaryDecodeTest} and {@code MultirangeCodecBinaryDecodeTest}
+   * assert the driver's decoder rejects a catalogue of malformed wire shapes. On its own that only
+   * pins the driver against a hand-written model of the wire contract. This case supplies the
+   * reference: the same bytes are shipped as a typed binary parameter, so the server runs its own
+   * {@code range_recv} / {@code multirange_recv} over them, and the driver decodes the identical bytes
+   * offline through the type's binary codec. Both receiving sides must refuse, so the driver is strict
+   * against PostgreSQL rather than against a guess.</p>
+   *
+   * @param con a connection; binary send for {@code oid} is enabled here if it is not already
+   * @param oid the type OID
+   * @param typeName the type's {@code pg_type.typname}
+   * @param wire the hand-built binary wire image both sides must refuse
+   */
+  static void assertBinaryRefused(Connection con, int oid, String typeName, byte[] wire)
+      throws SQLException {
+    BaseConnection base = con.unwrap(BaseConnection.class);
+    base.getQueryExecutor().addBinarySendOid(oid);
+    assertTrue(base.binaryTransferSend(oid),
+        () -> "binary send must be enabled for " + typeName + " (oid " + oid + ")");
+
+    SQLException serverRefusal = null;
+    // The bytes travel binary (from the PGBinaryObject OID), so the server decodes them with the
+    // type's own receive function; a malformed image errors before the ::text cast is reached.
+    try (PreparedStatement ps = con.prepareStatement("SELECT (?)::text")) {
+      ps.setObject(1, new RawBinaryParam(wire, typeName));
+      try (ResultSet rs = ps.executeQuery()) {
+        rs.next();
+      }
+    } catch (SQLException e) {
+      serverRefusal = e;
+    }
+    SQLException fromServer = serverRefusal;
+    assertNotNull(fromServer,
+        () -> "the server now accepts the binary " + typeName + " image " + hex(wire)
+            + " -- re-judge this case: if the image is genuinely valid, drop it from the refusal set");
+
+    SQLException driverRefusal = null;
+    try {
+      decodeBinary(base, oid, wire);
+    } catch (SQLException e) {
+      driverRefusal = e;
+    }
+    SQLException fromDriver = driverRefusal;
+    assertNotNull(fromDriver,
+        () -> "the driver accepts the binary " + typeName + " image " + hex(wire)
+            + ", which the server's receive function refuses; tighten the codec's decodeBinary");
+  }
+
+  /** Decodes {@code literal} through the type's text codec, as the driver would.
    *
    * <p>Both container decodes hand back something that has not read the literal yet: an array
    * becomes a lazy {@link java.sql.Array} on a connection-bound context, and a composite becomes a
@@ -304,6 +355,24 @@ final class ServerTruthOracle {
     PgCodecContext ctx = base.getCodecContext();
     TypeDescriptor type = ctx.resolveType(oid);
     return Codecs.encode(value, type, ctx, Format.BINARY).toByteArray();
+  }
+
+  /** Decodes {@code wire} as {@code oid} in binary, the same entry the driver's receive path takes. */
+  private static void decodeBinary(BaseConnection base, int oid, byte[] wire) throws SQLException {
+    PgCodecContext ctx = base.getCodecContext();
+    TypeDescriptor type = ctx.resolveType(oid);
+    Codecs.decode(WireValueSlice.binary(wire), type, ctx, Object.class);
+  }
+
+  /** Renders a wire image as {@code 0x..} hex for a failure message. */
+  private static String hex(byte[] bytes) {
+    StringBuilder sb = new StringBuilder(2 + bytes.length * 2);
+    sb.append("0x");
+    for (byte b : bytes) {
+      sb.append(Character.forDigit((b >> 4) & 0xF, 16));
+      sb.append(Character.forDigit(b & 0xF, 16));
+    }
+    return sb.toString();
   }
 
   /**

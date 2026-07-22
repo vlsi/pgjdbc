@@ -109,10 +109,6 @@ public final class MultirangeCodec implements StreamingBinaryCodec, TextCodec {
   @Override
   public @Nullable Object decodeBinary(byte[] src, int srcOffset, int srcLength, TypeDescriptor type,
       CodecContext ctx) throws SQLException {
-    if (srcLength == 0) {
-      return null;
-    }
-
     CodecDepth.enter();
     try {
       int rangeOid = type.getMultirangeRange();
@@ -154,6 +150,11 @@ public final class MultirangeCodec implements StreamingBinaryCodec, TextCodec {
         if (!range.isEmpty()) {
           ranges.add(range);
         }
+      }
+      if (offset != end) {
+        // multirange_recv reads exactly count ranges and then pq_getmsgend; leftover bytes after the
+        // last range are a malformed value, not a tail to ignore.
+        throw Exceptions.invalidMultirangeTrailingBytes();
       }
       return newMultirange(ranges, type);
     } finally {

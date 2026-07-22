@@ -584,6 +584,16 @@ class Exceptions {
         GT.tr("Invalid range binary data: upper bound truncated"), PSQLState.DATA_ERROR);
   }
 
+  static SQLException invalidRangeMissingFlags() {
+    return new PSQLException(
+        GT.tr("Invalid range binary data: missing flags byte"), PSQLState.DATA_ERROR);
+  }
+
+  static SQLException invalidRangeTrailingBytes() {
+    return new PSQLException(
+        GT.tr("Invalid range binary data: unexpected trailing bytes"), PSQLState.DATA_ERROR);
+  }
+
   static SQLException errorEncodingRange(Throwable cause) {
     return new PSQLException(GT.tr("Error encoding range"), PSQLState.DATA_ERROR, cause);
   }
@@ -647,6 +657,11 @@ class Exceptions {
   static SQLException invalidMultirangeRangeTruncated() {
     return new PSQLException(
         GT.tr("Invalid multirange binary data: range truncated"), PSQLState.DATA_ERROR);
+  }
+
+  static SQLException invalidMultirangeTrailingBytes() {
+    return new PSQLException(
+        GT.tr("Invalid multirange binary data: unexpected trailing bytes"), PSQLState.DATA_ERROR);
   }
 
   static SQLException multirangeElementNotARange(String decodedClassName) {

@@ -122,8 +122,10 @@ public final class RangeCodec implements StreamingBinaryCodec, TextCodec {
   @Override
   public @Nullable Object decodeBinary(byte[] buf, int start, int len, TypeDescriptor type,
       CodecContext ctx) throws SQLException {
-    if (len == 0) {
-      return null;
+    if (len < 1) {
+      // A range value is at least its flags byte; range_recv errors reading that byte off an empty
+      // message, so a zero-length value is malformed, not SQL NULL (a NULL field never reaches a codec).
+      throw Exceptions.invalidRangeMissingFlags();
     }
     // Range binary parsing indexes from the value start; copy only for a genuine sub-slice.
     byte[] data = start == 0 && len == buf.length ? buf : Arrays.copyOfRange(buf, start, start + len);
@@ -134,6 +136,11 @@ public final class RangeCodec implements StreamingBinaryCodec, TextCodec {
 
       // Check for empty range
       if ((flags & FLAG_EMPTY) != 0) {
+        if (data.length != 1) {
+          // range_send writes an empty range as its lone flags byte; anything after it is leftover
+          // that range_recv's pq_getmsgend would reject.
+          throw Exceptions.invalidRangeTrailingBytes();
+        }
         PGRange<Object> range = PGRange.empty();
         range.setType(type.getFormattedName());
         return range;
@@ -172,14 +179,14 @@ public final class RangeCodec implements StreamingBinaryCodec, TextCodec {
         }
         int lowerLen = ByteConverter.int4(data, offset);
         offset += 4;
-        if (lowerLen >= 0) {
-          if (offset + lowerLen > data.length) {
-            throw Exceptions.invalidRangeLowerBoundTruncated();
-          }
-          lower = subtypeCodec.decodeBinary(data, offset, lowerLen, subtypeType, ctx);
-          lowerText = subtypeCodec.decodeAsString(data, offset, lowerLen, subtypeType, ctx);
-          offset += lowerLen;
+        // A finite bound has a non-negative length; range_recv's pq_getmsgbytes rejects a negative
+        // length the same way it rejects one that overruns the buffer ("insufficient data").
+        if (lowerLen < 0 || offset + lowerLen > data.length) {
+          throw Exceptions.invalidRangeLowerBoundTruncated();
         }
+        lower = subtypeCodec.decodeBinary(data, offset, lowerLen, subtypeType, ctx);
+        lowerText = subtypeCodec.decodeAsString(data, offset, lowerLen, subtypeType, ctx);
+        offset += lowerLen;
       }
 
       // Read upper bound if not infinite
@@ -189,13 +196,18 @@ public final class RangeCodec implements StreamingBinaryCodec, TextCodec {
         }
         int upperLen = ByteConverter.int4(data, offset);
         offset += 4;
-        if (upperLen >= 0) {
-          if (offset + upperLen > data.length) {
-            throw Exceptions.invalidRangeUpperBoundTruncated();
-          }
-          upper = subtypeCodec.decodeBinary(data, offset, upperLen, subtypeType, ctx);
-          upperText = subtypeCodec.decodeAsString(data, offset, upperLen, subtypeType, ctx);
+        if (upperLen < 0 || offset + upperLen > data.length) {
+          throw Exceptions.invalidRangeUpperBoundTruncated();
         }
+        upper = subtypeCodec.decodeBinary(data, offset, upperLen, subtypeType, ctx);
+        upperText = subtypeCodec.decodeAsString(data, offset, upperLen, subtypeType, ctx);
+        offset += upperLen;
+      }
+
+      if (offset != data.length) {
+        // range_recv consumes exactly the flags byte and the present bound bodies; its pq_getmsgend
+        // rejects any leftover, so trailing bytes are a malformed value rather than one to truncate.
+        throw Exceptions.invalidRangeTrailingBytes();
       }
 
       PGRange<Object> range = new PGRange<>(lower, upper, lowerInclusive, upperInclusive);
