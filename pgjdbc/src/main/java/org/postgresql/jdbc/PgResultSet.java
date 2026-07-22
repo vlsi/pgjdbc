@@ -808,22 +808,32 @@ public class PgResultSet implements ResultSet, PGRefCursorResultSet {
       return getObject(i);
     }
 
-    // If the target is an SQLData implementation, use CompositeCodec
+    // If the target is an SQLData implementation, decode it through the column's own codec so the
+    // mapping is applied to the column's actual PostgreSQL type. A composite (or a domain over one)
+    // routes through CompositeCodec as before; a scalar type such as an enum or a domain over a
+    // scalar refuses the SQLData target with a clear CANNOT_COERCE instead of being misparsed as a
+    // record. This mirrors plain getObject(int), which runs the connection type map through the
+    // same codecs.
     if (SQLData.class.isAssignableFrom(targetClass)) {
       Field field = getFieldWithType(i);
-      PgType pgType = field.getPgType();
-      @SuppressWarnings("unchecked")
-      Class<? extends SQLData> sqlDataClass = (Class<? extends SQLData>) targetClass;
+      PgType pgType = field.getTypeDescriptor();
       PgCodecContext ctx = getCodecContext().withTypeMap(map);
       if (isBinary(i)) {
-        return CompositeCodec.INSTANCE.decodeBinaryAs(value, 0, value.length, pgType, sqlDataClass, ctx);
-      } else {
-        String textValue = getString(i);
-        if (textValue == null) {
-          return null;
+        BinaryCodec codec = getBinaryCodec(i);
+        if (codec != null) {
+          return codec.decodeBinaryAs(value, 0, value.length, pgType, targetClass, ctx);
         }
-        return CompositeCodec.INSTANCE.decodeTextAs(textValue, pgType, sqlDataClass, ctx);
+      } else {
+        TextCodec codec = getTextCodec(i);
+        if (codec != null) {
+          String textValue = getString(i);
+          if (textValue == null) {
+            return null;
+          }
+          return codec.decodeTextAs(textValue, pgType, targetClass, ctx);
+        }
       }
+      // No codec is registered for the column type; fall through to the generic mapping below.
     }
 
     // For other mapped types, delegate to getObject(int, Class)
