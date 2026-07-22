@@ -713,6 +713,11 @@ public final class CodecFuzzSupport {
    */
   private enum NumericFamily { INTEGRAL, UNSIGNED, FLOATING, DECIMAL, MONETARY, OTHER }
 
+  private static final BigDecimal INT_MAX_BD = BigDecimal.valueOf(Integer.MAX_VALUE);
+  private static final BigDecimal INT_MIN_BD = BigDecimal.valueOf(Integer.MIN_VALUE);
+  private static final BigDecimal LONG_MAX_BD = BigDecimal.valueOf(Long.MAX_VALUE);
+  private static final BigDecimal LONG_MIN_BD = BigDecimal.valueOf(Long.MIN_VALUE);
+
   private static NumericFamily familyOf(int oid, Class<?> javaType) {
     if (oid == Oid.OID || oid == Oid.OID8 || oid == Oid.XID8) {
       return NumericFamily.UNSIGNED;
@@ -835,9 +840,10 @@ public final class CodecFuzzSupport {
         Outcome.capture(() -> dec.decodeAsBoolean(pad, 3, len, type, ctx)));
 
     // Layer 2 + getObject cross-check.
-    numericLattice(name + " binary", familyOf(type.getOid(), codec.getDefaultJavaType()), oi, ol, of, od,
-        obd);
-    getObjectConsistency(name + " getObject(binary)", type, WireValueSlice.binary(wire), ctx, oi, ol, of, od);
+    NumericFamily family = familyOf(type.getOid(), codec.getDefaultJavaType());
+    numericLattice(name + " binary", family, oi, ol, of, od, obd);
+    getObjectConsistency(name + " getObject(binary)", type, WireValueSlice.binary(wire), ctx, family,
+        oi, ol, of, od);
   }
 
   /**
@@ -1108,13 +1114,33 @@ public final class CodecFuzzSupport {
       return;
     }
     BigDecimal rounded = ((BigDecimal) obd.value).setScale(0, mode);
-    if (!oi.threw) {
-      assertEquals(rounded.intValueExact(), intOf(oi.value),
-          label + " " + inv + "i: decodeAsInt == decodeAsBigDecimal rounded " + mode);
-    }
-    if (!ol.threw) {
-      assertEquals(rounded.longValueExact(), longOf(ol.value),
-          label + " " + inv + "l: decodeAsLong == decodeAsBigDecimal rounded " + mode);
+    // INV-2, the exact-decimal form: a rounded value in an accessor's range must be readable and equal to
+    // it, a value outside must be refused (never truncated or saturated). Checking the EXACT decimal
+    // rather than the double is what extends INV-2 to the int8 boundary the double check cannot reach --
+    // 9223372036854775807.4 rounds back to Long.MAX yet is already indistinguishable from it (and from
+    // 9223372036854775807.5, which overflows) once narrowed to a double.
+    assertRangeChecked(label + " " + inv + "i", rounded, INT_MIN_BD, INT_MAX_BD, oi);
+    assertRangeChecked(label + " " + inv + "l", rounded, LONG_MIN_BD, LONG_MAX_BD, ol);
+  }
+
+  /**
+   * Asserts one integer accessor's {@link Outcome} against the exact rounded decimal for a single width:
+   * it succeeds with {@code rounded} when {@code rounded} lies in {@code [min, max]}, and refuses
+   * otherwise. Comparing through {@link BigDecimal} keeps the equality exact for both the {@code int} and
+   * {@code long} widths (the accessor value fits {@code long} whenever it is in range).
+   */
+  private static void assertRangeChecked(String label, BigDecimal rounded, BigDecimal min, BigDecimal max,
+      Outcome outcome) {
+    boolean inRange = rounded.compareTo(min) >= 0 && rounded.compareTo(max) <= 0;
+    if (inRange) {
+      assertFalse(outcome.threw,
+          () -> label + ": " + rounded + " is in range but the accessor refused it");
+      long got = ((Number) Nullness.castNonNull(outcome.value)).longValue();
+      assertEquals(0, rounded.compareTo(BigDecimal.valueOf(got)),
+          label + ": accessor " + got + " == decodeAsBigDecimal rounded " + rounded);
+    } else {
+      assertTrue(outcome.threw, () -> label + ": " + rounded
+          + " is out of range but the accessor did not refuse (returned " + outcome.value + ")");
     }
   }
 
@@ -1127,11 +1153,74 @@ public final class CodecFuzzSupport {
    * with different strictness, which is not the value consistency this checks.
    */
   private static void getObjectConsistency(String label, PgType type, WireValueSlice raw, CodecContext ctx,
-      Outcome oi, Outcome ol, Outcome of, Outcome od) {
+      NumericFamily family, Outcome oi, Outcome ol, Outcome of, Outcome od) {
     assertGetObject(label + " Integer", type, raw, ctx, Integer.class, oi);
     assertGetObject(label + " Long", type, raw, ctx, Long.class, ol);
     assertGetObject(label + " Float", type, raw, ctx, Float.class, of);
     assertGetObject(label + " Double", type, raw, ctx, Double.class, od);
+    // Short and Byte have no primitive accessor, so the value-vs-primitive check above cannot reach them
+    // and the numeric lattice has no oh/oby view to relate them to. Pin them as the range-checked
+    // narrowing of the Integer view -- which is exactly how the whole-number codecs define
+    // getShort/getByte (narrow through the int path) -- so the short/byte boundary gets the
+    // success-and-refuse oracle the primitive lattice cannot give: getShort(32767) reads 32767,
+    // getShort(32768) refuses. Only for families whose decodeAsInt yields the faithful integer and that
+    // offer the coercion: UNSIGNED reinterprets the low 32 bits (oid/oid8/xid8), FLOATING rounds to
+    // short/byte on its own terms rather than through the int, and OTHER (bool/bit/text) need not support
+    // the coercion at all -- for those the equivalence to (short) getInt would not hold.
+    if (family == NumericFamily.INTEGRAL || family == NumericFamily.DECIMAL
+        || family == NumericFamily.MONETARY) {
+      assertNarrowedGetObject(label + " Short", type, raw, ctx, Short.class,
+          Short.MIN_VALUE, Short.MAX_VALUE, oi);
+      assertNarrowedGetObject(label + " Byte", type, raw, ctx, Byte.class,
+          Byte.MIN_VALUE, Byte.MAX_VALUE, oi);
+    }
+  }
+
+  /**
+   * Pins a narrowing getObject target ({@code Short} / {@code Byte}) against the {@code Integer} view. The
+   * whole-number codecs define it as the range-checked narrowing of {@code decodeAsInt}, so
+   * {@code decode(target)} must succeed with {@code (target) getInt} exactly when {@code decodeAsInt}
+   * succeeded with a value in {@code [min, max]}, and refuse otherwise. Both directions matter: the
+   * success side kills a boundary check that rejects the exact maximum, the refuse side kills one that
+   * lets an out-of-range value slip through. This is coverage the primitive lattice cannot reach -- there
+   * is no {@code decodeAsShort} / {@code decodeAsByte} accessor to relate to.
+   */
+  private static void assertNarrowedGetObject(String label, PgType type, WireValueSlice raw,
+      CodecContext ctx, Class<?> target, int min, int max, Outcome oi) {
+    if (oi.threw) {
+      // decodeAsInt itself refused (out of int range, or a malformed fuzzed wire). The Integer view is
+      // the reference, so with nothing to narrow there is nothing to pin.
+      return;
+    }
+    int i = intOf(oi.value);
+    @Nullable Object decoded = null;
+    boolean refused;
+    try {
+      decoded = Codecs.decode(raw, type, ctx, target);
+      refused = false;
+    } catch (SQLException | RuntimeException e) {
+      refused = true;
+    }
+    final @Nullable Object value = decoded;
+    final boolean threw = refused;
+    if (i >= min && i <= max) {
+      assertFalse(threw, () -> label + ": decodeAsInt read " + i + " (in "
+          + target.getSimpleName() + " range) but getObject refused it");
+      assertEquals(narrowValue(target, i), value,
+          label + ": getObject == (" + target.getSimpleName() + ") decodeAsInt");
+    } else {
+      assertTrue(threw, () -> label + ": decodeAsInt read " + i + " (out of "
+          + target.getSimpleName() + " range) but getObject did not refuse (returned " + value + ")");
+    }
+  }
+
+  private static Object narrowValue(Class<?> target, int i) {
+    // Separate returns, not a Short/Byte ternary: a `? Short : Byte` conditional numeric-promotes both
+    // arms to short, so the Byte arm would box back to Short and never match a Byte accessor value.
+    if (target == Short.class) {
+      return Short.valueOf((short) i);
+    }
+    return Byte.valueOf((byte) i);
   }
 
   private static void assertGetObject(String label, PgType type, WireValueSlice raw, CodecContext ctx,
