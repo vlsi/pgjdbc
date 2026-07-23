@@ -413,6 +413,24 @@ public class ResultSetTest extends BaseTest4 {
     }
   }
 
+  @ParameterizedTest(name = "{0}")
+  @MethodSource("maxFieldSizeStringCases")
+  void getObjectAsStringHonorsMaxFieldSize(String label, String sql, String expected)
+      throws SQLException {
+    // Typed getObject(col, String.class) decodes through the codec just like getString. Under
+    // binary transfer it must apply maxFieldSize too, otherwise it diverges from the getString
+    // sibling for a char/varchar/text value received in binary.
+    try (PreparedStatement ps = con.prepareStatement(sql)) {
+      ps.setMaxFieldSize(2);
+      try (ResultSet rs = ps.executeQuery()) {
+        assertTrue(rs.next());
+        assertEquals(expected, rs.getObject(1, String.class),
+            () -> label + " getObject(col, String.class) must honor maxFieldSize=2 in " + binaryMode
+                + " mode");
+      }
+    }
+  }
+
   /**
    * getMaxFieldSize is defined to apply only to CHAR/VARCHAR/LONGVARCHAR and the binary field
    * types; an array column reports {@code Types.ARRAY}, which is not on that list. So getString on

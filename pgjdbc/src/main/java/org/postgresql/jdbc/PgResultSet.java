@@ -4096,7 +4096,14 @@ public class PgResultSet implements ResultSet, PGRefCursorResultSet {
     if (isBinary(columnIndex)) {
       BinaryCodec codec = getBinaryCodec(columnIndex);
       if (codec != null) {
-        return codec.decodeBinaryAs(value, 0, value.length, pgType, type, ctx);
+        T decoded = codec.decodeBinaryAs(value, 0, value.length, pgType, type, ctx);
+        // maxFieldSize applies to char/varchar/binary columns regardless of transfer format. The
+        // text branch below trims through getString; the binary branch must trim too, otherwise a
+        // varchar/text value received in binary (binaryTransferEnable=varchar) skips maxFieldSize.
+        if (decoded instanceof String) {
+          return type.cast(trimString(columnIndex, (String) decoded));
+        }
+        return decoded;
       }
     } else {
       TextCodec codec = getTextCodec(columnIndex);
