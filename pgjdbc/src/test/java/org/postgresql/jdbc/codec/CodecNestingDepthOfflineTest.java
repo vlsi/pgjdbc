@@ -9,6 +9,7 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import org.postgresql.api.codec.BackpatchingByteArrayOutputStream;
 import org.postgresql.api.codec.CodecContext;
 import org.postgresql.api.codec.CodecContextBuilder;
 import org.postgresql.api.codec.Codecs;
@@ -29,10 +30,15 @@ import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.function.Executable;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.MethodSource;
 
 import java.io.ByteArrayOutputStream;
+import java.nio.charset.StandardCharsets;
+import java.sql.SQLException;
 import java.sql.Struct;
 import java.util.Arrays;
+import java.util.stream.Stream;
 
 /**
  * Behavioural guard that every delegating codec bounds its recursion through {@link CodecDepth}, so a
@@ -151,6 +157,302 @@ class CodecNestingDepthOfflineTest {
 
     withDepthBudget(BUDGET, true,
         () -> Codecs.decode(WireValueSlice.binary(intBytes), outerDomain, ctx, Object.class));
+  }
+
+  // --- B6: every CodecDepth entry point, both properties, one matrix ----------------------------
+  //
+  // The tests above build genuinely deep or cyclic values to exercise multi-frame recursion. This
+  // matrix instead hits every guarded entry point of the five delegating codecs with ONE shallow,
+  // leaf-terminated call. That is enough to pin each class's own enter()/exit() pair, because enter()
+  // throws before it increments and sits before the try: seeding the counter so only the path's own
+  // guards remain makes its final enter() throw, and unwinds cleanly. Two properties per entry point:
+  //   guardTripsOverLimit            -- past the limit the guard throws DATA_ERROR (kills a dropped enter())
+  //   noCounterLeakOverRepeatedCalls -- MAX_DEPTH+1 in-limit calls never false-refuse (kills a dropped exit())
+  // Each value is leaf-terminated so nothing below the target class enters. Where the entry point stacks
+  // more than one guard on its own path (only multirange's canEncodeBinary* recurse into the inner range
+  // codec), guardDepth records the count and the seed leaves exactly that many enters to run, so removing
+  // any one of them stops the throw rather than letting a sibling guard mask it.
+  //
+  // Not covered here, by design: the redundant inner private guards behind a public entry point (a
+  // dropped inner enter() is fully masked by the outer one, so no black-box test can distinguish it),
+  // and PgSQLOutput's own depth guard on the composite SQLData *encode* path, which lives outside these
+  // five codec classes.
+
+  private static final int DOMAIN_OID = 90_401;
+  private static final int RECORD_OID = 90_411;
+
+  private static final PgType DOM_INT4 = domain("dom_int4", DOMAIN_OID, Oid.INT4);
+  private static final PgType DOM_INT8 = domain("dom_int8", DOMAIN_OID + 1, Oid.INT8);
+  private static final PgType DOM_FLOAT8 = domain("dom_float8", DOMAIN_OID + 2, Oid.FLOAT8);
+  private static final PgType DOM_BOOL = domain("dom_bool", DOMAIN_OID + 3, Oid.BOOL);
+  private static final PgType REC_I4 = composite("rec_i4", RECORD_OID, field("f1", Oid.INT4, 1));
+  private static final PgType INT4RANGE = new PgType(
+      TypeName.of("pg_catalog", "int4range"), "int4range", 3904, 'r', 'R', -1, 0, 0, 0)
+      .withRangeSubtype(Oid.INT4);
+  private static final PgType INT4MULTIRANGE = new PgType(
+      TypeName.of("pg_catalog", "int4multirange"), "int4multirange", 4451, 'm', 'R', -1, 0, 0, 0)
+      .withMultirangeRange(3904);
+  // Array over uuid: uuid has no fast array-leaf codec and no depth guard of its own, so it routes
+  // through GenericArrayLeafCodec while never entering below the leaf -- isolating that leaf's guard.
+  private static final PgType UUID_ARRAY = new PgType(
+      TypeName.of("pg_catalog", "_uuid"), "uuid[]", Oid.UUID_ARRAY, 'b', 'A', -1, Oid.UUID, 0, 0);
+
+  private static final CodecContext CTX = OfflineCodecs.builder()
+      .type(DOM_INT4).type(DOM_INT8).type(DOM_FLOAT8).type(DOM_BOOL).type(REC_I4)
+      .type(INT4RANGE).type(INT4MULTIRANGE).build();
+
+  // One int4-field record wire, and its Struct form, reused by the composite cases.
+  private static final byte[] REC_BINARY = nestedRecordBinary(1);
+  private static final Struct REC_STRUCT = nestedRecordStruct(1, REC_I4, REC_I4);
+  private static final java.util.UUID[] UUID_LEAF = {new java.util.UUID(0L, 0L)};
+  // Encode inputs built once with a clean counter -- never inside a measured op, or the decode's own
+  // guard would fire first and misattribute the throw. Empty payloads decode no bound/inner range;
+  // the canEncodeBinaryValue negotiation short-circuits an empty range/multirange before its guard, so
+  // those cases need a value with a real interval to reach enter().
+  private static final Object EMPTY_RANGE = decodeQuietly("empty", INT4RANGE);
+  private static final Object EMPTY_MULTIRANGE = decodeQuietly("{}", INT4MULTIRANGE);
+  private static final Object RANGE_1_2 = decodeQuietly("[1,2)", INT4RANGE);
+  private static final Object MULTIRANGE_1_2 = decodeQuietly("{[1,2)}", INT4MULTIRANGE);
+
+  /** One in-limit invocation of a single {@link CodecDepth} entry point; {@code toString} names the row. */
+  private static final class EntryPoint {
+    final String label;
+    final Executable op;
+    /** Number of the target class's own guards stacked on this path; the seed leaves exactly this many. */
+    final int guardDepth;
+
+    EntryPoint(String label, Executable op) {
+      this(label, 1, op);
+    }
+
+    EntryPoint(String label, int guardDepth, Executable op) {
+      this.label = label;
+      this.guardDepth = guardDepth;
+      this.op = op;
+    }
+
+    @Override
+    public String toString() {
+      return label;
+    }
+  }
+
+  static Stream<EntryPoint> entryPoints() {
+    return Stream.of(
+        // -- Domain: transparent over an int4/int8/float8/bool leaf, so only DomainCodec enters. --
+        new EntryPoint("domain.canEncodeBinaryType",
+            () -> DomainCodec.INSTANCE.canEncodeBinaryType(DOM_INT4, CTX)),
+        new EntryPoint("domain.canEncodeBinary",
+            () -> DomainCodec.INSTANCE.canEncodeBinary(42, DOM_INT4, CTX)),
+        new EntryPoint("domain.canEncodeBinaryValue",
+            () -> DomainCodec.INSTANCE.canEncodeBinaryValue(42, DOM_INT4, CTX)),
+        new EntryPoint("domain.mayRequireQuoting",
+            () -> DomainCodec.INSTANCE.mayRequireQuoting(DOM_INT4, CTX)),
+        new EntryPoint("domain.decodeBinary",
+            () -> DomainCodec.INSTANCE.decodeBinary(i4(), 0, 4, DOM_INT4, CTX)),
+        new EntryPoint("domain.encodeBinary",
+            () -> DomainCodec.INSTANCE.encodeBinary(42, DOM_INT4, CTX)),
+        new EntryPoint("domain.encodeBinary.stream",
+            () -> DomainCodec.INSTANCE.encodeBinary(42, DOM_INT4, CTX, new BackpatchingByteArrayOutputStream())),
+        new EntryPoint("domain.decodeText",
+            () -> DomainCodec.INSTANCE.decodeText("42", DOM_INT4, CTX)),
+        new EntryPoint("domain.encodeText",
+            () -> DomainCodec.INSTANCE.encodeText(42, DOM_INT4, CTX)),
+        new EntryPoint("domain.encodeText.appendable",
+            () -> DomainCodec.INSTANCE.encodeText(42, DOM_INT4, CTX, new StringBuilder())),
+        new EntryPoint("domain.decodeBinaryAs",
+            () -> DomainCodec.INSTANCE.decodeBinaryAs(i4(), 0, 4, DOM_INT4, Integer.class, CTX)),
+        new EntryPoint("domain.decodeTextAs",
+            () -> DomainCodec.INSTANCE.decodeTextAs("42", DOM_INT4, Integer.class, CTX)),
+        new EntryPoint("domain.decodeAsInt.binary",
+            () -> DomainCodec.INSTANCE.decodeAsInt(i4(), 0, 4, DOM_INT4, CTX)),
+        new EntryPoint("domain.decodeAsLong.binary",
+            () -> DomainCodec.INSTANCE.decodeAsLong(i8(), 0, 8, DOM_INT8, CTX)),
+        new EntryPoint("domain.decodeAsFloat.binary",
+            () -> DomainCodec.INSTANCE.decodeAsFloat(f8(), 0, 8, DOM_FLOAT8, CTX)),
+        new EntryPoint("domain.decodeAsDouble.binary",
+            () -> DomainCodec.INSTANCE.decodeAsDouble(f8(), 0, 8, DOM_FLOAT8, CTX)),
+        new EntryPoint("domain.decodeAsBoolean.binary",
+            () -> DomainCodec.INSTANCE.decodeAsBoolean(boolByte(), 0, 1, DOM_BOOL, CTX)),
+        new EntryPoint("domain.decodeAsBigDecimal.binary",
+            () -> DomainCodec.INSTANCE.decodeAsBigDecimal(i8(), 0, 8, DOM_INT8, CTX)),
+        new EntryPoint("domain.decodeAsString.binary",
+            () -> DomainCodec.INSTANCE.decodeAsString(i4(), 0, 4, DOM_INT4, CTX)),
+        new EntryPoint("domain.decodeAsInt.text",
+            () -> DomainCodec.INSTANCE.decodeAsInt("42", DOM_INT4, CTX)),
+        new EntryPoint("domain.decodeAsLong.text",
+            () -> DomainCodec.INSTANCE.decodeAsLong("42", DOM_INT4, CTX)),
+        new EntryPoint("domain.decodeAsFloat.text",
+            () -> DomainCodec.INSTANCE.decodeAsFloat("42", DOM_INT4, CTX)),
+        new EntryPoint("domain.decodeAsDouble.text",
+            () -> DomainCodec.INSTANCE.decodeAsDouble("42", DOM_INT4, CTX)),
+        new EntryPoint("domain.decodeAsBoolean.text",
+            () -> DomainCodec.INSTANCE.decodeAsBoolean("t", DOM_BOOL, CTX)),
+        new EntryPoint("domain.decodeAsBigDecimal.text",
+            () -> DomainCodec.INSTANCE.decodeAsBigDecimal("42", DOM_INT4, CTX)),
+        new EntryPoint("domain.decodeAsString.text",
+            () -> DomainCodec.INSTANCE.decodeAsString("42", DOM_INT4, CTX)),
+
+        // -- Range: int4 bounds are leaves, so only RangeCodec enters. --
+        new EntryPoint("range.canEncodeBinaryType",
+            () -> RangeCodec.INSTANCE.canEncodeBinaryType(INT4RANGE, CTX)),
+        new EntryPoint("range.canEncodeBinaryValue",
+            () -> RangeCodec.INSTANCE.canEncodeBinaryValue(RANGE_1_2, INT4RANGE, CTX)),
+        new EntryPoint("range.decodeText",
+            () -> RangeCodec.INSTANCE.decodeText("[1,2)", INT4RANGE, CTX)),
+        new EntryPoint("range.decodeBinary",
+            () -> RangeCodec.INSTANCE.decodeBinary(rangeEmptyBinary(), 0, 1, INT4RANGE, CTX)),
+        new EntryPoint("range.encodeBinary",
+            () -> RangeCodec.INSTANCE.encodeBinary(EMPTY_RANGE, INT4RANGE, CTX)),
+
+        // -- Multirange: canEncodeBinary* recurse into the inner range codec, so those two stack two
+        //    guards (multirange + range); decode/encode of an empty multirange has no inner range. --
+        new EntryPoint("multirange.canEncodeBinaryType", 2,
+            () -> MultirangeCodec.INSTANCE.canEncodeBinaryType(INT4MULTIRANGE, CTX)),
+        new EntryPoint("multirange.canEncodeBinaryValue", 2,
+            () -> MultirangeCodec.INSTANCE.canEncodeBinaryValue(MULTIRANGE_1_2, INT4MULTIRANGE, CTX)),
+        new EntryPoint("multirange.decodeText",
+            () -> MultirangeCodec.INSTANCE.decodeText("{}", INT4MULTIRANGE, CTX)),
+        new EntryPoint("multirange.decodeBinary",
+            () -> MultirangeCodec.INSTANCE.decodeBinary(multirangeEmptyBinary(), 0, 4, INT4MULTIRANGE, CTX)),
+        new EntryPoint("multirange.encodeBinary",
+            () -> MultirangeCodec.INSTANCE.encodeBinary(EMPTY_MULTIRANGE, INT4MULTIRANGE, CTX)),
+
+        // -- Composite: a single int4 field, so no field codec enters below the composite guard. --
+        new EntryPoint("composite.canEncodeBinaryType",
+            () -> CompositeCodec.INSTANCE.canEncodeBinaryType(REC_I4, CTX)),
+        new EntryPoint("composite.canEncodeBinaryValue",
+            () -> CompositeCodec.INSTANCE.canEncodeBinaryValue(REC_STRUCT, REC_I4, CTX)),
+        new EntryPoint("composite.decodeBinaryAs.struct",
+            () -> CompositeCodec.INSTANCE.decodeBinaryAs(REC_BINARY, 0, REC_BINARY.length, REC_I4, Struct.class, CTX)),
+        new EntryPoint("composite.decodeTextAs.struct",
+            () -> CompositeCodec.INSTANCE.decodeTextAs("(1)", REC_I4, Struct.class, CTX)),
+        new EntryPoint("composite.decodeBinaryAs.sqlData",
+            () -> CompositeCodec.INSTANCE.decodeBinaryAs(REC_BINARY, 0, REC_BINARY.length, REC_I4, IntBox.class, CTX)),
+        new EntryPoint("composite.decodeTextAs.sqlData",
+            () -> CompositeCodec.INSTANCE.decodeTextAs("(1)", REC_I4, IntBox.class, CTX)),
+        new EntryPoint("composite.encodeBinary",
+            () -> CompositeCodec.INSTANCE.encodeBinary(REC_STRUCT, REC_I4, CTX)),
+        new EntryPoint("composite.encodeText",
+            () -> CompositeCodec.INSTANCE.encodeText(REC_STRUCT, REC_I4, CTX)),
+
+        // -- Generic array leaf: a one-element uuid[] routes through GenericArrayLeafCodec, never below. --
+        new EntryPoint("arrayLeaf.readLeaf",
+            () -> Codecs.decode(WireValueSlice.binary(uuidArrayBinary()), UUID_ARRAY, CTX, Object.class)),
+        new EntryPoint("arrayLeaf.readLeafText",
+            () -> Codecs.decode(WireValueSlice.text(EMPTY_UUID_ARRAY_TEXT), UUID_ARRAY, CTX, Object.class)),
+        new EntryPoint("arrayLeaf.writeLeaf",
+            () -> Codecs.encode(UUID_LEAF, UUID_ARRAY, CTX, Format.BINARY)),
+        new EntryPoint("arrayLeaf.appendLeaf",
+            () -> Codecs.encode(UUID_LEAF, UUID_ARRAY, CTX, Format.TEXT)));
+  }
+
+  @ParameterizedTest(name = "guard trips over limit: {0}")
+  @MethodSource("entryPoints")
+  void guardTripsOverLimit(EntryPoint ep) throws Throwable {
+    // Seed the counter so only this path's own guards remain, so its final enter() throws. Removing any
+    // one of them leaves the limit uncrossed and the call succeeds -- failing the test. withDepthBudget
+    // also asserts the counter unwound back to the seed.
+    withDepthBudget(ep.guardDepth - 1, true, ep.op);
+  }
+
+  @ParameterizedTest(name = "no counter leak: {0}")
+  @MethodSource("entryPoints")
+  void noCounterLeakOverRepeatedCalls(EntryPoint ep) throws Throwable {
+    // From a clean counter, MAX_DEPTH+1 successful in-limit calls on one thread. A dropped exit() would
+    // climb the counter one per call and false-refuse around call MAX_DEPTH.
+    for (int i = 0; i <= CodecDepth.MAX_DEPTH; i++) {
+      ep.op.execute();
+    }
+    assertEquals(0, CodecDepth.current(), "balanced enter/exit must return the counter to 0");
+  }
+
+  // --- shallow value builders for the matrix ---------------------------------------------------
+
+  private static final byte[] EMPTY_UUID_ARRAY_TEXT =
+      "{00000000-0000-0000-0000-000000000000}".getBytes(StandardCharsets.UTF_8);
+
+  private static byte[] i4() {
+    byte[] b = new byte[4];
+    ByteConverter.int4(b, 0, 42);
+    return b;
+  }
+
+  private static byte[] i8() {
+    byte[] b = new byte[8];
+    ByteConverter.int8(b, 0, 42L);
+    return b;
+  }
+
+  private static byte[] f8() {
+    byte[] b = new byte[8];
+    ByteConverter.float8(b, 0, 42.0);
+    return b;
+  }
+
+  /** A one-byte bool wire holding true. */
+  private static byte[] boolByte() {
+    return new byte[]{1};
+  }
+
+  /** The one-byte binary image of an empty range: the lone flags byte with the empty bit set. */
+  private static byte[] rangeEmptyBinary() {
+    return new byte[]{0x01}; // RangeCodec.FLAG_EMPTY
+  }
+
+  /** The four-byte binary image of an empty multirange: a range count of zero. */
+  private static byte[] multirangeEmptyBinary() {
+    return new byte[4];
+  }
+
+  /** A one-dimensional, one-element {@code uuid[]} binary wire holding the all-zero UUID. */
+  private static byte[] uuidArrayBinary() {
+    ByteArrayOutputStream out = new ByteArrayOutputStream();
+    putInt(out, 1);          // dimensions
+    putInt(out, 0);          // hasNulls
+    putInt(out, Oid.UUID);   // element oid
+    putInt(out, 1);          // dimension length
+    putInt(out, 1);          // lower bound
+    putInt(out, 16);         // element length
+    out.write(new byte[16], 0, 16); // 00000000-0000-0000-0000-000000000000
+    return out.toByteArray();
+  }
+
+  /** Decodes a range/multirange literal once, off the measured path, to seed the encode cases. */
+  private static Object decodeQuietly(String literal, PgType type) {
+    try {
+      Object value = type.getTyptype() == 'm'
+          ? MultirangeCodec.INSTANCE.decodeText(literal, type, CTX)
+          : RangeCodec.INSTANCE.decodeText(literal, type, CTX);
+      if (value == null) {
+        throw new AssertionError("decode returned null for " + literal);
+      }
+      return value;
+    } catch (SQLException e) {
+      throw new AssertionError("failed to build encode input from " + literal, e);
+    } finally {
+      CodecDepth.clear();
+    }
+  }
+
+  /** Minimal {@link SQLData} over the {@code rec_i4} composite, to reach the SQLData decode branches. */
+  public static final class IntBox implements java.sql.SQLData {
+    private int value;
+
+    @Override
+    public String getSQLTypeName() {
+      return "rec_i4";
+    }
+
+    @Override
+    public void readSQL(java.sql.SQLInput stream, String typeName) throws SQLException {
+      value = stream.readInt();
+    }
+
+    @Override
+    public void writeSQL(java.sql.SQLOutput stream) throws SQLException {
+      stream.writeInt(value);
+    }
   }
 
   // --- depth-budget harness --------------------------------------------------------------------
