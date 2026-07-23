@@ -94,11 +94,15 @@ class ServerTruthOracleTest {
   /** A range over {@code text}, so a bound can carry the whitespace an int bound could not. */
   private static final String TEXTRANGE = "server_truth_textrange";
 
+  /** A composite type with zero attributes: {@code CREATE TYPE ... AS ()}. */
+  private static final String EMPTY_COMPOSITE = "server_truth_empty";
+
   private static Connection con;
   private static Connection binaryCon;
   private static int addrOid;
   private static int addrArrayOid;
   private static int textrangeOid;
+  private static int emptyCompositeOid;
   private static boolean haveRanges;
   private static boolean haveMultirange;
   private static boolean haveNumericInfinity;
@@ -117,6 +121,11 @@ class ServerTruthOracleTest {
     long[] addr = ParityHarness.oidAndArray(con, "server_truth_addr");
     addrOid = (int) addr[0];
     addrArrayOid = (int) addr[1];
+    // A zero-attribute composite. No TestUtil creator takes an empty attribute list, so create it
+    // directly (drop first, in case a prior run died mid-test, the way the TEXTRANGE case does).
+    TestUtil.dropType(con, EMPTY_COMPOSITE);
+    TestUtil.execute(con, "CREATE TYPE " + EMPTY_COMPOSITE + " AS ()");
+    emptyCompositeOid = (int) ParityHarness.oidAndArray(con, EMPTY_COMPOSITE)[0];
     haveRanges = TestUtil.haveMinimumServerVersion(con, ServerVersion.v9_2);
     haveMultirange = TestUtil.haveMinimumServerVersion(con, ServerVersion.v14);
     haveNumericInfinity = TestUtil.haveMinimumServerVersion(con, ServerVersion.v14);
@@ -187,6 +196,7 @@ class ServerTruthOracleTest {
   static void tearDownClass() throws Exception {
     if (con != null) {
       TestUtil.dropType(con, "server_truth_addr");
+      TestUtil.dropType(con, EMPTY_COMPOSITE);
       if (haveRanges) {
         TestUtil.dropType(con, TEXTRANGE);
       }
@@ -413,6 +423,36 @@ class ServerTruthOracleTest {
         ServerTruthOracle.assertEncodeTruth(con, addrOid, "server_truth_addr",
             con.createStruct("server_truth_addr", new Object[]{"a,\"b\"", 7}),
             "(\"a,\\\"b\\\"\",7)")));
+    return t;
+  }
+
+  /**
+   * A zero-attribute composite ({@code CREATE TYPE ... AS ()}) is a real type the server validates,
+   * not the anonymous {@code RECORD} pseudo-type, even though both resolve to no attributes in the
+   * driver. This pins that the driver treats it as the server does: it accepts only the empty
+   * literal {@code ()}, and refuses any literal that carries fields — {@code record_in} reports
+   * "Too many columns" (SQLState {@value #INVALID_TEXT_REPRESENTATION}) rather than silently
+   * dropping the surplus and decoding, say, {@code (1,2,3)} into an empty struct.
+   */
+  @TestFactory
+  List<DynamicTest> emptyComposite() {
+    List<DynamicTest> t = new ArrayList<>();
+    // The one literal both sides accept: zero fields in, zero fields out.
+    t.add(DynamicTest.dynamicTest("empty-composite/accepts-empty", () ->
+        ServerTruthOracle.assertTextParseTruth(con, emptyCompositeOid, EMPTY_COMPOSITE, "()")));
+    // Any field count is "Too many columns" for a zero-attribute type; the driver must refuse it too
+    // and not conflate the named type with an anonymous RECORD.
+    String[][] surplus = {
+        {"one-field", "(1)"},
+        {"three-fields", "(1,2,3)"},
+        {"single-null-field", "(,)"},
+    };
+    for (String[] c : surplus) {
+      String literal = c[1];
+      t.add(DynamicTest.dynamicTest("empty-composite-refused/" + c[0], () ->
+          ServerTruthOracle.assertServerRefuses(con, emptyCompositeOid, EMPTY_COMPOSITE, literal,
+              INVALID_TEXT_REPRESENTATION, ServerTruthOracle.DriverVerdict.REFUSES)));
+    }
     return t;
   }
 

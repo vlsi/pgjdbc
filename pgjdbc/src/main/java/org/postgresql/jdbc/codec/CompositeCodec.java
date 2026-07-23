@@ -592,16 +592,29 @@ public final class CompositeCodec implements StreamingBinaryCodec, StreamingText
       final int expected = fieldList.size();
       final @Nullable Object[] attributes = new @Nullable Object[expected];
       final int[] seen = {0};
+      // Only the anonymous RECORD pseudo-type may carry fields the catalog cannot account for; a
+      // named composite with zero attributes (CREATE TYPE ... AS ()) is a real type the server
+      // validates, not a RECORD, so it must not inherit RECORD's tolerance below.
+      final boolean anonymousRecord = type.getOid() == Oid.RECORD;
       // Decode each field from its borrowed slice in place: no per-field String,
       // and nested composites/arrays recurse through the child codec's own cursor.
       readCompositeFields(cur, (index, isNull, token) -> {
         if (index >= expected) {
-          // A named composite (expected > 0) must match its literal exactly: surface a
-          // catalog/literal field-count skew (e.g. after ALTER TYPE ADD ATTRIBUTE) instead of
-          // silently dropping the surplus fields and corrupting the value. The anonymous record
-          // pseudo-type has no catalog attributes (expected == 0) and so cannot be validated;
-          // its fields are tolerated as before, and PgStruct.getValue() keeps the raw literal.
-          if (expected == 0) {
+          // A named composite must match its literal exactly: surface a catalog/literal field-count
+          // skew (e.g. after ALTER TYPE ADD ATTRIBUTE, or a zero-attribute type handed too many
+          // fields) the way record_in reports "Too many columns", instead of silently dropping the
+          // surplus fields and corrupting the value. Only the anonymous RECORD pseudo-type has no
+          // catalog attributes to validate against, so its fields are tolerated and
+          // PgStruct.getValue() keeps the raw literal.
+          if (anonymousRecord) {
+            return;
+          }
+          // A zero-attribute composite (CREATE TYPE ... AS ()) accepts only the empty literal "()",
+          // which readCompositeFields surfaces as a single empty (SQL NULL) field at index 0 -- its
+          // "at least one field" model matches record_in for every type of one or more columns, but
+          // a zero-column type reads "()" as zero fields. Tolerate exactly that one field; a field
+          // with content, or a second field, is "Too many columns" and is rejected below.
+          if (expected == 0 && index == 0 && isNull) {
             return;
           }
           throw Exceptions.compositeTextHasMoreAttributes(type.getName().getLocalName(), expected);
