@@ -12,6 +12,14 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import org.postgresql.test.TestUtil;
+import org.postgresql.test.data.EdgeCase;
+import org.postgresql.test.data.Float4EdgeCases;
+import org.postgresql.test.data.Float8EdgeCases;
+import org.postgresql.test.data.Int2EdgeCases;
+import org.postgresql.test.data.Int4EdgeCases;
+import org.postgresql.test.data.Int8EdgeCases;
+import org.postgresql.test.data.NumericEdgeCases;
+import org.postgresql.test.data.TextEdgeCases;
 import org.postgresql.util.PSQLState;
 
 import org.junit.jupiter.api.AfterAll;
@@ -37,6 +45,7 @@ import java.time.ZoneOffset;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collection;
+import java.util.List;
 import java.util.UUID;
 import java.util.function.BiPredicate;
 
@@ -264,6 +273,59 @@ public class UpdatableRowBufferCodecTest extends BaseTest4 {
       assertTrue(OFFSET_TIME_EQ.test(ttz, rs.getObject(14, OffsetTime.class)));
       assertTrue(EQUALS.test(ts, rs.getObject(15, LocalDateTime.class)));
       assertTrue(OFFSET_DT_EQ.test(tstz, rs.getObject(16, OffsetDateTime.class)));
+    }
+  }
+
+  @Test
+  public void int2EdgeCases() throws SQLException {
+    // Int2EdgeCases carries Integer values, so every case also pins the loose Integer -> int2 cell.
+    runEdgeCases("i2", Int2EdgeCases.ALL, Short.class, EQUALS);
+  }
+
+  @Test
+  public void int4EdgeCases() throws SQLException {
+    runEdgeCases("i4", Int4EdgeCases.ALL, Integer.class, EQUALS);
+  }
+
+  @Test
+  public void int8EdgeCases() throws SQLException {
+    runEdgeCases("i8", Int8EdgeCases.ALL, Long.class, EQUALS);
+  }
+
+  @Test
+  public void float4EdgeCases() throws SQLException {
+    runEdgeCases("f4", Float4EdgeCases.ALL, Float.class, EQUALS);
+  }
+
+  @Test
+  public void float8EdgeCases() throws SQLException {
+    runEdgeCases("f8", Float8EdgeCases.ALL, Double.class, EQUALS);
+  }
+
+  @Test
+  public void numericEdgeCases() throws SQLException {
+    // NaN and the infinities carry no BigDecimal form and are skipped by runEdgeCases.
+    runEdgeCases("num", NumericEdgeCases.ALL, BigDecimal.class, NUMERIC_EQ);
+  }
+
+  @Test
+  public void textEdgeCases() throws SQLException {
+    runEdgeCases("txt", TextEdgeCases.ALL, String.class, EQUALS);
+  }
+
+  /**
+   * Runs every value-bearing case of a testkit edge-case catalogue through the buffer-vs-database
+   * oracle. Cases with no representable Java value ({@link org.postgresql.test.data.EdgeCase#value()}
+   * returns {@code null}) exercise the read side only and are skipped.
+   */
+  private <T> void runEdgeCases(String column, List<EdgeCase> cases, Class<T> readAs,
+      BiPredicate<? super T, ? super T> eq) throws SQLException {
+    for (EdgeCase edgeCase : cases) {
+      Object value = edgeCase.value();
+      if (value == null) {
+        continue;
+      }
+      assertBufferMatchesDb(column, value, readAs, eq);
     }
   }
 
