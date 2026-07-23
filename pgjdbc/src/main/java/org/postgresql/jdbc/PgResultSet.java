@@ -81,11 +81,6 @@ import java.sql.Statement;
 import java.sql.Time;
 import java.sql.Timestamp;
 import java.sql.Types;
-import java.time.LocalDate;
-import java.time.LocalDateTime;
-import java.time.LocalTime;
-import java.time.OffsetDateTime;
-import java.time.OffsetTime;
 import java.util.ArrayList;
 import java.util.Calendar;
 import java.util.HashMap;
@@ -2143,72 +2138,6 @@ public class PgResultSet implements ResultSet, PGRefCursorResultSet {
       return;
     }
     switch (getSQLType(columnIndex + 1)) {
-
-      // boolean needs to be formatted as t or f instead of true or false
-      case Types.BIT:
-      case Types.BOOLEAN:
-        if (!binary) {
-          rowBuffer.set(columnIndex, connection
-              .encodeString((Boolean) valueObject ? "t" : "f"));
-          break;
-        }
-        encodeRowBufferColumnViaCodec(rowBuffer, columnIndex, valueObject);
-        break;
-      //
-      // toString() isn't enough for date and time types; we must format it correctly
-      // or we won't be able to re-parse it.
-      //
-      case Types.DATE:
-        if (!binary) {
-          // getObject(int, LocalDate.class) returns LocalDate, so updating the row buffer with
-          // such a value must not assume it is always a java.sql.Date.
-          String stringValue = valueObject instanceof LocalDate
-              ? getTimestampUtils().toString((LocalDate) valueObject)
-              : getTimestampUtils().toString(getDefaultCalendar(), (Date) valueObject);
-          rowBuffer.set(columnIndex, connection.encodeString(stringValue));
-          break;
-        }
-        encodeRowBufferColumnViaCodec(rowBuffer, columnIndex, valueObject);
-        break;
-
-      case Types.TIME:
-        if (!binary) {
-          // time and timetz both map to Types.TIME, so the value can be java.sql.Time,
-          // java.time.LocalTime (time) or java.time.OffsetTime (timetz).
-          String stringValue;
-          if (valueObject instanceof OffsetTime) {
-            stringValue = getTimestampUtils().toString((OffsetTime) valueObject);
-          } else if (valueObject instanceof LocalTime) {
-            stringValue = getTimestampUtils().toString((LocalTime) valueObject);
-          } else {
-            stringValue = getTimestampUtils().toString(getDefaultCalendar(), (Time) valueObject);
-          }
-          rowBuffer.set(columnIndex, connection.encodeString(stringValue));
-          break;
-        }
-        encodeRowBufferColumnViaCodec(rowBuffer, columnIndex, valueObject);
-        break;
-
-      case Types.TIMESTAMP:
-      case Types.TIMESTAMP_WITH_TIMEZONE:
-        if (!binary) {
-          // timestamp and timestamptz both map to Types.TIMESTAMP, so the value can be
-          // java.sql.Timestamp, java.time.LocalDateTime (timestamp)
-          // or java.time.OffsetDateTime (timestamptz).
-          String stringValue;
-          if (valueObject instanceof OffsetDateTime) {
-            stringValue = getTimestampUtils().toString((OffsetDateTime) valueObject);
-          } else if (valueObject instanceof LocalDateTime) {
-            stringValue = getTimestampUtils().toString((LocalDateTime) valueObject);
-          } else {
-            stringValue = getTimestampUtils().toString(getDefaultCalendar(), (Timestamp) valueObject);
-          }
-          rowBuffer.set(columnIndex, connection.encodeString(stringValue));
-          break;
-        }
-        encodeRowBufferColumnViaCodec(rowBuffer, columnIndex, valueObject);
-        break;
-
       case Types.NULL:
         // Should never happen?
         break;
@@ -2233,6 +2162,10 @@ public class PgResultSet implements ResultSet, PGRefCursorResultSet {
         break;
 
       default:
+        // bool, date, time, timetz, timestamp, timestamptz, numeric and every other scalar are
+        // encoded by the column's codec, which formats each type for its own wire representation
+        // (binary or text) by the column's OID -- the single source of truth shared with the getters
+        // and the setObject bind path, so the refreshed row buffer agrees with the stored value.
         encodeRowBufferColumnViaCodec(rowBuffer, columnIndex, valueObject);
         break;
     }
@@ -4482,10 +4415,6 @@ public class PgResultSet implements ResultSet, PGRefCursorResultSet {
 
   private Calendar getDefaultCalendar() {
     return dateTimeHelper.getDefaultCalendar();
-  }
-
-  private TimestampUtils getTimestampUtils() {
-    return dateTimeHelper.getTimestampUtils();
   }
 
   /**
