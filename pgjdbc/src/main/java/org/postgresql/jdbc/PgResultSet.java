@@ -59,9 +59,7 @@ import java.math.RoundingMode;
 import java.net.InetAddress;
 import java.net.URL;
 import java.net.UnknownHostException;
-import java.nio.charset.Charset;
 import java.nio.charset.StandardCharsets;
-import java.nio.charset.UnsupportedCharsetException;
 import java.sql.Array;
 import java.sql.Blob;
 import java.sql.Clob;
@@ -2142,38 +2140,16 @@ public class PgResultSet implements ResultSet, PGRefCursorResultSet {
       rowBuffer.set(columnIndex, value == null ? null : connection.encodeString(value));
       return;
     }
-    switch (getSQLType(columnIndex + 1)) {
-      case Types.NULL:
-        // Should never happen?
-        break;
-
-      case Types.BINARY:
-      case Types.LONGVARBINARY:
-      case Types.VARBINARY:
-        if (binary) {
-          rowBuffer.set(columnIndex, (byte[]) valueObject);
-        } else {
-          Charset charset;
-          try {
-            charset = Charset.forName(connection.getEncoding().name());
-          } catch (UnsupportedCharsetException e) {
-            throw new PSQLException(
-                GT.tr("The JVM claims not to support the encoding: {0}", connection.getEncoding().name()),
-                PSQLState.UNEXPECTED_ERROR, e);
-          }
-          byte[] bytes = PGbytea.toPGString((byte[]) valueObject).getBytes(charset);
-          rowBuffer.set(columnIndex, bytes);
-        }
-        break;
-
-      default:
-        // bool, date, time, timetz, timestamp, timestamptz, numeric and every other scalar are
-        // encoded by the column's codec, which formats each type for its own wire representation
-        // (binary or text) by the column's OID -- the single source of truth shared with the getters
-        // and the setObject bind path, so the refreshed row buffer agrees with the stored value.
-        encodeRowBufferColumnViaCodec(rowBuffer, columnIndex, valueObject);
-        break;
+    if (getSQLType(columnIndex + 1) == Types.NULL) {
+      // Should never happen?
+      return;
     }
+    // bool, bytea, date, time, timetz, timestamp, timestamptz, numeric and every other scalar are
+    // encoded by the column's codec, which formats each type for its own wire representation
+    // (binary or text) by the column's OID -- the single source of truth shared with the getters
+    // and the setObject bind path, so the refreshed row buffer agrees with the stored value and
+    // the accepted classes follow the write-coercion model instead of a structural cast.
+    encodeRowBufferColumnViaCodec(rowBuffer, columnIndex, valueObject);
   }
 
   /**
