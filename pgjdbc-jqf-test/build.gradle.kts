@@ -55,10 +55,10 @@ dependencies {
     // JQF: the JUnit 5 @FuzzTest engine and the jetCheck-backed argument generator.
     // jqf-generator-jetcheck is discovered through the ServiceLoader, so the auto-provider
     // tests need no further wiring.
-    testImplementation("edu.berkeley.cs.jqf:jqf-junit5:2.2-SNAPSHOT")
-    testImplementation("edu.berkeley.cs.jqf:jqf-generator-jetcheck:2.2-SNAPSHOT")
+    testImplementation("edu.berkeley.cs.jqf:jqf-junit5:3.0")
+    testImplementation("edu.berkeley.cs.jqf:jqf-generator-jetcheck:3.0")
 
-    jqfInstrumentAgent("edu.berkeley.cs.jqf:jqf-instrument:2.2-SNAPSHOT")
+    jqfInstrumentAgent("edu.berkeley.cs.jqf:jqf-instrument:3.0")
 
     // The differential value fuzzer reuses the compat oracle core (probe + comparator + isolated
     // baseline loader) and TestUtil for the connection settings.

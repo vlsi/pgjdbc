@@ -50,11 +50,9 @@ if (jdkTestVersion != 8) {
 // The fuzzer-independent core (coercion dictionaries + offline codec oracles) shared by both fuzzers
 include("pgjdbc-fuzzkit")
 if (jdkTestVersion == null || jdkTestVersion >= 11) {
-    if (providers.gradleProperty("pgjdbcJqf").orNull?.toBoolean() == true) {
-        include("pgjdbc-jqf-test")
-    }
-    include("pgjdbc-jazzer-test")
     include("pgjdbc-compat-test")
+    include("pgjdbc-jazzer-test")
+    include("pgjdbc-jqf-test")
 }
 if (jdkTestVersion == null || jdkTestVersion >= 17) {
     // Spring 6.x requires Java 17+
