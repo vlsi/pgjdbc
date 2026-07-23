@@ -1214,9 +1214,13 @@ public class PgResultSet implements ResultSet, PGRefCursorResultSet {
       }
 
       insertSQL.append(paramSQL.toString());
-      PreparedStatement insertStatement = null;
 
-      Tuple rowBuffer = castNonNull(this.rowBuffer);
+      // Encode the pending values into a staged row buffer first: a value the column codec
+      // refuses fails here, before the INSERT reaches the server, so no row is inserted that the
+      // local buffer cannot represent.
+      Tuple staged = stageRowBuffer(castNonNull(this.rowBuffer), updateValues);
+
+      PreparedStatement insertStatement = null;
       try {
         insertStatement = connection.prepareStatement(insertSQL.toString(), Statement.RETURN_GENERATED_KEYS);
 
@@ -1231,24 +1235,21 @@ public class PgResultSet implements ResultSet, PGRefCursorResultSet {
 
         if (usingOID) {
           // we have to get the last inserted OID and put it in the resultset
-
           long insertedOID = ((PgStatement) insertStatement).getLastOID();
-
-          updateValues.put("oid", insertedOID);
-
+          setRowBufferColumn(staged, findColumn("oid") - 1, insertedOID);
         }
 
-        // update the underlying row to the new inserted data
-        updateRowBuffer(insertStatement, rowBuffer, castNonNull(updateValues));
+        // fold the server-generated key columns into the staged row
+        refreshGeneratedKeys(insertStatement, staged);
       } finally {
         JdbcBlackHole.close(insertStatement);
       }
 
-      castNonNull(rows).add(rowBuffer);
+      castNonNull(rows).add(staged);
 
       // we should now reflect the current data in thisRow
       // that way getXXX will get the newly inserted data
-      thisRow = rowBuffer;
+      thisRow = staged;
 
       // need to clear this in case of another insert
       clearRowBuffer(false);
@@ -1653,6 +1654,12 @@ public class PgResultSet implements ResultSet, PGRefCursorResultSet {
       if (connection.getLogger().isLoggable(Level.FINE)) {
         connection.getLogger().log(Level.FINE, "updating {0}", sqlText);
       }
+
+      // Encode the pending values into a staged row buffer first: a value the column codec
+      // refuses fails here, before the UPDATE reaches the server, so the database row and the
+      // local buffer can never disagree.
+      Tuple staged = stageRowBuffer(castNonNull(this.rowBuffer, "rowBuffer"), updateValues);
+
       PreparedStatement updateStatement = null;
       try {
         updateStatement = connection.prepareStatement(sqlText);
@@ -1673,12 +1680,10 @@ public class PgResultSet implements ResultSet, PGRefCursorResultSet {
         JdbcBlackHole.close(updateStatement);
       }
 
-      Tuple rowBuffer = castNonNull(this.rowBuffer, "rowBuffer");
-      updateRowBuffer(null, rowBuffer, updateValues);
-
       connection.getLogger().log(Level.FINE, "copying data");
-      thisRow = rowBuffer.readOnlyCopy();
-      rows.set(currentRow, rowBuffer);
+      thisRow = staged.readOnlyCopy();
+      rows.set(currentRow, staged);
+      this.rowBuffer = staged;
 
       connection.getLogger().log(Level.FINE, "done updates");
       updateValues.clear();
@@ -2208,17 +2213,55 @@ public class PgResultSet implements ResultSet, PGRefCursorResultSet {
     }
   }
 
-  private void updateRowBuffer(@Nullable PreparedStatement insertStatement,
-      Tuple rowBuffer, Map<String, @Nullable Object> updateValues) throws SQLException {
+  /**
+   * Encodes the pending column values into a staged copy of {@code rowBuffer} through the column
+   * codecs, before any statement touches the server. A value the column codec refuses fails here,
+   * while the database still holds the old row and the pending values survive for a corrected
+   * retry, so the row buffer and the server can never disagree.
+   *
+   * <p>A column set via one of the {@code updateObject(..., SQLType, ...)} overloads is first
+   * normalized by {@link #normalizeForSqlType}, so the buffer encodes the same value the bind leg
+   * sends.
+   */
+  private Tuple stageRowBuffer(Tuple rowBuffer, Map<String, @Nullable Object> updateValues)
+      throws SQLException {
+    Tuple staged = rowBuffer.updateableCopy();
+    HashMap<String, SQLType> updateSqlTypes = this.updateSqlTypes;
     for (Map.Entry<String, @Nullable Object> entry : updateValues.entrySet()) {
-      int columnIndex = findColumn(entry.getKey()) - 1;
-      @Nullable Object valueObject = entry.getValue();
-      setRowBufferColumn(rowBuffer, columnIndex, valueObject);
+      String columnName = entry.getKey();
+      int columnIndex = findColumn(columnName) - 1;
+      SQLType targetSqlType = updateSqlTypes == null ? null : updateSqlTypes.get(columnName);
+      setRowBufferColumn(staged, columnIndex, normalizeForSqlType(entry.getValue(), targetSqlType));
     }
+    return staged;
+  }
 
-    if (insertStatement == null) {
-      return;
+  /**
+   * Normalizes {@code value} the way {@link PgPreparedStatement#setObject(int, Object, SQLType)}
+   * does before binding: scalar {@link Types} targets go through {@link SqlTypeCoercion#coerce}
+   * (with the scale of zero the scale-less {@code setObject} overload implies), while the
+   * codec-routed values -- {@link SQLData}, {@link java.sql.Struct} and PostgreSQL-vendor
+   * {@link SQLType}s -- pass through for the codec's own input handling. Both legs of a pending
+   * update thus present the same value: this method feeds the row-buffer encode, and the bind leg
+   * applies the same coercion inside {@code setObject}.
+   */
+  private static @Nullable Object normalizeForSqlType(@Nullable Object value,
+      @Nullable SQLType targetSqlType) throws SQLException {
+    if (value == null || targetSqlType == null
+        || value instanceof SQLData || value instanceof java.sql.Struct
+        || PGSQLType.VENDOR.equals(targetSqlType.getVendor())) {
+      return value;
     }
+    return SqlTypeCoercion.coerce(value, JavaTypeRegistry.getSqlTypeCode(targetSqlType), 0);
+  }
+
+  /**
+   * Folds the server-generated key columns of a completed {@code insertRow()} into {@code staged}.
+   * Runs after the INSERT by necessity -- the values come from the server -- so a refusal here is
+   * genuinely exceptional: the column codecs accept everything the server returns.
+   */
+  private void refreshGeneratedKeys(PreparedStatement insertStatement, Tuple staged)
+      throws SQLException {
     final ResultSet generatedKeys = insertStatement.getGeneratedKeys();
     try {
       generatedKeys.next();
@@ -2230,7 +2273,7 @@ public class PgResultSet implements ResultSet, PGRefCursorResultSet {
         final PrimaryKey key = primaryKeys.get(i);
         int columnIndex = key.index - 1;
         Object valueObject = generatedKeys.getObject(key.name);
-        setRowBufferColumn(rowBuffer, columnIndex, valueObject);
+        setRowBufferColumn(staged, columnIndex, valueObject);
       }
     } finally {
       generatedKeys.close();

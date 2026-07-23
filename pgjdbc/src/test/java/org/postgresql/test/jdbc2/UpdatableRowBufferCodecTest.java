@@ -5,10 +5,14 @@
 
 package org.postgresql.test.jdbc2;
 
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import org.postgresql.test.TestUtil;
+import org.postgresql.util.PSQLState;
 
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.BeforeAll;
@@ -48,9 +52,12 @@ import java.util.function.BiPredicate;
  * freshly written row buffer must agree with what the database actually stored. The oracle reads the
  * buffer and a fresh {@code SELECT} of the same row with the same getter, so it stays independent of
  * the session time zone -- both sides decode through the same path, and a mismatch means the buffer
- * and the database disagree. Rejection cells are not exercised here: {@code updateRow()} binds to the
- * server before it refreshes the buffer, so a refused class fails on the bind path, not the codec
- * buffer encode; the offline writer fuzzer covers the refusal matrix.
+ * and the database disagree.
+ *
+ * <p>Refusal cells pin the staging invariant: {@code updateRow()}/{@code insertRow()} encode the
+ * staged row buffer <em>before</em> any statement reaches the server, so a refused value fails with
+ * the codec's SQLState while the database still holds the old row, the buffer still shows the old
+ * value, and a corrected value on the same {@code ResultSet} goes through.
  */
 @ParameterizedClass
 @MethodSource("data")
@@ -257,6 +264,113 @@ public class UpdatableRowBufferCodecTest extends BaseTest4 {
       assertTrue(OFFSET_TIME_EQ.test(ttz, rs.getObject(14, OffsetTime.class)));
       assertTrue(EQUALS.test(ts, rs.getObject(15, LocalDateTime.class)));
       assertTrue(OFFSET_DT_EQ.test(tstz, rs.getObject(16, OffsetDateTime.class)));
+    }
+  }
+
+  @Test
+  public void refusalUuidIntoInt4() throws SQLException {
+    // WriteCoercions int4 row: UUID is off the accepted-class set -> default-deny.
+    assertRefusedBeforeServer("i4", "777",
+        UUID.fromString("00112233-4455-6677-8899-aabbccddeeff"), 888,
+        PSQLState.INVALID_PARAMETER_TYPE);
+  }
+
+  @Test
+  public void refusalBytesIntoText() throws SQLException {
+    // WriteCoercions text row: byte[] is off the accepted-class set -> default-deny.
+    assertRefusedBeforeServer("txt", "'old value'", new byte[]{1, 2, 3}, "new value",
+        PSQLState.INVALID_PARAMETER_TYPE);
+  }
+
+  @Test
+  public void refusalUnparsableStringIntoInt4() throws SQLException {
+    // WriteCoercions int4 row: String is OK_OR_COERCE, this value fails the parse.
+    assertRefusedBeforeServer("i4", "777", "not a number", 888,
+        PSQLState.NUMERIC_VALUE_OUT_OF_RANGE);
+  }
+
+  @Test
+  public void refusalUnparsableStringIntoBool() throws SQLException {
+    // WriteCoercions bool row: String is OK_OR_COERCE; bool's default-deny is CANNOT_COERCE.
+    assertRefusedBeforeServer("b", "true", "not a bool", Boolean.FALSE,
+        PSQLState.CANNOT_COERCE);
+  }
+
+  @Test
+  public void refusalOnInsertRowLeavesNoRow() throws SQLException {
+    try (Statement st = con.createStatement(ResultSet.TYPE_SCROLL_INSENSITIVE,
+        ResultSet.CONCUR_UPDATABLE);
+        ResultSet rs = st.executeQuery("SELECT id, i4 FROM rowbufcodec WHERE id = 1")) {
+      assertTrue(rs.next());
+      rs.moveToInsertRow();
+      rs.updateInt("id", 99);
+      rs.updateObject("i4", UUID.fromString("00112233-4455-6677-8899-aabbccddeeff"));
+      SQLException e = assertThrows(SQLException.class, rs::insertRow,
+          "insertRow() must refuse a UUID for an int4 column before the INSERT runs");
+      assertEquals(PSQLState.INVALID_PARAMETER_TYPE.getState(), e.getSQLState());
+
+      // The refusal happened before the INSERT, so no row reached the database.
+      try (Statement plain = con.createStatement();
+          ResultSet fresh = plain.executeQuery("SELECT 1 FROM rowbufcodec WHERE id = 99")) {
+        assertFalse(fresh.next(), "the refused insertRow() must not insert a row");
+      }
+
+      // A corrected value on the same insert row goes through.
+      rs.updateObject("i4", 888);
+      rs.insertRow();
+      try (Statement plain = con.createStatement();
+          ResultSet fresh = plain.executeQuery("SELECT i4 FROM rowbufcodec WHERE id = 99")) {
+        assertTrue(fresh.next());
+        assertEquals(888, fresh.getInt(1));
+      }
+    }
+  }
+
+  /**
+   * Seeds {@code column} with {@code seedLiteral}, attempts {@code updateRow()} with
+   * {@code badValue}, and asserts the staging invariant: the expected SQLState is raised, the
+   * database row and the row buffer still hold the seeded value, and {@code correctedValue}
+   * afterwards succeeds on the same {@code ResultSet}.
+   */
+  private void assertRefusedBeforeServer(String column, String seedLiteral, Object badValue,
+      Object correctedValue, PSQLState expectedState) throws SQLException {
+    TestUtil.execute(con,
+        "UPDATE rowbufcodec SET " + column + " = " + seedLiteral + " WHERE id = 1");
+    try (Statement st = con.createStatement(ResultSet.TYPE_SCROLL_INSENSITIVE,
+        ResultSet.CONCUR_UPDATABLE);
+        ResultSet rs =
+            st.executeQuery("SELECT id, " + column + " FROM rowbufcodec WHERE id = 1")) {
+      assertTrue(rs.next());
+      Object before = rs.getObject(column);
+
+      rs.updateObject(column, badValue);
+      SQLException e = assertThrows(SQLException.class, rs::updateRow,
+          () -> "updateRow() must refuse a " + badValue.getClass().getName()
+              + " for column " + column + " before the UPDATE runs");
+      assertEquals(expectedState.getState(), e.getSQLState(),
+          () -> "SQLState for a refused " + badValue.getClass().getName()
+              + " in column " + column);
+
+      assertEquals(before, rs.getObject(column),
+          "the row buffer must still show the old value after the refusal");
+      try (Statement plain = con.createStatement();
+          ResultSet fresh = plain.executeQuery(
+              "SELECT " + column + " FROM rowbufcodec WHERE id = 1")) {
+        assertTrue(fresh.next());
+        assertEquals(before, fresh.getObject(1),
+            "the database must still hold the old value: the refusal fired before the UPDATE");
+      }
+
+      rs.updateObject(column, correctedValue);
+      rs.updateRow();
+      Object buffer = rs.getObject(column);
+      try (Statement plain = con.createStatement();
+          ResultSet fresh = plain.executeQuery(
+              "SELECT " + column + " FROM rowbufcodec WHERE id = 1")) {
+        assertTrue(fresh.next());
+        assertEquals(fresh.getObject(1), buffer,
+            "after the corrected update the row buffer must match the database");
+      }
     }
   }
 
