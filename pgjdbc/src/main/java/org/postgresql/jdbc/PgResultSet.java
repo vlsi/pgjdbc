@@ -2172,15 +2172,11 @@ public class PgResultSet implements ResultSet, PGRefCursorResultSet {
   }
 
   /**
-   * Encodes {@code valueObject} into {@code rowBuffer} via the codec registry, choosing the binary
-   * or text representation that matches the column's wire format.
-   *
-   * <p>The resolved codec is never {@code null} in normal operation: {@link CodecRegistry} falls
-   * back to {@link org.postgresql.jdbc.codec.FallbackCodec}, which is both a {@code BinaryCodec} and
-   * a {@code TextCodec}. The {@code null} guards below are defensive. Fabricating bytes in the wrong
-   * wire format would corrupt the row buffer -- text bytes written into a slot flagged binary are
-   * binary-decoded on the next read -- so a missing codec refuses with
-   * {@link PSQLState#CANNOT_COERCE} instead.
+   * Encodes {@code valueObject} into {@code rowBuffer} through {@link ColumnValueEncoder}, choosing
+   * the binary or text representation that matches the column's wire format. {@code ColumnValueEncoder}
+   * is the shared production coercion point over the codec registry -- the same entry point the
+   * {@code setObject} bind path and {@code SQLOutput} can adopt -- so the refreshed row buffer agrees
+   * with the stored value and with the getters.
    */
   private void encodeRowBufferColumnViaCodec(
       Tuple rowBuffer, int columnIndex, Object valueObject) throws SQLException {
@@ -2188,27 +2184,11 @@ public class PgResultSet implements ResultSet, PGRefCursorResultSet {
     int oid = fields[columnIndex].getOID();
     PgType pgType = connection.getTypeInfo().getPgTypeByOid(oid);
     if (isBinary(columnIndex + 1)) {
-      BinaryCodec codec = ctx.getCodecs().getBinaryCodec(oid, pgType);
-      if (codec == null) {
-        throw cannotEncodeRowBufferColumn(oid, valueObject);
-      }
-      rowBuffer.set(columnIndex, codec.encodeBinary(valueObject, pgType, ctx));
+      rowBuffer.set(columnIndex, ColumnValueEncoder.encodeBinary(valueObject, oid, pgType, ctx));
     } else {
-      TextCodec codec = ctx.getCodecs().getTextCodec(oid, pgType);
-      if (codec == null) {
-        throw cannotEncodeRowBufferColumn(oid, valueObject);
-      }
-      String text = codec.encodeText(valueObject, pgType, ctx);
+      String text = ColumnValueEncoder.encodeText(valueObject, oid, pgType, ctx);
       rowBuffer.set(columnIndex, text == null ? null : connection.encodeString(text));
     }
-  }
-
-  private static PSQLException cannotEncodeRowBufferColumn(int oid, Object valueObject) {
-    return new PSQLException(
-        GT.tr("Cannot encode a {0} into the updatable row buffer for the column with type OID {1}: "
-            + "no codec is available for the column''s wire format.",
-            valueObject.getClass().getName(), oid),
-        PSQLState.CANNOT_COERCE);
   }
 
   /**
