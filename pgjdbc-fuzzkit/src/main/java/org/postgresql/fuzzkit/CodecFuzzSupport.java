@@ -45,6 +45,7 @@ import org.postgresql.jdbc.PgType;
 import org.postgresql.jdbc.codec.FallbackCodec;
 import org.postgresql.util.PGRange;
 import org.postgresql.util.PGmultirange;
+import org.postgresql.util.PSQLState;
 import org.postgresql.util.internal.Nullness;
 
 import org.checkerframework.checker.nullness.qual.Nullable;
@@ -1596,6 +1597,13 @@ public final class CodecFuzzSupport {
    * numeric equality. Runs in both wire formats, since the rescale lives on the decode side and applies
    * to a text and a binary numeric alike.
    *
+   * <p>The narrowing accessors ({@code decodeAsInt/Long/Double/Float}, plus the
+   * {@code decodeTextBytesAsInt/Long} byte fast path) sweep the same stamped descriptor against a
+   * second independent oracle: the PostgreSQL cast of the declared-scale value, or a
+   * {@code NUMERIC_VALUE_OUT_OF_RANGE} refusal when that cast overflows. This is what catches an
+   * accessor that reads the raw wire value and skips the rescale -- the value-blind outcome checks
+   * cannot see that.</p>
+   *
    * @param value the value to write; a finite {@link BigDecimal}
    * @param precision the modifier precision (1..1000)
    * @param scale the modifier scale (digits after the point; may be negative on PG15+)
@@ -1606,6 +1614,13 @@ public final class CodecFuzzSupport {
     int typmod = NumericTypmod.of(precision, scale);
     PgType numeric = PgTypeDescriptors.scalar(Oid.NUMERIC).withTypmod(typmod).pgType();
     BigDecimal expected = value.setScale(NumericTypmod.scaleOf(typmod), RoundingMode.HALF_EVEN);
+    Outcome expectedInt = Outcome.capture(() -> pgCastToInt(expected));
+    Outcome expectedLong = Outcome.capture(() -> pgCastToLong(expected));
+    Outcome expectedDouble = Outcome.capture(() -> pgCastToDouble(expected));
+    Outcome expectedFloat = Outcome.capture(() -> pgCastToFloat(expected));
+    Codec codec = ctx.resolveCodec(Oid.NUMERIC);
+    PrimitiveBinaryDecoder binDec = (PrimitiveBinaryDecoder) codec;
+    PrimitiveTextDecoder textDec = (PrimitiveTextDecoder) codec;
     for (Format format : Format.values()) {
       WireValueSlice raw = Codecs.encode(value, numeric, ctx, format);
       BigDecimal back = Nullness.castNonNull(Codecs.decode(raw, numeric, ctx, BigDecimal.class),
@@ -1613,7 +1628,92 @@ public final class CodecFuzzSupport {
       assertEquals(expected, back,
           () -> "numeric(" + precision + "," + scale + ") " + format + ": " + value
               + " -> expected " + expected + " but decoded " + back);
+
+      byte[] wire = raw.toByteArray();
+      String label = "numeric(" + precision + "," + scale + ") " + format + " " + value;
+      if (format == Format.BINARY) {
+        assertPredictedOutcome(label + " decodeAsInt", expectedInt,
+            Outcome.capture(() -> binDec.decodeAsInt(wire, 0, wire.length, numeric, ctx)));
+        assertPredictedOutcome(label + " decodeAsLong", expectedLong,
+            Outcome.capture(() -> binDec.decodeAsLong(wire, 0, wire.length, numeric, ctx)));
+        assertPredictedOutcome(label + " decodeAsDouble", expectedDouble,
+            Outcome.capture(() -> binDec.decodeAsDouble(wire, 0, wire.length, numeric, ctx)));
+        assertPredictedOutcome(label + " decodeAsFloat", expectedFloat,
+            Outcome.capture(() -> binDec.decodeAsFloat(wire, 0, wire.length, numeric, ctx)));
+      } else {
+        String text = new String(wire, StandardCharsets.UTF_8);
+        assertPredictedOutcome(label + " decodeAsInt", expectedInt,
+            Outcome.capture(() -> textDec.decodeAsInt(text, numeric, ctx)));
+        assertPredictedOutcome(label + " decodeAsLong", expectedLong,
+            Outcome.capture(() -> textDec.decodeAsLong(text, numeric, ctx)));
+        assertPredictedOutcome(label + " decodeTextBytesAsInt", expectedInt,
+            Outcome.capture(() -> textDec.decodeTextBytesAsInt(wire, numeric, ctx)));
+        assertPredictedOutcome(label + " decodeTextBytesAsLong", expectedLong,
+            Outcome.capture(() -> textDec.decodeTextBytesAsLong(wire, numeric, ctx)));
+        assertPredictedOutcome(label + " decodeAsDouble", expectedDouble,
+            Outcome.capture(() -> textDec.decodeAsDouble(text, numeric, ctx)));
+        assertPredictedOutcome(label + " decodeAsFloat", expectedFloat,
+            Outcome.capture(() -> textDec.decodeAsFloat(text, numeric, ctx)));
+      }
     }
+  }
+
+  // The independent oracle for the numeric(p,s) narrowing accessors: PostgreSQL's cast of the
+  // declared-scale value. int4/int8 round half away from zero and range-check the rounded value;
+  // float8/float4 refuse a finite value that overflows the target range. The refusals carry
+  // NUMERIC_VALUE_OUT_OF_RANGE, the state the codec's own range errors use, so Outcome comparison
+  // pins the SQLState too.
+
+  private static int pgCastToInt(BigDecimal declared) throws SQLException {
+    BigDecimal rounded = declared.setScale(0, RoundingMode.HALF_UP);
+    if (rounded.compareTo(BigDecimal.valueOf(Integer.MAX_VALUE)) > 0
+        || rounded.compareTo(BigDecimal.valueOf(Integer.MIN_VALUE)) < 0) {
+      throw predictedOutOfRange(declared, "int");
+    }
+    return rounded.intValueExact();
+  }
+
+  private static long pgCastToLong(BigDecimal declared) throws SQLException {
+    BigDecimal rounded = declared.setScale(0, RoundingMode.HALF_UP);
+    if (rounded.compareTo(BigDecimal.valueOf(Long.MAX_VALUE)) > 0
+        || rounded.compareTo(BigDecimal.valueOf(Long.MIN_VALUE)) < 0) {
+      throw predictedOutOfRange(declared, "long");
+    }
+    return rounded.longValueExact();
+  }
+
+  private static double pgCastToDouble(BigDecimal declared) throws SQLException {
+    double d = declared.doubleValue();
+    if (Double.isInfinite(d)) {
+      throw predictedOutOfRange(declared, "double");
+    }
+    return d;
+  }
+
+  private static float pgCastToFloat(BigDecimal declared) throws SQLException {
+    double d = pgCastToDouble(declared);
+    float f = (float) d;
+    if (Float.isInfinite(f) || (f == 0.0f && d != 0.0)) {
+      throw predictedOutOfRange(declared, "float");
+    }
+    return f;
+  }
+
+  private static SQLException predictedOutOfRange(BigDecimal declared, String target) {
+    return new SQLException("predicted refusal: " + declared + " out of " + target + " range",
+        PSQLState.NUMERIC_VALUE_OUT_OF_RANGE.getState());
+  }
+
+  /** Asserts an accessor's outcome matches the independently predicted one: value, or SQLState. */
+  private static void assertPredictedOutcome(String label, Outcome predicted, Outcome actual) {
+    if (predicted.threw || actual.threw) {
+      assertEquals(predicted.threw, actual.threw, () -> label
+          + ": predicted " + describe(predicted) + " but the accessor " + describe(actual));
+      assertEquals(predicted.state, actual.state, () -> label + ": both refused, but with a"
+          + " different SQLState (predicted " + predicted.state + ", accessor " + actual.state + ")");
+      return;
+    }
+    assertEquals(predicted.value, actual.value, label);
   }
 
   /**
