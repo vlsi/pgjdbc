@@ -632,21 +632,24 @@ public final class ReadCoercions {
   // ---------------------------------------------------------------------------------------------
 
   private static void defineFloatFamily() {
-    floatValueReaders(Oid.FLOAT4, Float.class);
-    floatObjectAs(Oid.FLOAT4);
-    floatValueReaders(Oid.FLOAT8, Double.class);
-    floatObjectAs(Oid.FLOAT8);
+    floatValueReaders(Oid.FLOAT4, Float.class, false);
+    floatObjectAs(Oid.FLOAT4, false);
+    floatValueReaders(Oid.FLOAT8, Double.class, true);
+    floatObjectAs(Oid.FLOAT8, true);
   }
 
   /**
-   * Fixed value readers shared by float4 and float8. {@code readFloat}/{@code readDouble} always
-   * succeed; the integer readers range-check the value ({@code NUMERIC_VALUE_OUT_OF_RANGE} on
-   * overflow) and {@code readBigDecimal} refuses NaN and Infinity, so all of them are value-dependent.
+   * Fixed value readers shared by float4 and float8. {@code readDouble} always succeeds;
+   * {@code readFloat} on float8 narrows through {@code NumberDecoders.doubleToFloat}, which refuses a
+   * finite value that overflows or underflows the float range (matching the server's
+   * {@code float8->float4} cast), so that cell is value-dependent. The integer readers range-check
+   * the value ({@code NUMERIC_VALUE_OUT_OF_RANGE} on overflow) and {@code readBigDecimal} refuses
+   * NaN and Infinity, so all of them are value-dependent.
    */
-  private static void floatValueReaders(int typeOid, Class<?> defaultClass) {
+  private static void floatValueReaders(int typeOid, Class<?> defaultClass, boolean narrowsToFloat) {
     oid(typeOid, t -> {
       t.defaultObject(defaultClass);
-      t.read(Accessor.READ_FLOAT, OK);
+      t.read(Accessor.READ_FLOAT, narrowsToFloat ? OK_OR_COERCE : OK);
       t.read(Accessor.READ_DOUBLE, OK);
       t.read(Accessor.READ_INT, OK_OR_COERCE);
       t.read(Accessor.READ_LONG, OK_OR_COERCE);
@@ -666,13 +669,15 @@ public final class ReadCoercions {
 
   /**
    * {@code readObject(Class)} whitelist for float4 and float8 ({@code decodeFloatAs} /
-   * {@code decodeDoubleAs} plus {@code NumberDecoders.decodeFloatingAs}). Both floats and doubles
-   * succeed; the integer targets and {@code Long} range-check, and {@code BigDecimal} refuses
-   * NaN/Infinity, so those are value-dependent. {@code Boolean} always succeeds ({@code value != 0}).
+   * {@code decodeDoubleAs} plus {@code NumberDecoders.decodeFloatingAs}). {@code Double} always
+   * succeeds; {@code Float} on float8 narrows through {@code doubleToFloat} and refuses a finite
+   * value outside the float range, so that cell is value-dependent. The integer targets and
+   * {@code Long} range-check, and {@code BigDecimal} refuses NaN/Infinity, so those are
+   * value-dependent. {@code Boolean} always succeeds ({@code value != 0}).
    */
-  private static void floatObjectAs(int typeOid) {
+  private static void floatObjectAs(int typeOid, boolean narrowsToFloat) {
     oid(typeOid, t -> {
-      t.object(Float.class, OK);
+      t.object(Float.class, narrowsToFloat ? OK_OR_COERCE : OK);
       t.object(Double.class, OK);
       t.object(Object.class, OK);
       t.object(String.class, OK);
@@ -698,8 +703,12 @@ public final class ReadCoercions {
   private static void defineNumeric() {
     oid(Oid.NUMERIC, t -> {
       t.defaultObject(BigDecimal.class);
-      t.read(Accessor.READ_DOUBLE, OK);
-      t.read(Accessor.READ_FLOAT, OK);
+      // NaN/Infinity return as-is, but a finite numeric can overflow the double range, and a finite
+      // nonzero one can leave the float range in either direction; both refuse with
+      // NUMERIC_VALUE_OUT_OF_RANGE (matching the server's numeric->float8/float4 casts), so the
+      // floating readers are value-dependent.
+      t.read(Accessor.READ_DOUBLE, OK_OR_COERCE);
+      t.read(Accessor.READ_FLOAT, OK_OR_COERCE);
       t.read(Accessor.READ_INT, OK_OR_COERCE);
       t.read(Accessor.READ_LONG, OK_OR_COERCE);
       t.read(Accessor.READ_SHORT, OK_OR_COERCE);
@@ -716,10 +725,11 @@ public final class ReadCoercions {
       t.divergence(Accessor.READ_BOOLEAN, ServerParity.PG_ALLOWS_SERVER_FORBIDS,
           "PostgreSQL has no numeric-to-boolean cast; pgjdbc maps 0 and 1 and refuses the rest");
 
-      // Double and Float keep NaN/Infinity; every other target routes through decodeAsBigDecimal,
-      // which refuses NaN/Infinity, so Object and String are value-dependent here (readObject is not).
-      t.object(Double.class, OK);
-      t.object(Float.class, OK);
+      // Double and Float keep NaN/Infinity but refuse a finite value outside the target range, like
+      // the value readers above; every other target routes through decodeAsBigDecimal, which refuses
+      // NaN/Infinity, so Object and String are value-dependent here (readObject is not).
+      t.object(Double.class, OK_OR_COERCE);
+      t.object(Float.class, OK_OR_COERCE);
       t.object(BigDecimal.class, OK_OR_COERCE);
       t.object(Object.class, OK_OR_COERCE);
       t.object(Long.class, OK_OR_COERCE);
