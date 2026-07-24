@@ -23,6 +23,7 @@ import org.junit.jupiter.api.Test;
 
 import java.math.BigDecimal;
 import java.math.RoundingMode;
+import java.nio.charset.StandardCharsets;
 import java.sql.SQLException;
 import java.sql.Struct;
 import java.util.Collections;
@@ -104,6 +105,73 @@ class NumericTypmodDecodeTest {
     assertEquals("1500",
         NumericCodec.INSTANCE.decodeAsString(wire, 0, wire.length, scaledType, ctx),
         "decodeAsString numeric(2,-2)");
+  }
+
+  @Test
+  void integerAccessorsHonourStampedModifier() throws SQLException {
+    CodecContext ctx = OfflineCodecs.builder().build();
+    PgType scaledType = NUMERIC.withTypmod(numericTypmod(10, 1));
+    // Non-conforming wire: dscale 2 exceeds the declared scale 1. The server never sends this for a
+    // numeric(10,1) column, but the accessor contract is descriptor-driven: rescale to the declared
+    // scale first (2.46 -> 2.5, HALF_EVEN), then cast to the integer (2.5 -> 3, HALF_UP) -- the same
+    // value the server's numeric(10,1) column would hold and cast.
+    byte[] wire = NumericCodec.INSTANCE.encodeBinary(new BigDecimal("2.46"), NUMERIC, ctx);
+
+    assertEquals(3, NumericCodec.INSTANCE.decodeAsInt(wire, 0, wire.length, scaledType, ctx),
+        "binary decodeAsInt numeric(10,1)");
+    assertEquals(3L, NumericCodec.INSTANCE.decodeAsLong(wire, 0, wire.length, scaledType, ctx),
+        "binary decodeAsLong numeric(10,1)");
+    assertEquals(3, NumericCodec.INSTANCE.decodeAsInt("2.46", scaledType, ctx),
+        "text decodeAsInt numeric(10,1)");
+    assertEquals(3L, NumericCodec.INSTANCE.decodeAsLong("2.46", scaledType, ctx),
+        "text decodeAsLong numeric(10,1)");
+
+    // Without a modifier the accessors stay wire-faithful: 2.46 casts to 2.
+    assertEquals(2, NumericCodec.INSTANCE.decodeAsInt(wire, 0, wire.length, NUMERIC, ctx),
+        "binary decodeAsInt numeric (no typmod)");
+  }
+
+  @Test
+  void integerAccessorsHonourNegativeModifierScale() throws SQLException {
+    // numeric(2,-2) rescales 1550 to 1600 (15.5E+2, HALF_EVEN rounds the tie to the even digit).
+    // The negative scale is the case the wire dscale cannot carry, and the one where an
+    // integer-looking literal still changes value -- so it must also divert the
+    // decodeTextBytesAsInt/Long ASCII fast path into the rescaling route.
+    CodecContext ctx = OfflineCodecs.builder().build();
+    PgType scaledType = NUMERIC.withTypmod(numericTypmod(2, -2));
+    byte[] wire = NumericCodec.INSTANCE.encodeBinary(new BigDecimal("1550"), NUMERIC, ctx);
+    byte[] textBytes = "1550".getBytes(StandardCharsets.US_ASCII);
+
+    assertEquals(1600, NumericCodec.INSTANCE.decodeAsInt(wire, 0, wire.length, scaledType, ctx),
+        "binary decodeAsInt numeric(2,-2)");
+    assertEquals(1600L, NumericCodec.INSTANCE.decodeAsLong(wire, 0, wire.length, scaledType, ctx),
+        "binary decodeAsLong numeric(2,-2)");
+    assertEquals(1600, NumericCodec.INSTANCE.decodeAsInt("1550", scaledType, ctx),
+        "text decodeAsInt numeric(2,-2)");
+    assertEquals(1600, NumericCodec.INSTANCE.decodeTextBytesAsInt(textBytes, scaledType, ctx),
+        "decodeTextBytesAsInt numeric(2,-2)");
+    assertEquals(1600L, NumericCodec.INSTANCE.decodeTextBytesAsLong(textBytes, scaledType, ctx),
+        "decodeTextBytesAsLong numeric(2,-2)");
+  }
+
+  @Test
+  void floatingAccessorsHonourStampedModifier() throws SQLException {
+    CodecContext ctx = OfflineCodecs.builder().build();
+    PgType scaledType = NUMERIC.withTypmod(numericTypmod(10, 1));
+    byte[] wire = NumericCodec.INSTANCE.encodeBinary(new BigDecimal("2.46"), NUMERIC, ctx);
+
+    assertEquals(2.5d, NumericCodec.INSTANCE.decodeAsDouble(wire, 0, wire.length, scaledType, ctx),
+        "binary decodeAsDouble numeric(10,1)");
+    assertEquals(2.5d, NumericCodec.INSTANCE.decodeAsDouble("2.46", scaledType, ctx),
+        "text decodeAsDouble numeric(10,1)");
+    assertEquals(2.5f, NumericCodec.INSTANCE.decodeAsFloat(wire, 0, wire.length, scaledType, ctx),
+        "binary decodeAsFloat numeric(10,1)");
+    assertEquals(2.5f, NumericCodec.INSTANCE.decodeAsFloat("2.46", scaledType, ctx),
+        "text decodeAsFloat numeric(10,1)");
+
+    // Without a modifier the accessors stay wire-faithful.
+    assertEquals(2.46d, NumericCodec.INSTANCE.decodeAsDouble(wire, 0, wire.length, NUMERIC, ctx),
+        "binary decodeAsDouble numeric (no typmod)");
   }
 
   private static PgType numericArray(int precision, int scale) {

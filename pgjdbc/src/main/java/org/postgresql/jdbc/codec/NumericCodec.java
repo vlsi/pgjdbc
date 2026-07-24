@@ -216,14 +216,20 @@ public final class NumericCodec implements PrimitiveBinaryDecoder, PrimitiveText
   public double decodeAsDouble(byte[] data, int offset, int length, TypeDescriptor type, CodecContext ctx)
       throws SQLException {
     Number result = numericFromWire(data, offset, length);
-    double d = result.doubleValue();
-    // A finite numeric whose magnitude exceeds the double range overflows to +/-Infinity; refuse it
-    // rather than saturate, matching PostgreSQL's numeric->float8 cast. A genuine NaN / +/-Infinity is
-    // a Double sentinel (numericFromWire never returns a BigDecimal for those), so it passes through.
-    if (result instanceof BigDecimal && Double.isInfinite(d)) {
-      throw Exceptions.outOfRange(result, "double");
+    if (result instanceof BigDecimal) {
+      // A stamped descriptor rescales the finite value to its declared scale before the narrowing,
+      // like the integer accessors; a mod-less one leaves it wire-faithful.
+      BigDecimal bd = applyTypmodScale((BigDecimal) result, type.getAppliedTypmod());
+      double d = bd.doubleValue();
+      // A finite numeric whose magnitude exceeds the double range overflows to +/-Infinity; refuse it
+      // rather than saturate, matching PostgreSQL's numeric->float8 cast.
+      if (Double.isInfinite(d)) {
+        throw Exceptions.outOfRange(bd, "double");
+      }
+      return d;
     }
-    return d;
+    // A genuine NaN / +/-Infinity is a Double sentinel; it passes through untouched.
+    return result.doubleValue();
   }
 
   @Override
@@ -237,6 +243,25 @@ public final class NumericCodec implements PrimitiveBinaryDecoder, PrimitiveText
     }
     if ("-Infinity".equalsIgnoreCase(trimmed)) {
       return Double.NEGATIVE_INFINITY;
+    }
+    int typmod = type.getAppliedTypmod();
+    if (typmod != -1) {
+      // A stamped descriptor rescales the finite value to its declared scale before the narrowing.
+      // The rescale needs the exact decimal value, so this parses through BigDecimal instead of
+      // Double.parseDouble; NaN / +/-Infinity returned above, so the literal here is finite.
+      BigDecimal bd;
+      try {
+        NumberDecoders.requireAsciiLiteral(trimmed);
+        bd = new BigDecimal(trimmed);
+      } catch (NumberFormatException e) {
+        throw Exceptions.cannotConvertValue("double", trimmed, e);
+      }
+      BigDecimal rescaled = applyTypmodScale(bd, typmod);
+      double rescaledDouble = rescaled.doubleValue();
+      if (Double.isInfinite(rescaledDouble)) {
+        throw Exceptions.outOfRange(rescaled, "double");
+      }
+      return rescaledDouble;
     }
     double d;
     try {
@@ -267,10 +292,16 @@ public final class NumericCodec implements PrimitiveBinaryDecoder, PrimitiveText
     return NumberDecoders.doubleToFloat(decodeAsDouble(data, type, ctx));
   }
 
+  // The integer and floating accessors go through decodeAsBigDecimal, so a stamped descriptor
+  // rescales the value to its declared scale before the cast -- the value a numeric(p,s) column
+  // actually holds. On a wire the server produced the rescale is a no-op; it only bites on a
+  // non-conforming dscale, where casting the raw wire value would disagree with the text path and
+  // with the server's own numeric(p,s)->int cast.
+
   @Override
   public int decodeAsInt(byte[] data, int offset, int length, TypeDescriptor type, CodecContext ctx)
       throws SQLException {
-    BigDecimal bd = bigDecimalFromWire(data, offset, length);
+    BigDecimal bd = decodeAsBigDecimal(data, offset, length, type, ctx);
     return bd == null ? 0 : bigDecimalToInt(bd);
   }
 
@@ -283,7 +314,7 @@ public final class NumericCodec implements PrimitiveBinaryDecoder, PrimitiveText
   @Override
   public long decodeAsLong(byte[] data, int offset, int length, TypeDescriptor type, CodecContext ctx)
       throws SQLException {
-    BigDecimal bd = bigDecimalFromWire(data, offset, length);
+    BigDecimal bd = decodeAsBigDecimal(data, offset, length, type, ctx);
     return bd == null ? 0 : bigDecimalToLong(bd);
   }
 
@@ -299,10 +330,14 @@ public final class NumericCodec implements PrimitiveBinaryDecoder, PrimitiveText
   // BigDecimal. A fractional or special value ('.', an exponent, NaN/Infinity) is not eligible:
   // getFastLong truncates the fraction toward zero, whereas numeric->int rounds half-away-from-zero
   // (see bigDecimalToInt), so those fall back to the BigDecimal path, which rounds correctly.
+  // A stamped modifier with a negative scale is not eligible either: it rounds even an integer
+  // literal to a coarser multiple of ten (1550 under numeric(2,-2) is 1600), which the fast path
+  // cannot see. A non-negative modifier scale only pads decimal zeros, so it keeps the fast path.
 
   @Override
   public int decodeTextBytesAsInt(byte[] data, TypeDescriptor type, CodecContext ctx) throws SQLException {
-    if (isPlainIntegerAscii(data) && Encoding.hasAsciiNumbers(ctx.getCharset())) {
+    if (fastPathKeepsModifierScale(type) && isPlainIntegerAscii(data)
+        && Encoding.hasAsciiNumbers(ctx.getCharset())) {
       try {
         return (int) NumberParser.getFastLong(data, Integer.MIN_VALUE, Integer.MAX_VALUE);
       } catch (NumberFormatException ignored) {
@@ -314,7 +349,8 @@ public final class NumericCodec implements PrimitiveBinaryDecoder, PrimitiveText
 
   @Override
   public long decodeTextBytesAsLong(byte[] data, TypeDescriptor type, CodecContext ctx) throws SQLException {
-    if (isPlainIntegerAscii(data) && Encoding.hasAsciiNumbers(ctx.getCharset())) {
+    if (fastPathKeepsModifierScale(type) && isPlainIntegerAscii(data)
+        && Encoding.hasAsciiNumbers(ctx.getCharset())) {
       try {
         return NumberParser.getFastLong(data, Long.MIN_VALUE, Long.MAX_VALUE);
       } catch (NumberFormatException ignored) {
@@ -322,6 +358,17 @@ public final class NumericCodec implements PrimitiveBinaryDecoder, PrimitiveText
       }
     }
     return decodeAsLong(new String(data, ctx.getCharset()), type, ctx);
+  }
+
+  /**
+   * Reports whether the descriptor's modifier leaves an integer literal's value unchanged, making it
+   * eligible for the {@code getFastLong} byte fast path: no modifier at all, or one whose declared
+   * scale is non-negative (padding decimal zeros never moves the integer). A negative scale rescales
+   * the value itself, so those literals must take the BigDecimal path.
+   */
+  private static boolean fastPathKeepsModifierScale(TypeDescriptor type) {
+    int typmod = type.getAppliedTypmod();
+    return typmod == -1 || decodeNumericScale(typmod) >= 0;
   }
 
   /**
@@ -365,7 +412,9 @@ public final class NumericCodec implements PrimitiveBinaryDecoder, PrimitiveText
     // Long.MAX_VALUE and fits.
     BigDecimal rounded = bd.setScale(0, RoundingMode.HALF_UP);
     if (rounded.compareTo(LONG_MAX_BD) > 0 || rounded.compareTo(LONG_MIN_BD) < 0) {
-      throw Exceptions.badValueForType("long", bd.toPlainString());
+      // Same error shape as the int overflow above, so getInt and getLong report a range failure
+      // identically.
+      throw Exceptions.outOfRange(bd, "long");
     }
     return rounded.longValueExact();
   }
