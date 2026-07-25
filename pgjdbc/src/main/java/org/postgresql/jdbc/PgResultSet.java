@@ -2128,7 +2128,10 @@ public class PgResultSet implements ResultSet, PGRefCursorResultSet {
 
   private void setRowBufferColumn(Tuple rowBuffer,
       int columnIndex, @Nullable Object valueObject) throws SQLException {
-    if (valueObject == null) {
+    if (valueObject == null || valueObject instanceof NullObject) {
+      // updateNull(int) stores the NullObject sentinel: a SQL NULL that remembers its column type.
+      // Recognizing it here (not only via the text-mode PGobject branch below) keeps a staged NULL
+      // format-independent.
       rowBuffer.set(columnIndex, null);
       return;
     }
@@ -2173,20 +2176,36 @@ public class PgResultSet implements ResultSet, PGRefCursorResultSet {
   }
 
   /**
-   * Binds one column of a pending {@code insertRow()}/{@code updateRow()} onto {@code statement}.
-   * Routes through {@link PreparedStatement#setObject(int, Object, SQLType)} when the column was
-   * last set via one of the {@code updateObject(..., SQLType, ...)} overloads, otherwise falls
-   * back to the type-inferring {@link PreparedStatement#setObject(int, Object)}.
+   * Binds one column of a pending {@code insertRow()}/{@code updateRow()} onto {@code statement}
+   * through the column's codec: the value is encoded by the codec resolved for the column's type
+   * OID and bound under that OID, so the server receives the target type directly -- no
+   * {@code setObject} type inference and no server-side assignment cast -- and the accepted
+   * classes and the resulting value match the staged row buffer exactly. A column set via one of
+   * the {@code updateObject(..., SQLType, ...)} overloads is first normalized by
+   * {@link #normalizeForSqlType}, the same step {@link #stageRowBuffer} applies, so both legs
+   * present the same value. A NULL binds as a typed NULL under the column's OID, and a
+   * {@link PGobject} binds its own text form under the column's OID -- the bind-side mirror of the
+   * {@code PGobject} branch in {@link #setRowBufferColumn}.
    */
   private void bindUpdateValue(PreparedStatement statement, int parameterIndex, String columnName,
       @Nullable Object value) throws SQLException {
+    PgPreparedStatement pgStatement = (PgPreparedStatement) statement;
+    int oid = fields[findColumn(columnName) - 1].getOID();
+    if (value == null || value instanceof NullObject) {
+      // updateNull(int) stores the NullObject sentinel: a SQL NULL that remembers its column type.
+      pgStatement.bindNull(parameterIndex, oid);
+      return;
+    }
+    if (value instanceof PGobject) {
+      // A PGobject carries its own text representation; the row buffer takes it verbatim, so the
+      // bind leg sends the same text, typed as the column.
+      pgStatement.setString(parameterIndex, ((PGobject) value).getValue(), oid);
+      return;
+    }
     HashMap<String, SQLType> updateSqlTypes = this.updateSqlTypes;
     SQLType targetSqlType = updateSqlTypes == null ? null : updateSqlTypes.get(columnName);
-    if (targetSqlType != null) {
-      statement.setObject(parameterIndex, value, targetSqlType);
-    } else {
-      statement.setObject(parameterIndex, value);
-    }
+    pgStatement.bindViaCodec(parameterIndex, normalizeForSqlType(value, targetSqlType),
+        connection.getTypeInfo().getPgTypeByOid(oid));
   }
 
   /**
@@ -2217,11 +2236,11 @@ public class PgResultSet implements ResultSet, PGRefCursorResultSet {
    * does before binding: scalar {@link Types} targets go through {@link SqlTypeCoercion#coerce}
    * (with the scale of zero the scale-less {@code setObject} overload implies), while the
    * codec-routed values -- {@link SQLData}, {@link java.sql.Struct} and PostgreSQL-vendor
-   * {@link SQLType}s -- pass through for the codec's own input handling. Both legs of a pending
-   * update thus present the same value: this method feeds the row-buffer encode, and the bind leg
-   * applies the same coercion inside {@code setObject}.
+   * {@link SQLType}s -- pass through for the codec's own input handling. Both
+   * {@link #stageRowBuffer} and {@link #bindUpdateValue} run this step, so the row-buffer encode
+   * and the bind leg present the same value to the same codec.
    */
-  private static @Nullable Object normalizeForSqlType(@Nullable Object value,
+  private static @PolyNull Object normalizeForSqlType(@PolyNull Object value,
       @Nullable SQLType targetSqlType) throws SQLException {
     if (value == null || targetSqlType == null
         || value instanceof SQLData || value instanceof java.sql.Struct

@@ -52,8 +52,9 @@ import java.util.function.Consumer;
  * <p>The {@link Surface} axis is carried for parity with {@link ReadCoercions}: {@code setInt} and
  * {@code writeInt} run the same codec encoder, so value coercions are surface-independent. The
  * {@code UPDATABLE_RESULT_SET} surface is pinned against this table on a live server by
- * {@code UpdatableResultSetWriteCoercionTest} (pgjdbc-jqf-test), which also documents where the
- * current structural {@code setObject} bind leg still diverges from the model. Two write
+ * {@code UpdatableResultSetWriteCoercionTest} (pgjdbc-jqf-test): the updatable ResultSet stages
+ * its row buffer and binds its UPDATE/INSERT parameters through the same column codec, so it
+ * conforms to the table exactly. Two write
  * concerns are <em>not</em> in this table: the {@code NOT_IMPLEMENTED} writers ({@code writeRef} and
  * friends), which the driver rejects before reaching a codec and so are keyed by method, not class;
  * and the {@code setObject(x, SQLType)} conversion legality, which is a separate {@code (class, SQLType)}

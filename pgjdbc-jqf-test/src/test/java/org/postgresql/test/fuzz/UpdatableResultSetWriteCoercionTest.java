@@ -17,7 +17,6 @@ import org.postgresql.fuzzkit.coercion.WriteCoercions;
 import org.postgresql.fuzzkit.coercion.WriteCoercions.Surface;
 import org.postgresql.test.TestUtil;
 import org.postgresql.test.jdbc2.BaseTest4;
-import org.postgresql.util.PSQLState;
 
 import org.checkerframework.checker.nullness.qual.Nullable;
 import org.junit.jupiter.api.AfterAll;
@@ -47,7 +46,6 @@ import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Comparator;
 import java.util.HashMap;
-import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -68,12 +66,10 @@ import java.util.UUID;
  * <em>every</em> failure must leave the database row untouched (the staging invariant -- the row
  * buffer encodes before any statement reaches the server).
  *
- * <p>{@link #KNOWN_BIND_DIVERGENCES} lists the cells where the current structural
- * {@code PgPreparedStatement.setObject} bind leg diverges from the codec model: the codec accepts the
- * class, but {@code setObject} either cannot infer a type for it or binds it under its natural
- * parameter type, which the server cannot assignment-cast to the column type. Each entry is a
- * ratchet: migrating the scalar setters onto the codecs removes it, and this test fails when an entry
- * starts passing so the list cannot go stale.
+ * <p>The surface conforms to the registry exactly, with no per-cell exception list: the updatable
+ * ResultSet stages the row buffer and binds the UPDATE/INSERT parameter through the same column
+ * codec, so the accepted classes, the refusal SQLStates, and the stored values cannot depend on
+ * {@code setObject} type inference or on server-side assignment casts.
  */
 @ParameterizedClass
 @MethodSource("data")
@@ -96,8 +92,6 @@ public class UpdatableResultSetWriteCoercionTest extends BaseTest4 {
 
   private static final Map<Integer, ColumnSpec> COLUMNS = buildColumns();
   private static final Map<Class<?>, Object> CLASS_SAMPLES = buildClassSamples();
-  private static final Map<String, String> KNOWN_BIND_DIVERGENCES = buildKnownBindDivergences();
-  private static final Set<String> KNOWN_VALUE_DIVERGENCES = buildKnownValueDivergences();
 
   public UpdatableResultSetWriteCoercionTest(BinaryMode binaryMode) {
     setBinaryMode(binaryMode);
@@ -164,74 +158,6 @@ public class UpdatableResultSetWriteCoercionTest extends BaseTest4 {
     m.put(Instant.class, Instant.parse("2024-01-31T12:34:56Z"));
     m.put(UUID.class, UUID.fromString("00112233-4455-6677-8899-aabbccddeeff"));
     return m;
-  }
-
-  /**
-   * Cells where the current structural bind leg refuses a class the codec model accepts, keyed
-   * {@code "<ddlType>:<class label>"} with the SQLState the cell raises today, identically in both
-   * wire formats. Every entry is a ratchet the scalar-setter codec migration removes: the test fails
-   * when an entry starts succeeding or changes its state.
-   */
-  private static Map<String, String> buildKnownBindDivergences() {
-    Map<String, String> m = new HashMap<>();
-    // setBoolean binds a bool parameter, and PostgreSQL has no bool -> number assignment cast;
-    // the codec maps Boolean to 0/1.
-    divergence(m, PSQLState.DATATYPE_MISMATCH,
-        "int2:Boolean", "int4:Boolean", "int8:Boolean", "numeric:Boolean",
-        "float4:Boolean", "float8:Boolean");
-    // Under the default stringtype=varchar a String binds as a varchar parameter, and assignment
-    // coercion via I/O exists only INTO the string category, so every non-string column refuses;
-    // the codec parses the String as the column type (stringtype=unspecified would too).
-    divergence(m, PSQLState.DATATYPE_MISMATCH,
-        "int2:String", "int4:String", "int8:String", "oid:String",
-        "float4:String", "float8:String", "numeric:String", "bool:String", "bytea:String",
-        "date:String", "time:String", "timetz:String", "timestamp:String", "timestamptz:String");
-    // setFloat/setDouble/setNumber bind float and numeric parameters, and PostgreSQL has no
-    // float/numeric -> oid assignment cast; the codec widens any Number through longValue.
-    divergence(m, PSQLState.DATATYPE_MISMATCH,
-        "oid:Float", "oid:Double", "oid:BigDecimal", "oid:BigInteger");
-    // setDate/setTime bind their text form with an unspecified OID, so the server parses a date
-    // literal as a time (and vice versa) and refuses the mismatched text; the codec extracts the
-    // date or time-of-day part of the value.
-    divergence(m, PSQLState.BAD_DATETIME_FORMAT,
-        "date:Time", "time:Date", "timetz:Date", "timestamp:Time", "timestamptz:Time");
-    // setObject cannot infer a type for a plain java.util.Date; the temporal codecs accept it via
-    // their java.util.Date catch-all. The date/timestamp/timestamptz variants of this cell are
-    // OK_OR_COERCE, and 07006 sits in the write value-level state set, so only the OK time cells
-    // surface the divergence.
-    divergence(m, PSQLState.INVALID_PARAMETER_TYPE,
-        "time:java.util.Date", "timetz:java.util.Date");
-    return m;
-  }
-
-  /**
-   * Cells where both legs accept the value but disagree on it, so the row buffer and the database
-   * hold different values today, identically in both wire formats. Same ratchet contract as
-   * {@link #KNOWN_BIND_DIVERGENCES}.
-   */
-  private static Set<String> buildKnownValueDivergences() {
-    Set<String> s = new HashSet<>();
-    // The codec truncates a Float through longValue; the bind leg sends a float4 parameter and the
-    // server cast rounds. 1.5 truncates to 1 and rounds to 2. (The Double sample 2.5 happens to
-    // truncate and round to the same value, so the Double cells do not surface the same gap.)
-    s.add("int2:Float");
-    s.add("int4:Float");
-    s.add("int8:Float");
-    // The codec keeps the local timestamp and drops the offset; the bind leg sends timestamptz and
-    // the server conversion shifts the instant into the session time zone.
-    s.add("timestamp:OffsetDateTime");
-    s.add("timestamp:ZonedDateTime");
-    // The codec stringifies Boolean to "true"; the bind leg's bool parameter reaches name through
-    // I/O coercion (boolout), storing "t". text/varchar/bpchar agree because bool -> text is a
-    // registered cast that also spells "true".
-    s.add("name:Boolean");
-    return s;
-  }
-
-  private static void divergence(Map<String, String> m, PSQLState state, String... cells) {
-    for (String cell : cells) {
-      m.put(cell, state.getState());
-    }
   }
 
   @BeforeAll
@@ -305,7 +231,6 @@ public class UpdatableResultSetWriteCoercionTest extends BaseTest4 {
     }
     CoercionOutcome expected =
         WriteCoercions.encode(Surface.UPDATABLE_RESULT_SET, oid, cls);
-    String knownState = KNOWN_BIND_DIVERGENCES.get(cell);
 
     TestUtil.execute(con, "UPDATE " + TABLE + " SET " + col.name + " = NULL WHERE id = 1");
     try (Statement st = con.createStatement(ResultSet.TYPE_SCROLL_INSENSITIVE,
@@ -316,21 +241,12 @@ public class UpdatableResultSetWriteCoercionTest extends BaseTest4 {
       rs.updateObject(col.name, value);
       try {
         rs.updateRow();
-        if (knownState != null) {
-          failures.add(cell + ": listed as a known bind divergence (" + knownState
-              + ") but the update succeeded; remove the entry");
-        } else if (!OutcomeContract.allowsReturn(expected)) {
+        if (!OutcomeContract.allowsReturn(expected)) {
           failures.add(cell + ": the registry says " + expected + " but updateRow() succeeded");
         } else {
           Object buffer = rs.getObject(col.name);
           Object db = freshSelect(col);
-          boolean agree = valuesEqual(buffer, db);
-          if (KNOWN_VALUE_DIVERGENCES.contains(cell)) {
-            if (agree) {
-              failures.add(cell + ": listed as a known value divergence but the row buffer agrees"
-                  + " with the database; remove the entry");
-            }
-          } else if (!agree) {
+          if (!valuesEqual(buffer, db)) {
             failures.add(cell + ": row buffer [" + render(buffer) + "] disagrees with database ["
                 + render(db) + "] after updateObject(" + render(value) + ")");
           }
@@ -343,12 +259,7 @@ public class UpdatableResultSetWriteCoercionTest extends BaseTest4 {
               + ") but the database row changed to [" + render(db)
               + "]; a failure must fire before the server round trip");
         }
-        if (knownState != null) {
-          if (!knownState.equals(state)) {
-            failures.add(cell + ": the known bind divergence expects SQLState " + knownState
-                + " but got " + state + " (" + e.getMessage() + ")");
-          }
-        } else if (!OutcomeContract.matchesRefusal(expected, state, OutcomeContract.Direction.WRITE)) {
+        if (!OutcomeContract.matchesRefusal(expected, state, OutcomeContract.Direction.WRITE)) {
           failures.add(cell + ": the registry says " + expected + " but updateRow() raised SQLState "
               + state + " (" + e.getMessage() + ")");
         }

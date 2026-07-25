@@ -1496,13 +1496,17 @@ class PgPreparedStatement extends PgStatement implements PreparedStatement {
    * transparently. {@link CodecRegistry} guarantees a non-null codec
    * (FallbackCodec for unknown types).</p>
    *
+   * <p>Package-private: the updatable {@code ResultSet} binds its pending column values through
+   * this entry point with the column's own {@code PgType}, so the bind leg and the row-buffer
+   * encode run the same codec coercion.</p>
+   *
    * @param parameterIndex the parameter index (1-based)
    * @param value the value to encode
    * @param pgType resolved type metadata
    * @throws SQLException if no codec for the requested wire format is available
    *     or if encoding/binding fails
    */
-  private void bindViaCodec(@Positive int parameterIndex,
+  void bindViaCodec(@Positive int parameterIndex,
       Object value, PgType pgType) throws SQLException {
     int oid = pgType.getOid();
     PgCodecContext ctx = connection.getCodecContext();
@@ -1515,6 +1519,19 @@ class PgPreparedStatement extends PgStatement implements PreparedStatement {
     } else {
       bindLiteral(parameterIndex, ((TextCodec) codec).encodeText(value, pgType, ctx), oid);
     }
+  }
+
+  /**
+   * Binds a SQL {@code NULL} carrying the given type OID, so the backend sees the parameter as
+   * that type instead of inferring one. Package-private: used by the updatable {@code ResultSet}
+   * to bind a pending NULL under the column's own OID.
+   *
+   * @param parameterIndex the parameter index (1-based)
+   * @param oid the PostgreSQL type OID the NULL is typed as
+   * @throws SQLException if binding fails
+   */
+  void bindNull(@Positive int parameterIndex, int oid) throws SQLException {
+    preparedParameters.setNull(parameterIndex, oid);
   }
 
   @Override
