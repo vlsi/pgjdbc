@@ -13,6 +13,7 @@ import org.postgresql.PGResultSetMetaData;
 import org.postgresql.api.codec.BinaryCodec;
 import org.postgresql.api.codec.Codec;
 import org.postgresql.api.codec.CodecContext;
+import org.postgresql.api.codec.CodecFormatSupport;
 import org.postgresql.api.codec.PrimitiveDecoders;
 import org.postgresql.api.codec.TextCodec;
 import org.postgresql.api.codec.TypeDescriptor;
@@ -29,6 +30,7 @@ import org.postgresql.core.Tuple;
 import org.postgresql.core.TypeInfo;
 import org.postgresql.core.Utils;
 import org.postgresql.jdbc.codec.CompositeCodec;
+import org.postgresql.jdbc.codec.PGobjectCodec;
 import org.postgresql.util.ByteConverter;
 import org.postgresql.util.GT;
 import org.postgresql.util.JdbcBlackHole;
@@ -2136,7 +2138,8 @@ public class PgResultSet implements ResultSet, PGRefCursorResultSet {
       return;
     }
     boolean binary = isBinary(columnIndex + 1);
-    if (valueObject instanceof PGobject && !binary) {
+    if (valueObject instanceof PGobject && !binary
+        && !isCodecOwned((PGobject) valueObject, fields[columnIndex].getOID())) {
       // PGobject already carries its own text representation
       // (PgStruct.getValue() also lazily encodes its attributes).
       String value = ((PGobject) valueObject).getValue();
@@ -2184,8 +2187,9 @@ public class PgResultSet implements ResultSet, PGRefCursorResultSet {
    * the {@code updateObject(..., SQLType, ...)} overloads is first normalized by
    * {@link #normalizeForSqlType}, the same step {@link #stageRowBuffer} applies, so both legs
    * present the same value. A NULL binds as a typed NULL under the column's OID, and a
-   * {@link PGobject} binds its own text form under the column's OID -- the bind-side mirror of the
-   * {@code PGobject} branch in {@link #setRowBufferColumn}.
+   * {@link PGobject} the column's codec does not own binds its text form under that OID -- the
+   * bind-side mirror of the {@code PGobject} branch in {@link #setRowBufferColumn}, see
+   * {@link #isCodecOwned}.
    */
   private void bindUpdateValue(PreparedStatement statement, int parameterIndex, String columnName,
       @Nullable Object value) throws SQLException {
@@ -2196,9 +2200,9 @@ public class PgResultSet implements ResultSet, PGRefCursorResultSet {
       pgStatement.bindNull(parameterIndex, oid);
       return;
     }
-    if (value instanceof PGobject) {
-      // A PGobject carries its own text representation; the row buffer takes it verbatim, so the
-      // bind leg sends the same text, typed as the column.
+    if (value instanceof PGobject && !isCodecOwned((PGobject) value, oid)) {
+      // A PGobject the column's codec does not own carries only its text representation; the row
+      // buffer takes it verbatim, so the bind leg sends the same text, typed as the column.
       pgStatement.setString(parameterIndex, ((PGobject) value).getValue(), oid);
       return;
     }
@@ -2206,6 +2210,33 @@ public class PgResultSet implements ResultSet, PGRefCursorResultSet {
     SQLType targetSqlType = updateSqlTypes == null ? null : updateSqlTypes.get(columnName);
     pgStatement.bindViaCodec(parameterIndex, normalizeForSqlType(value, targetSqlType),
         connection.getTypeInfo().getPgTypeByOid(oid));
+  }
+
+  /**
+   * Whether the codec resolved for the column's type owns {@code value}'s class: true exactly when a
+   * {@link PGobject} subclass is registered for that type through
+   * {@link org.postgresql.PGConnection#addDataType(String, Class)} and the pending value is one of
+   * those and carries a representation to write. Such a value is encoded by the codec, which knows
+   * both of the class's representations -- including the binary form a {@link PGBinaryObject} carries
+   * in {@link PGBinaryObject#toBytes(byte[], int)} alone -- and negotiates the bind format from them.
+   * Any other {@code PGobject} carries only a text literal for a type the codec layer does not model
+   * for it, which both legs of a pending update pass through unchanged.
+   *
+   * <p>Both legs ask this question, so the bind leg and {@link #setRowBufferColumn} cannot route the
+   * same value differently.</p>
+   */
+  private boolean isCodecOwned(PGobject value, int oid) throws SQLException {
+    PgType pgType = connection.getTypeInfo().getPgTypeByOid(oid);
+    PgCodecContext ctx = getCodecContext();
+    Codec codec = ctx.getCodecs().getByOid(oid, pgType);
+    if (!(codec instanceof PGobjectCodec) || !codec.getDefaultJavaType().isInstance(value)) {
+      return false;
+    }
+    // An instance with no text of its own is written from the binary form it carries, so it must
+    // carry one: an instance with neither representation is the SQL NULL PGobject.isNull() reports,
+    // which belongs on the text leg, where a null literal binds as a typed NULL.
+    return value.getValue() != null
+        || CodecFormatSupport.canWriteBinary(codec, value, pgType, ctx);
   }
 
   /**

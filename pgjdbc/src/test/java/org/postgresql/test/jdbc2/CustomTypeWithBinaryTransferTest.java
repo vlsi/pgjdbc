@@ -7,12 +7,14 @@ package org.postgresql.test.jdbc2;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import org.postgresql.PGConnection;
 import org.postgresql.core.BaseConnection;
 import org.postgresql.core.Oid;
 import org.postgresql.core.QueryExecutor;
+import org.postgresql.geometric.PGpoint;
 import org.postgresql.jdbc.PreferQueryMode;
 import org.postgresql.test.TestUtil;
 import org.postgresql.util.PGBinaryObject;
@@ -63,7 +65,9 @@ public class CustomTypeWithBinaryTransferTest extends BaseTest4 {
   @BeforeAll
   public static void createTestTable() throws SQLException {
     try (Connection con = TestUtil.openDB()) {
-      TestUtil.createTable(con, "test_binary_pgobject", "id integer,name text,geom point");
+      // the primary key makes the ResultSet updatable, which testUpdateRowWithCustomBinaryType needs
+      TestUtil.createTable(con, "test_binary_pgobject",
+          "id integer primary key,name text,geom point");
     }
   }
 
@@ -160,6 +164,82 @@ public class CustomTypeWithBinaryTransferTest extends BaseTest4 {
             co.wasWrittenBinary() ? "binary" : "text",
             "writing via prepared statement: TestCustomType.wasWrittenBinary() should use match binary mode requested by the test");
       }
+    }
+  }
+
+  /**
+   * An updatable ResultSet writes a custom binary type the way {@code PreparedStatement.setObject}
+   * does: through the object's own binary representation. An object read in binary carries its
+   * value in {@link PGBinaryObject#toBytes(byte[], int)} alone, so a leg that sent or staged only
+   * {@link PGobject#getValue()} would store a SQL NULL instead of the point.
+   *
+   * @throws SQLException if a database error occurs
+   */
+  @Test
+  public void testUpdateRowWithCustomBinaryType() throws SQLException {
+    PGConnection pgconn = con.unwrap(PGConnection.class);
+    pgconn.addDataType("point", TestCustomType.class);
+
+    TestCustomType point;
+    try (PreparedStatement pst = con.prepareStatement("SELECT Point(3,4)");
+        ResultSet rs = pst.executeQuery()) {
+      assertTrue(rs.next(), "rs.next()");
+      point = (TestCustomType) rs.getObject(1);
+    }
+
+    try (Statement st = con.createStatement(ResultSet.TYPE_SCROLL_INSENSITIVE,
+        ResultSet.CONCUR_UPDATABLE);
+        ResultSet rs = st.executeQuery("SELECT id,geom FROM test_binary_pgobject WHERE id=1")) {
+      assertTrue(rs.next(), "rs.next()");
+      rs.updateObject("geom", point);
+      rs.updateRow();
+      // the driver renders a point as "(3.0,4.0)" where the server renders "(3,4)", so compare the
+      // parsed points rather than the two spellings
+      String geom = rs.getString("geom");
+      assertEquals(new PGpoint(3, 4), geom == null ? null : new PGpoint(geom),
+          "geom in the row buffer refreshed by updateRow()");
+    }
+
+    boolean binaryExpected =
+        preferQueryMode != PreferQueryMode.SIMPLE && binaryMode == BinaryMode.FORCE;
+    assertEquals(
+        binaryExpected ? "binary" : "text",
+        point.wasWrittenBinary() ? "binary" : "text",
+        "writing via updatable ResultSet: TestCustomType.wasWrittenBinary() should match the "
+            + "representation the object was read in");
+
+    try (Statement st = con.createStatement();
+        ResultSet rs = st.executeQuery("SELECT geom::text FROM test_binary_pgobject WHERE id=1")) {
+      assertTrue(rs.next(), "rs.next()");
+      assertEquals("(3,4)", rs.getString(1), "geom stored by updateRow()");
+    }
+  }
+
+  /**
+   * A registered subclass carrying neither representation is the SQL NULL
+   * {@link PGobject#isNull()} reports, so the updatable ResultSet stores NULL. Routing it to the
+   * codec instead would ask the delegate to encode a class it does not know, failing the update.
+   *
+   * @throws SQLException if a database error occurs
+   */
+  @Test
+  public void testUpdateRowWithNullCustomBinaryType() throws SQLException {
+    PGConnection pgconn = con.unwrap(PGConnection.class);
+    pgconn.addDataType("point", TestCustomType.class);
+
+    try (Statement st = con.createStatement(ResultSet.TYPE_SCROLL_INSENSITIVE,
+        ResultSet.CONCUR_UPDATABLE);
+        ResultSet rs = st.executeQuery("SELECT id,geom FROM test_binary_pgobject WHERE id=1")) {
+      assertTrue(rs.next(), "rs.next()");
+      rs.updateObject("geom", new TestCustomType());
+      rs.updateRow();
+      assertNull(rs.getString("geom"), "geom in the row buffer refreshed by updateRow()");
+    }
+
+    try (Statement st = con.createStatement();
+        ResultSet rs = st.executeQuery("SELECT geom FROM test_binary_pgobject WHERE id=1")) {
+      assertTrue(rs.next(), "rs.next()");
+      assertNull(rs.getString(1), "geom stored by updateRow()");
     }
   }
 
