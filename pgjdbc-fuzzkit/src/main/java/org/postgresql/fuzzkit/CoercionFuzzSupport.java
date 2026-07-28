@@ -11,7 +11,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import org.postgresql.api.codec.Codecs;
 import org.postgresql.api.codec.Format;
-import org.postgresql.api.codec.PrefersJavaTime;
+import org.postgresql.api.codec.JavaTimePreferences;
 import org.postgresql.api.codec.TypeName;
 import org.postgresql.api.codec.WireValueSlice;
 import org.postgresql.core.Oid;
@@ -47,7 +47,7 @@ import java.util.TimeZone;
  * <p>The remaining dimensions: a {@link org.postgresql.fuzzkit.coercion.ScalarDescriptor} maps the field
  * type to its OID; {@link SqlInputReader} binds each {@code SQLInput} call to the
  * {@code ReadCoercions.Accessor} whose outcome it checks; and the read axes ({@code readObject} target
- * classes, {@code prefersJavaTime} config) and the outcome check live in {@link ReadOracle}, shared
+ * classes, {@code javaTimePreferences} config) and the outcome check live in {@link ReadOracle}, shared
  * with {@link CoercionRoundTripSupport}.
  */
 public final class CoercionFuzzSupport {
@@ -64,12 +64,12 @@ public final class CoercionFuzzSupport {
     // The field carries the case's applied modifier, so the reader resolves a modifier-sensitive
     // attribute (numeric(p,s)) to its declared scale; -1 leaves the field un-modified.
     PgType comp = FuzzComposites.singleField(oid, c.appliedTypmod);
-    PrefersJavaTime p = c.prefersJavaTime;
+    JavaTimePreferences p = c.javaTimePreferences;
     Map<String, String> config = ReadOracle.configFor(p);
     PgCodecContext ctx = (PgCodecContext) OfflineCodecContexts.offlineBuilder()
         .type(comp)
         .clientTimeZone(TimeZone.getDefault())
-        .prefersJavaTime(p)
+        .javaTimePreferences(p)
         .build();
 
     // The target class is only meaningful for readObject(Class); other readers ignore it, so a null

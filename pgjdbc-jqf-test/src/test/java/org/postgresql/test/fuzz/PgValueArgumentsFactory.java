@@ -5,7 +5,7 @@
 
 package org.postgresql.test.fuzz;
 
-import org.postgresql.api.codec.PrefersJavaTime;
+import org.postgresql.api.codec.JavaTimePreferences;
 import org.postgresql.core.Oid;
 import org.postgresql.fuzzkit.CoercionCase;
 import org.postgresql.fuzzkit.CoercionRoundTripCase;
@@ -166,12 +166,12 @@ public final class PgValueArgumentsFactory implements ArgumentsGeneratorFactory 
   // {int2, int4, int8, oid, float4, float8, bool, text, varchar, bpchar, name} -- the eleven whose
   // default class is one of EQUALS_STABLE_OBJECT_CLASSES (Long for oid; String for text/varchar/bpchar/
   // name) -- and rejects numeric (BigDecimal compares by scale, not equals), bytea (byte[] equals is
-  // identity), and the temporal types (their default class flips with prefersJavaTime). The field VALUE
+  // identity), and the temporal types (their default class flips with javaTimePreferences). The field VALUE
   // is of the descriptor's defaultObjectClass -- for int2 that is Integer (pgjdbc's documented
   // smallint->Integer backward-compat), not the naturalClass Short, so the attributes match.
   private static final Set<Class<?>> EQUALS_STABLE_OBJECT_CLASSES = equalsStableObjectClasses();
 
-  // The config that turns on every prefersJavaTime view, used to detect a config-dependent default
+  // The config that turns on every javaTimePreferences view, used to detect a config-dependent default
   // class: a type whose default getObject class differs under it is temporal and does not qualify.
   private static final Map<String, String> ALL_JAVA_TIME = allJavaTimeConfig();
 
@@ -402,7 +402,7 @@ public final class PgValueArgumentsFactory implements ArgumentsGeneratorFactory 
   static final URL SAMPLE_URL = sampleUrl();
 
   // A field value of a random built-in type on the canonical wire, read back through a random SQLInput
-  // reader under random prefersJavaTime flags -- the read matrix. The wire is always canonical: the
+  // reader under random javaTimePreferences flags -- the read matrix. The wire is always canonical: the
   // driver write paths present field bytes identical to the canonical codec on the diagonal (pinned by
   // TypedWriteMatchesCanonicalWireTest), so off-diagonal write->read is the round-trip fuzzer's job.
   private static final Generator<CoercionCase> COERCION = Generator.from(env -> {
@@ -414,7 +414,7 @@ public final class PgValueArgumentsFactory implements ArgumentsGeneratorFactory 
     int classIndex = env.generate(Generator.integers(0, ReadOracle.TARGET_CLASSES.length - 1));
     Class<?> targetClass =
         reader == SqlInputReader.READ_OBJECT_AS ? ReadOracle.TARGET_CLASSES[classIndex] : null;
-    PrefersJavaTime prefs = PrefersJavaTime.builder()
+    JavaTimePreferences prefs = JavaTimePreferences.builder()
         .date(env.generate(Generator.booleans()))
         .time(env.generate(Generator.booleans()))
         .timetz(env.generate(Generator.booleans()))

@@ -89,7 +89,7 @@ import java.util.function.Consumer;
  *
  * <p>A fourth dimension is the <b>connection config</b>. The base is one {@link View}; each
  * {@link #connectionParam} view holds the cells a property switches on ({@code convertBooleanToNumeric}
- * flips bool's numeric readers; {@code prefersJavaTime} will switch the temporal default classes), and
+ * flips bool's numeric readers; {@code javaTimePreferences} will switch the temporal default classes), and
  * the lookups layer matching views over the default. {@link #defaultObjectClass(int)} exposes the
  * class the no-arg {@code getObject} returns, which a property view can also change.
  */
@@ -428,7 +428,7 @@ public final class ReadCoercions {
   /**
    * Returns the class the no-arg {@code readObject()} / {@code getObject()} returns for a type under
    * the given config (the codec's default Java type), or {@code null} when unspecified. A property
-   * view can change it -- for example {@code prefersJavaTime} switches the temporal types from
+   * view can change it -- for example {@code javaTimePreferences} switches the temporal types from
    * {@code java.sql.*} to {@code java.time.*}.
    *
    * @param oid the PostgreSQL type OID
@@ -865,7 +865,7 @@ public final class ReadCoercions {
   // TimetzCodec/TimestampCodec/TimestamptzCodec. The numeric readers refuse with DATA_TYPE_MISMATCH
   // (no time/date -> number coercion); readString formats the value. The readObject(Class) whitelist
   // is config-independent -- the codec accepts both the java.sql and the java.time targets regardless
-  // of prefersJavaTime; only the no-arg default class changes (see the prefersJavaTime views). One
+  // of javaTimePreferences; only the no-arg default class changes (see the javaTimePreferences views). One
   // known deviation, not modelled as an outcome: the off-diagonal fixed readDate/readTime/readTimestamp
   // go through java.sql.*.valueOf and leak on the cross-type they are listed OK for.
   // ---------------------------------------------------------------------------------------------
@@ -1101,7 +1101,7 @@ public final class ReadCoercions {
       t.read(Accessor.READ_BIG_DECIMAL, OK);
     }));
 
-    // prefersJavaTime switches the no-arg getObject default for a temporal type from java.sql.* to
+    // javaTimePreferences switches the no-arg getObject default for a temporal type from java.sql.* to
     // java.time.*. The readObject(Class) whitelist is unchanged (the codec accepts both either way).
     connectionParam("prefersJavaTimeForDate", "true",
         v -> v.oid(Oid.DATE, t -> t.defaultObject(LocalDate.class)));

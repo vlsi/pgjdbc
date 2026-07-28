@@ -11,7 +11,7 @@ import org.postgresql.Driver;
 import org.postgresql.PGNotification;
 import org.postgresql.PGProperty;
 import org.postgresql.api.codec.Codec;
-import org.postgresql.api.codec.PrefersJavaTime;
+import org.postgresql.api.codec.JavaTimePreferences;
 import org.postgresql.copy.CopyManager;
 import org.postgresql.core.BaseConnection;
 import org.postgresql.core.BaseStatement;
@@ -228,7 +228,7 @@ public class PgConnection implements BaseConnection {
   private final boolean convertBooleanToNumeric;
 
   // Date/time type preferences for getObject()
-  private final PrefersJavaTime prefersJavaTime;
+  private final JavaTimePreferences javaTimePreferences;
 
   // Boolean type mapping preference for metadata
   private final boolean mapBooleanToBoolean;
@@ -452,7 +452,7 @@ public class PgConnection implements BaseConnection {
       this.convertBooleanToNumeric = PGProperty.CONVERT_BOOLEAN_TO_NUMERIC.getBoolean(info);
 
       // Initialize date/time type preferences for getObject()
-      this.prefersJavaTime = PrefersJavaTime.builder()
+      this.javaTimePreferences = JavaTimePreferences.builder()
           .date("java.time".equals(PGProperty.GETOBJECT_DATE.getOrDefault(info)))
           .time("java.time".equals(PGProperty.GETOBJECT_TIME.getOrDefault(info)))
           .timetz("java.time".equals(PGProperty.GETOBJECT_TIMETZ.getOrDefault(info)))
@@ -2248,7 +2248,7 @@ public class PgConnection implements BaseConnection {
     PgCodecContext ctx = codecContext;
     if (ctx == null) {
       ctx = new PgCodecContext(this, codecRegistry, javaTypeRegistry, typemap,
-          prefersJavaTime, convertBooleanToNumeric);
+          javaTimePreferences, convertBooleanToNumeric);
       codecContext = ctx;
     }
     return ctx;

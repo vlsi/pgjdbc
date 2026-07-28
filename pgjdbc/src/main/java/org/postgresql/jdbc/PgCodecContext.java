@@ -15,7 +15,7 @@ import org.postgresql.api.codec.CodecContextBuilder;
 import org.postgresql.api.codec.CodecLookup;
 import org.postgresql.api.codec.CodecValueFactory;
 import org.postgresql.api.codec.IntervalStyle;
-import org.postgresql.api.codec.PrefersJavaTime;
+import org.postgresql.api.codec.JavaTimePreferences;
 import org.postgresql.api.codec.TypeDescriptor;
 import org.postgresql.core.BaseConnection;
 import org.postgresql.core.Encoding;
@@ -81,7 +81,7 @@ public final class PgCodecContext extends CodecContext {
   private final @Nullable TimeZone callerTimeZone;
 
   // Date/time type preferences (from connection properties)
-  private final PrefersJavaTime prefersJavaTime;
+  private final JavaTimePreferences javaTimePreferences;
 
   // When true, getInt/Long/Float/Double/BigDecimal on a BOOL column converts
   // 't'/'f' (or binary 0/1) to 1/0 instead of throwing.
@@ -101,7 +101,7 @@ public final class PgCodecContext extends CodecContext {
    */
   public PgCodecContext(BaseConnection connection, CodecRegistry codecs,
       JavaTypeRegistry javaTypes) throws SQLException {
-    this(connection, codecs, javaTypes, Collections.emptyMap(), PrefersJavaTime.NONE, false);
+    this(connection, codecs, javaTypes, Collections.emptyMap(), JavaTimePreferences.NONE, false);
   }
 
   /**
@@ -111,13 +111,13 @@ public final class PgCodecContext extends CodecContext {
    * @param codecs the codec registry
    * @param javaTypes the Java type registry
    * @param typeMap the type map for custom mappings
-   * @param prefersJavaTime the per-type getObject java.time preferences
+   * @param javaTimePreferences the per-type getObject java.time preferences
    * @param convertBooleanToNumeric true if numeric getters on a BOOL column convert 't'/'f' to 1/0
    * @throws SQLException if the encoding cannot be retrieved
    */
   public PgCodecContext(BaseConnection connection, CodecRegistry codecs,
       JavaTypeRegistry javaTypes, Map<String, Class<?>> typeMap,
-      PrefersJavaTime prefersJavaTime,
+      JavaTimePreferences javaTimePreferences,
       boolean convertBooleanToNumeric) throws SQLException {
     this.connection = connection;
     this.typeInfo = connection.getTypeInfo();
@@ -132,7 +132,7 @@ public final class PgCodecContext extends CodecContext {
     this.charset = Charset.forName(encoding.name());
     this.timestampUtils = null;
     this.callerTimeZone = null;
-    this.prefersJavaTime = prefersJavaTime;
+    this.javaTimePreferences = javaTimePreferences;
     this.convertBooleanToNumeric = convertBooleanToNumeric;
     this.offlineIntervalStyle = IntervalStyle.POSTGRES;
   }
@@ -142,11 +142,11 @@ public final class PgCodecContext extends CodecContext {
    *
    * @param timestampUtils the timestamp utilities
    * @param charset the character set
-   * @param prefersJavaTime the per-type getObject java.time preferences
+   * @param javaTimePreferences the per-type getObject java.time preferences
    */
   PgCodecContext(TimestampUtils timestampUtils, Charset charset,
-      PrefersJavaTime prefersJavaTime) {
-    this(timestampUtils, charset, prefersJavaTime, false);
+      JavaTimePreferences javaTimePreferences) {
+    this(timestampUtils, charset, javaTimePreferences, false);
   }
 
   /**
@@ -154,7 +154,7 @@ public final class PgCodecContext extends CodecContext {
    * allowing the {@code convertBooleanToNumeric} flag to be configured.
    */
   PgCodecContext(TimestampUtils timestampUtils, Charset charset,
-      PrefersJavaTime prefersJavaTime,
+      JavaTimePreferences javaTimePreferences,
       boolean convertBooleanToNumeric) {
     this.connection = null;
     this.typeInfo = null;
@@ -166,7 +166,7 @@ public final class PgCodecContext extends CodecContext {
     this.charset = charset;
     this.timestampUtils = timestampUtils;
     this.callerTimeZone = null;
-    this.prefersJavaTime = prefersJavaTime;
+    this.javaTimePreferences = javaTimePreferences;
     this.convertBooleanToNumeric = convertBooleanToNumeric;
     this.offlineIntervalStyle = IntervalStyle.POSTGRES;
   }
@@ -179,7 +179,7 @@ public final class PgCodecContext extends CodecContext {
    */
   private PgCodecContext(TimestampUtils timestampUtils, Charset charset,
       CodecRegistry codecs, Map<Integer, TypeDescriptor> typesByOid,
-      PrefersJavaTime prefersJavaTime,
+      JavaTimePreferences javaTimePreferences,
       boolean convertBooleanToNumeric,
       IntervalStyle offlineIntervalStyle) {
     this.connection = null;
@@ -194,7 +194,7 @@ public final class PgCodecContext extends CodecContext {
     this.charset = charset;
     this.timestampUtils = timestampUtils;
     this.callerTimeZone = null;
-    this.prefersJavaTime = prefersJavaTime;
+    this.javaTimePreferences = javaTimePreferences;
     this.convertBooleanToNumeric = convertBooleanToNumeric;
     this.offlineIntervalStyle = offlineIntervalStyle;
   }
@@ -253,7 +253,7 @@ public final class PgCodecContext extends CodecContext {
       throw Exceptions.withTypeMapNotSupportedConnectionless();
     }
     PgCodecContext copy = new PgCodecContext(conn, registries, javaTypeReg, typeMap,
-        prefersJavaTime, convertBooleanToNumeric);
+        javaTimePreferences, convertBooleanToNumeric);
     if (timestampUtils != null) {
       copy = copy.withTimestampUtils(timestampUtils);
     }
@@ -293,7 +293,7 @@ public final class PgCodecContext extends CodecContext {
     this.charset = source.charset;
     this.timestampUtils = utils;
     this.callerTimeZone = source.callerTimeZone;
-    this.prefersJavaTime = source.prefersJavaTime;
+    this.javaTimePreferences = source.javaTimePreferences;
     this.convertBooleanToNumeric = source.convertBooleanToNumeric;
     this.offlineIntervalStyle = source.offlineIntervalStyle;
   }
@@ -327,7 +327,7 @@ public final class PgCodecContext extends CodecContext {
    */
   @Override
   public PgCodecContext withoutJavaTimePreferences() {
-    if (PrefersJavaTime.NONE.equals(prefersJavaTime)) {
+    if (JavaTimePreferences.NONE.equals(javaTimePreferences)) {
       return this;
     }
     return new PgCodecContext(this);
@@ -347,7 +347,7 @@ public final class PgCodecContext extends CodecContext {
     this.charset = source.charset;
     this.timestampUtils = source.timestampUtils;
     this.callerTimeZone = source.callerTimeZone;
-    this.prefersJavaTime = PrefersJavaTime.NONE;
+    this.javaTimePreferences = JavaTimePreferences.NONE;
     this.convertBooleanToNumeric = source.convertBooleanToNumeric;
     this.offlineIntervalStyle = source.offlineIntervalStyle;
   }
@@ -366,7 +366,7 @@ public final class PgCodecContext extends CodecContext {
     this.charset = source.charset;
     this.timestampUtils = source.timestampUtils;
     this.callerTimeZone = cal == null ? null : cal.getTimeZone();
-    this.prefersJavaTime = source.prefersJavaTime;
+    this.javaTimePreferences = source.javaTimePreferences;
     this.convertBooleanToNumeric = source.convertBooleanToNumeric;
     this.offlineIntervalStyle = source.offlineIntervalStyle;
   }
@@ -724,13 +724,13 @@ public final class PgCodecContext extends CodecContext {
    * Returns the per-type java.time preferences {@code getObject} decodes temporal values with.
    *
    * <p>Set by the {@code getObject*} connection properties, or by
-   * {@link CodecContextBuilder#prefersJavaTime(PrefersJavaTime)} offline.</p>
+   * {@link CodecContextBuilder#javaTimePreferences(JavaTimePreferences)} offline.</p>
    *
    * @return the java.time preferences, never null
    */
   @Override
-  public PrefersJavaTime getJavaTimePreferences() {
-    return prefersJavaTime;
+  public JavaTimePreferences getJavaTimePreferences() {
+    return javaTimePreferences;
   }
 
   /**
@@ -760,7 +760,7 @@ public final class PgCodecContext extends CodecContext {
     private boolean integerDateTimes = true;
     private @Nullable CodecRegistry registry;
     private final Map<Integer, TypeDescriptor> typesByOid = new HashMap<>();
-    private PrefersJavaTime prefersJavaTime = PrefersJavaTime.NONE;
+    private JavaTimePreferences javaTimePreferences = JavaTimePreferences.NONE;
     private boolean convertBooleanToNumeric;
     private IntervalStyle intervalStyle = IntervalStyle.POSTGRES;
 
@@ -852,12 +852,13 @@ public final class PgCodecContext extends CodecContext {
      * Each flag makes {@code decode(..., Object.class)} on that type yield the java.time class rather
      * than the {@code java.sql} one.
      *
-     * @param prefers the per-type java.time preferences; build one with {@link PrefersJavaTime#builder()}
+     * @param preferences the per-type java.time preferences; build one with
+     *     {@link JavaTimePreferences#builder()}
      * @return this builder
      */
     @Override
-    public OfflineBuilder prefersJavaTime(PrefersJavaTime prefers) {
-      this.prefersJavaTime = prefers;
+    public OfflineBuilder javaTimePreferences(JavaTimePreferences preferences) {
+      this.javaTimePreferences = preferences;
       return this;
     }
 
@@ -901,7 +902,7 @@ public final class PgCodecContext extends CodecContext {
           ? Collections.<Integer, TypeDescriptor>emptyMap()
           : Collections.unmodifiableMap(new HashMap<>(typesByOid));
       return new PgCodecContext(timestampUtils, charset, codecs, types,
-          prefersJavaTime, convertBooleanToNumeric, intervalStyle);
+          javaTimePreferences, convertBooleanToNumeric, intervalStyle);
     }
   }
 }

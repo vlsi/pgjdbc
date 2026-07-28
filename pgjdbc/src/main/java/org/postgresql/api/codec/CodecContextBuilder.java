@@ -88,10 +88,11 @@ public interface CodecContextBuilder {
    * Each flag makes {@code decode(..., Object.class)} on that type yield the java.time class rather
    * than the {@code java.sql} one.
    *
-   * @param prefers the per-type java.time preferences; build one with {@link PrefersJavaTime#builder()}
+   * @param preferences the per-type java.time preferences; build one with
+   *     {@link JavaTimePreferences#builder()}
    * @return this builder
    */
-  CodecContextBuilder prefersJavaTime(PrefersJavaTime prefers);
+  CodecContextBuilder javaTimePreferences(JavaTimePreferences preferences);
 
   /**
    * Sets the {@code IntervalStyle} the interval codec renders a binary {@code interval} with, so

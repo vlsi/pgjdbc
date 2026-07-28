@@ -6,7 +6,7 @@
 package org.postgresql.fuzzkit;
 
 import org.postgresql.api.codec.Format;
-import org.postgresql.api.codec.PrefersJavaTime;
+import org.postgresql.api.codec.JavaTimePreferences;
 import org.postgresql.fuzzkit.coercion.CoercionOutcome;
 import org.postgresql.fuzzkit.coercion.OutcomeContract;
 import org.postgresql.fuzzkit.coercion.OutcomeContract.Direction;
@@ -27,7 +27,7 @@ import java.util.regex.Pattern;
 
 /**
  * The shared read-side oracle for the SQLData fuzzers. It owns the read axes -- the
- * {@code readObject(Class)} target classes and the {@code prefersJavaTime} connection parameters -- and
+ * {@code readObject(Class)} target classes and the {@code javaTimePreferences} connection parameters -- and
  * the {@code SQLInput}-read outcome check against {@code ReadCoercions}, so {@link CoercionFuzzSupport}
  * and {@link CoercionRoundTripSupport} declare them once and reach the same verdicts.
  *
@@ -70,22 +70,22 @@ public final class ReadOracle {
   private ReadOracle() {
   }
 
-  /** The connection config for a set of {@code prefersJavaTime} flags. */
-  static Map<String, String> configFor(PrefersJavaTime prefersJavaTime) {
+  /** The connection config for a set of {@code javaTimePreferences} flags. */
+  static Map<String, String> configFor(JavaTimePreferences javaTimePreferences) {
     Map<String, String> config = new HashMap<>();
-    if (prefersJavaTime.forDate()) {
+    if (javaTimePreferences.forDate()) {
       config.put("prefersJavaTimeForDate", "true");
     }
-    if (prefersJavaTime.forTime()) {
+    if (javaTimePreferences.forTime()) {
       config.put("prefersJavaTimeForTime", "true");
     }
-    if (prefersJavaTime.forTimetz()) {
+    if (javaTimePreferences.forTimetz()) {
       config.put("prefersJavaTimeForTimetz", "true");
     }
-    if (prefersJavaTime.forTimestamp()) {
+    if (javaTimePreferences.forTimestamp()) {
       config.put("prefersJavaTimeForTimestamp", "true");
     }
-    if (prefersJavaTime.forTimestamptz()) {
+    if (javaTimePreferences.forTimestamptz()) {
       config.put("prefersJavaTimeForTimestamptz", "true");
     }
     return config;

@@ -13,7 +13,7 @@ import org.checkerframework.checker.nullness.qual.Nullable;
  * The per-type {@code getObject} java.time preferences, matching the per-type connection properties.
  * Each flag makes {@code decode(..., Object.class)} on that temporal type yield the java.time class
  * rather than the {@code java.sql} one. An immutable value carried into
- * {@link CodecContextBuilder#prefersJavaTime(PrefersJavaTime)} so the five flags travel as one named
+ * {@link CodecContextBuilder#javaTimePreferences(JavaTimePreferences)} so the five flags travel as one named
  * value rather than five positional booleans.
  *
  * <p>Build one with {@link #builder()} and set only the flags you need; unset flags default to
@@ -23,10 +23,10 @@ import org.checkerframework.checker.nullness.qual.Nullable;
  * @since 42.8.0
  */
 @Experimental("Codec API is experimental and may change in future releases")
-public final class PrefersJavaTime {
+public final class JavaTimePreferences {
 
   /** No java.time preference for any temporal type: every type yields its {@code java.sql} class. */
-  public static final PrefersJavaTime NONE = new PrefersJavaTime(false, false, false, false, false);
+  public static final JavaTimePreferences NONE = new JavaTimePreferences(false, false, false, false, false);
 
   private final boolean forDate;
   private final boolean forTime;
@@ -34,8 +34,8 @@ public final class PrefersJavaTime {
   private final boolean forTimestamp;
   private final boolean forTimestamptz;
 
-  private PrefersJavaTime(boolean forDate, boolean forTime, boolean forTimetz,
-      boolean forTimestamp, boolean forTimestamptz) {
+  private JavaTimePreferences(boolean forDate, boolean forTime, boolean forTimetz,
+                              boolean forTimestamp, boolean forTimestamptz) {
     this.forDate = forDate;
     this.forTime = forTime;
     this.forTimetz = forTimetz;
@@ -84,10 +84,10 @@ public final class PrefersJavaTime {
     if (this == o) {
       return true;
     }
-    if (!(o instanceof PrefersJavaTime)) {
+    if (!(o instanceof JavaTimePreferences)) {
       return false;
     }
-    PrefersJavaTime other = (PrefersJavaTime) o;
+    JavaTimePreferences other = (JavaTimePreferences) o;
     return forDate == other.forDate && forTime == other.forTime && forTimetz == other.forTimetz
         && forTimestamp == other.forTimestamp && forTimestamptz == other.forTimestamptz;
   }
@@ -104,11 +104,11 @@ public final class PrefersJavaTime {
 
   @Override
   public String toString() {
-    return "PrefersJavaTime{date=" + forDate + ", time=" + forTime + ", timetz=" + forTimetz
+    return "JavaTimePreferences{date=" + forDate + ", time=" + forTime + ", timetz=" + forTimetz
         + ", timestamp=" + forTimestamp + ", timestamptz=" + forTimestamptz + '}';
   }
 
-  /** A fluent builder for {@link PrefersJavaTime}; each setter defaults to {@code false}. */
+  /** A fluent builder for {@link JavaTimePreferences}; each setter defaults to {@code false}. */
   public static final class Builder {
 
     private boolean forDate;
@@ -180,8 +180,8 @@ public final class PrefersJavaTime {
      *
      * @return the preferences
      */
-    public PrefersJavaTime build() {
-      return new PrefersJavaTime(forDate, forTime, forTimetz, forTimestamp, forTimestamptz);
+    public JavaTimePreferences build() {
+      return new JavaTimePreferences(forDate, forTime, forTimetz, forTimestamp, forTimestamptz);
     }
   }
 }

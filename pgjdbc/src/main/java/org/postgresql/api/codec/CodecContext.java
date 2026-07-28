@@ -90,11 +90,11 @@ public abstract class CodecContext {
   /**
    * Returns the per-type {@code getObject} java.time preferences. A set flag makes
    * {@code decode(..., Object.class)} on that temporal type yield the java.time class rather than
-   * the {@code java.sql} one; {@link PrefersJavaTime#NONE} means every type yields {@code java.sql}.
+   * the {@code java.sql} one; {@link JavaTimePreferences#NONE} means every type yields {@code java.sql}.
    *
    * @return the java.time preferences, never null
    */
-  public abstract PrefersJavaTime getJavaTimePreferences();
+  public abstract JavaTimePreferences getJavaTimePreferences();
 
   /**
    * Returns whether numeric getters on a BOOL column convert {@code 't'}/{@code 'f'} (or binary

@@ -52,7 +52,7 @@ import java.util.Set;
  *
  * <p>The cells per scalar are every {@link SqlInputReader} except {@code READ_OBJECT_AS} (each carries its
  * own target class of {@code null}), plus one method per {@link ReadOracle#TARGET_CLASSES} entry for
- * {@code readObject(Class)}. {@code prefersJavaTime} is read as a byte of five flag bits, but only for the
+ * {@code readObject(Class)}. {@code javaTimePreferences} is read as a byte of five flag bits, but only for the
  * temporal scalars ({@code date}, {@code time}, {@code timetz}, {@code timestamp}, {@code timestamptz})
  * whose decode depends on it; every other scalar passes all-false and spends no fuzzer entropy on an inert
  * axis.
@@ -67,7 +67,7 @@ public final class CoercionReaderFuzzTestGenerator {
   private static final String PACKAGE = "org.postgresql.test.jazzer";
   private static final String NL = "\n";
 
-  /** The scalars whose decode depends on {@code prefersJavaTime}; every other scalar passes all-false. */
+  /** The scalars whose decode depends on {@code javaTimePreferences}; every other scalar passes all-false. */
   private static final Set<Integer> TEMPORAL_OIDS = temporalOids();
 
   private CoercionReaderFuzzTestGenerator() {
@@ -194,10 +194,10 @@ public final class CoercionReaderFuzzTestGenerator {
       valueSource = "Jazzer mutates the value straight from each method's typed parameter, because this "
           + "scalar's natural class is Jazzer-native and always encodes.";
     }
-    String prefersJavaTime = temporal
-        ? "It varies {@code prefersJavaTime} through a byte of flag bits, because this scalar's decode "
+    String javaTimePreferences = temporal
+        ? "It varies {@code javaTimePreferences} through a byte of flag bits, because this scalar's decode "
             + "depends on it."
-        : "It passes an all-false {@code prefersJavaTime}, because this scalar's decode does not depend on "
+        : "It passes an all-false {@code javaTimePreferences}, because this scalar's decode does not depend on "
             + "it.";
     sb.append("/**").append(NL)
         .append(" * GENERATED with {@link CoercionReaderFuzzTestGenerator} -- do not edit. Regenerate with"
@@ -208,7 +208,7 @@ public final class CoercionReaderFuzzTestGenerator {
             + " org.postgresql.fuzzkit.SqlInputReader}, plus one per {@code readObject(Class)} target"
             + " class,").append(NL)
         .append(" * each asserting the reader returns or refuses with a {@code SQLException} and never"
-            + " leaks. ").append(valueSource).append(' ').append(prefersJavaTime).append(NL)
+            + " leaks. ").append(valueSource).append(' ').append(javaTimePreferences).append(NL)
         .append(" */").append(NL);
   }
 
@@ -235,16 +235,16 @@ public final class CoercionReaderFuzzTestGenerator {
           .append("  }").append(NL);
       return;
     }
-    // A temporal scalar draws its prefersJavaTime config as one byte (CoercionCase unpacks the five low
+    // A temporal scalar draws its javaTimePreferences config as one byte (CoercionCase unpacks the five low
     // bits); every other provider-drawn scalar's decode ignores the config, so it passes the all-false
     // byte 0.
-    String prefersJavaTime = temporal ? "data.consumeByte()" : "(byte) 0";
+    String javaTimePreferences = temporal ? "data.consumeByte()" : "(byte) 0";
     sb.append("  @FuzzTest").append(NL)
         .append("  void ").append(methodName).append("(@NotNull FuzzedDataProvider data) throws"
             + " SQLException {").append(NL)
         .append("    Object value = JazzerValues.draw(data, ").append(valueLiteral).append(");").append(NL)
         .append("    CoercionFuzzSupport.run(new CoercionCase(DESCRIPTOR, value, ").append(readerLiteral)
-        .append(", ").append(targetLiteral).append(", ").append(prefersJavaTime).append("));").append(NL)
+        .append(", ").append(targetLiteral).append(", ").append(javaTimePreferences).append("));").append(NL)
         .append("  }").append(NL);
   }
 

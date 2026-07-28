@@ -14,7 +14,7 @@ import java.sql.SQLException;
 
 /**
  * Coverage-guided SQLData coercion property. It fuzzes the whole read matrix -- field type × value ×
- * {@link java.sql.SQLInput} reader method × {@code prefersJavaTime} flags × wire format -- and
+ * {@link java.sql.SQLInput} reader method × {@code javaTimePreferences} flags × wire format -- and
  * asserts one contract invariant: a reader either returns a value or refuses with a
  * {@link SQLException}; it must never leak an unchecked exception. Matching writer/reader pairs (the
  * round-trip targets) are only the diagonal of this matrix; the off-diagonal is where coercion bugs

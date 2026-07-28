@@ -6,7 +6,7 @@
 package org.postgresql.jdbc;
 
 import org.postgresql.api.codec.CodecContext;
-import org.postgresql.api.codec.PrefersJavaTime;
+import org.postgresql.api.codec.JavaTimePreferences;
 
 import java.nio.charset.Charset;
 import java.nio.charset.StandardCharsets;
@@ -24,57 +24,57 @@ public final class TestCodecContext {
    * Creates a CodecContext for testing with default settings (UTC, UTF-8, no java.time preference).
    */
   public static CodecContext create() {
-    return create(PrefersJavaTime.NONE);
+    return create(JavaTimePreferences.NONE);
   }
 
   /**
    * Creates a CodecContext for testing with specified java.time preferences.
    */
-  public static CodecContext create(PrefersJavaTime prefersJavaTime) {
-    return create(StandardCharsets.UTF_8, prefersJavaTime);
+  public static CodecContext create(JavaTimePreferences javaTimePreferences) {
+    return create(StandardCharsets.UTF_8, javaTimePreferences);
   }
 
   /**
    * Creates a CodecContext for testing with specified charset and java.time preferences.
    */
-  public static CodecContext create(Charset charset, PrefersJavaTime prefersJavaTime) {
+  public static CodecContext create(Charset charset, JavaTimePreferences javaTimePreferences) {
     TimestampUtils timestampUtils = new TimestampUtils(false, () -> TimeZone.getTimeZone("UTC"));
-    return new PgCodecContext(timestampUtils, charset, prefersJavaTime);
+    return new PgCodecContext(timestampUtils, charset, javaTimePreferences);
   }
 
   /**
    * Creates a CodecContext that prefers {@link java.time.LocalDate} for {@code date}.
    */
   public static CodecContext preferringJavaTimeForDate() {
-    return create(PrefersJavaTime.builder().date(true).build());
+    return create(JavaTimePreferences.builder().date(true).build());
   }
 
   /**
    * Creates a CodecContext that prefers {@link java.time.LocalTime} for {@code time}.
    */
   public static CodecContext preferringJavaTimeForTime() {
-    return create(PrefersJavaTime.builder().time(true).build());
+    return create(JavaTimePreferences.builder().time(true).build());
   }
 
   /**
    * Creates a CodecContext that prefers {@link java.time.OffsetTime} for {@code timetz}.
    */
   public static CodecContext preferringJavaTimeForTimetz() {
-    return create(PrefersJavaTime.builder().timetz(true).build());
+    return create(JavaTimePreferences.builder().timetz(true).build());
   }
 
   /**
    * Creates a CodecContext that prefers {@link java.time.LocalDateTime} for {@code timestamp}.
    */
   public static CodecContext preferringJavaTimeForTimestamp() {
-    return create(PrefersJavaTime.builder().timestamp(true).build());
+    return create(JavaTimePreferences.builder().timestamp(true).build());
   }
 
   /**
    * Creates a CodecContext that prefers {@link java.time.OffsetDateTime} for {@code timestamptz}.
    */
   public static CodecContext preferringJavaTimeForTimestamptz() {
-    return create(PrefersJavaTime.builder().timestamptz(true).build());
+    return create(JavaTimePreferences.builder().timestamptz(true).build());
   }
 
   /**
@@ -84,7 +84,7 @@ public final class TestCodecContext {
   public static CodecContext withConvertBooleanToNumeric(boolean convertBooleanToNumeric) {
     TimestampUtils timestampUtils = new TimestampUtils(false, () -> TimeZone.getTimeZone("UTC"));
     return new PgCodecContext(timestampUtils, StandardCharsets.UTF_8,
-        PrefersJavaTime.NONE, convertBooleanToNumeric);
+        JavaTimePreferences.NONE, convertBooleanToNumeric);
   }
 
   /**
