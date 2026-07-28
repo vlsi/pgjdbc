@@ -56,7 +56,7 @@ public interface CodecContextBuilder {
    * @param integerDateTimes true for integer datetimes
    * @return this builder
    */
-  CodecContextBuilder integerDateTimes(boolean integerDateTimes);
+  CodecContextBuilder usesIntegerDateTimes(boolean integerDateTimes);
 
   /**
    * Sets the codec registry that resolves codecs by OID and name. Defaults to a fresh registry with
@@ -114,7 +114,7 @@ public interface CodecContextBuilder {
    * @param convertBooleanToNumeric true to enable the coercion
    * @return this builder
    */
-  CodecContextBuilder convertBooleanToNumeric(boolean convertBooleanToNumeric);
+  CodecContextBuilder convertsBooleanToNumeric(boolean convertBooleanToNumeric);
 
   /**
    * Builds the connectionless context.

@@ -100,7 +100,7 @@ public abstract class CodecContext {
    * Returns whether numeric getters on a BOOL column convert {@code 't'}/{@code 'f'} (or binary
    * {@code 0}/{@code 1}) to {@code 1}/{@code 0} instead of throwing. Set by the
    * {@code convertBooleanToNumeric} connection property, or by
-   * {@link CodecContextBuilder#convertBooleanToNumeric(boolean)} offline.
+   * {@link CodecContextBuilder#convertsBooleanToNumeric(boolean)} offline.
    *
    * @return true if BOOL-to-numeric conversion is enabled
    */

@@ -162,10 +162,10 @@ class OfflineCodecRoundtripTest {
     CodecContext ctx = OfflineCodecs.builder()
         .charset(UTF_8)
         .clientTimeZone(TimeZone.getTimeZone("UTC"))
-        .integerDateTimes(true)
+        .usesIntegerDateTimes(true)
         .build();
     assertEquals(UTF_8, ctx.getCharset());
-    assertTrue(ctx.usesIntegerDateTimes(), "integerDateTimes(true) is reported back");
+    assertTrue(ctx.usesIntegerDateTimes(), "usesIntegerDateTimes(true) is reported back");
     assertEquals(TimeZone.getTimeZone("UTC"), ctx.getClientTimeZone());
   }
 

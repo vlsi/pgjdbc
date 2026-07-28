@@ -800,7 +800,7 @@ public final class PgCodecContext extends CodecContext {
      * @return this builder
      */
     @Override
-    public OfflineBuilder integerDateTimes(boolean integerDateTimes) {
+    public OfflineBuilder usesIntegerDateTimes(boolean integerDateTimes) {
       this.integerDateTimes = integerDateTimes;
       return this;
     }
@@ -869,7 +869,7 @@ public final class PgCodecContext extends CodecContext {
      * @return this builder
      */
     @Override
-    public OfflineBuilder convertBooleanToNumeric(boolean convertBooleanToNumeric) {
+    public OfflineBuilder convertsBooleanToNumeric(boolean convertBooleanToNumeric) {
       this.convertBooleanToNumeric = convertBooleanToNumeric;
       return this;
     }
