@@ -19,7 +19,7 @@ import org.postgresql.jdbc.OfflineCodecs;
  * <p>The registry is safe to share: {@link CodecContextBuilder#type} records per-context type
  * descriptors in a separate map that {@code build()} copies onto the context, so it never mutates the
  * registry, and the registry's own lookup cache is thread-safe. Building it once and injecting it with
- * {@link CodecContextBuilder#registry} leaves only the cheap per-context state (the type map and
+ * {@link CodecContextBuilder#codecLookup} leaves only the cheap per-context state (the type map and
  * timestamp settings) to allocate per input.
  */
 public final class OfflineCodecContexts {
@@ -37,6 +37,6 @@ public final class OfflineCodecContexts {
    * @return a builder pre-configured with the shared built-in registry
    */
   public static CodecContextBuilder offlineBuilder() {
-    return OfflineCodecs.builder().registry(SHARED_BUILTINS);
+    return OfflineCodecs.builder().codecLookup(SHARED_BUILTINS);
   }
 }

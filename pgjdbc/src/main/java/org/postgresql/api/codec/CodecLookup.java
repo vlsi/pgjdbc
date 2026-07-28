@@ -16,7 +16,7 @@ import java.util.Map;
  * reports which wire formats that codec can decode, without exposing registration.
  *
  * <p>Obtain one from {@code OfflineCodecs.defaultRegistry()} and pass it to
- * {@link CodecContextBuilder#registry(CodecLookup)} to share a registry across offline contexts. The
+ * {@link CodecContextBuilder#codecLookup(CodecLookup)} to share a registry across offline contexts. The
  * object behind this view may be mutable; the interface exposes only the read-only lookups, so a
  * caller cannot register through it. Register custom codecs through the {@link Codec}
  * {@link java.util.ServiceLoader} SPI instead.</p>

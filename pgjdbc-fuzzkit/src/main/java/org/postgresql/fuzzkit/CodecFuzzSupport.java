@@ -1385,7 +1385,7 @@ public final class CodecFuzzSupport {
    * @return a builder over a {@link NonStreamingCodecRegistry}
    */
   public static CodecContextBuilder deStreamedBuilder() {
-    return OfflineCodecContexts.offlineBuilder().registry(new NonStreamingCodecRegistry());
+    return OfflineCodecContexts.offlineBuilder().codecLookup(new NonStreamingCodecRegistry());
   }
 
   /**

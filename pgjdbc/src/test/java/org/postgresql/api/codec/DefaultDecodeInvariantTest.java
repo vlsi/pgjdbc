@@ -95,7 +95,7 @@ class DefaultDecodeInvariantTest {
     FixedNumberCodec codec = new FixedNumberCodec(value);
     CodecRegistry registry = new CodecRegistry();
     registry.registerByOid(oid, codec);
-    CodecContext ctx = OfflineCodecs.builder().registry(registry).type(type).build();
+    CodecContext ctx = OfflineCodecs.builder().codecLookup(registry).type(type).build();
     return new Fixture(oid, type, codec, ctx);
   }
 

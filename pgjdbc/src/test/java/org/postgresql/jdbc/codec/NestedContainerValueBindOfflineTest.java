@@ -74,7 +74,7 @@ class NestedContainerValueBindOfflineTest {
     CodecRegistry registry = new CodecRegistry();
     registry.registerByOid(CHILD_OID, PickyChildCodec.INSTANCE);
     return OfflineCodecs.builder()
-        .registry(registry)
+        .codecLookup(registry)
         .type(CHILD_TYPE)
         .type(RANGE_TYPE)
         .type(MULTIRANGE_TYPE)

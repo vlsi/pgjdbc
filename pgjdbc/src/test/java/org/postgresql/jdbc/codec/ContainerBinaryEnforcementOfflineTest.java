@@ -87,7 +87,7 @@ class ContainerBinaryEnforcementOfflineTest {
     // range/multirange/domain/composite codecs structurally by typtype.
     registry.registerByOid(CHILD_OID, PoisonChildCodec.INSTANCE);
     return OfflineCodecs.builder()
-        .registry(registry)
+        .codecLookup(registry)
         .type(CHILD_TYPE)
         .type(DOMAIN_TYPE)
         .type(RANGE_TYPE)

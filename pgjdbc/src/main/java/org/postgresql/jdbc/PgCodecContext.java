@@ -809,17 +809,17 @@ public final class PgCodecContext extends CodecContext {
      * Sets the codec registry that resolves codecs by OID and name. Defaults to a fresh
      * {@link CodecRegistry} with the built-in codecs.
      *
-     * @param registry the codec registry
+     * @param codecLookup the codec lookup
      * @return this builder
      */
     @Override
-    public OfflineBuilder registry(CodecLookup registry) {
-      if (!(registry instanceof CodecRegistry)) {
+    public OfflineBuilder codecLookup(CodecLookup codecLookup) {
+      if (!(codecLookup instanceof CodecRegistry)) {
         throw new IllegalArgumentException(
             "registry must be obtained from OfflineCodecs.defaultRegistry(); got "
-                + (registry == null ? "null" : registry.getClass().getName()));
+                + (codecLookup == null ? "null" : codecLookup.getClass().getName()));
       }
-      this.registry = (CodecRegistry) registry;
+      this.registry = (CodecRegistry) codecLookup;
       return this;
     }
 

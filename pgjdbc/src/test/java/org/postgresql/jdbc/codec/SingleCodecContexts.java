@@ -34,7 +34,7 @@ final class SingleCodecContexts {
    * @return the context
    */
   static CodecContext of(Codec codec) {
-    return OfflineCodecs.builder().registry(new SingleCodecRegistry(codec)).build();
+    return OfflineCodecs.builder().codecLookup(new SingleCodecRegistry(codec)).build();
   }
 
   private static final class SingleCodecRegistry extends CodecRegistry {

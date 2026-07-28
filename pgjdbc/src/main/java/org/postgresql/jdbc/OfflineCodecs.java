@@ -41,7 +41,7 @@ public final class OfflineCodecs {
   /**
    * Returns a fresh default codec registry, viewed through the read-only {@link CodecLookup} SPI.
    *
-   * <p>Pass it to {@link CodecContextBuilder#registry(CodecLookup)} to share one registry across
+   * <p>Pass it to {@link CodecContextBuilder#codecLookup(CodecLookup)} to share one registry across
    * several offline contexts instead of letting each {@link #builder()} build its own.</p>
    *
    * @return a default codec registry

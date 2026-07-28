@@ -57,7 +57,7 @@ class OfflineCodecApiRoundTripTest {
   @Test
   void sharesADefaultRegistryAcrossContexts() throws SQLException {
     CodecLookup registry = OfflineCodecs.defaultRegistry();
-    CodecContext ctx = OfflineCodecs.builder().registry(registry).build();
+    CodecContext ctx = OfflineCodecs.builder().codecLookup(registry).build();
     TypeDescriptor int4 = ctx.resolveType(INT4_OID);
 
     assertNotNull(registry.getByOid(INT4_OID, int4), "int4 resolves to a codec");
@@ -99,7 +99,7 @@ class OfflineCodecApiRoundTripTest {
     CodecLookup foreign = new UnsupportedCodecLookup();
 
     IllegalArgumentException ex = assertThrows(IllegalArgumentException.class,
-        () -> OfflineCodecs.builder().registry(foreign));
+        () -> OfflineCodecs.builder().codecLookup(foreign));
     assertTrue(ex.getMessage().contains("OfflineCodecs.defaultRegistry()"),
         "message points at the factory: " + ex.getMessage());
   }

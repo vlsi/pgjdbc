@@ -59,13 +59,13 @@ public interface CodecContextBuilder {
   CodecContextBuilder usesIntegerDateTimes(boolean integerDateTimes);
 
   /**
-   * Sets the codec registry that resolves codecs by OID and name. Defaults to a fresh registry with
+   * Sets the codec lookup that resolves codecs by OID and name. Defaults to a fresh registry with
    * the built-in codecs.
    *
-   * @param registry the codec registry
+   * @param codecLookup the codec lookup
    * @return this builder
    */
-  CodecContextBuilder registry(CodecLookup registry);
+  CodecContextBuilder codecLookup(CodecLookup codecLookup);
 
   /**
    * Registers {@code type} under its own OID so a container can resolve it as a child type.
