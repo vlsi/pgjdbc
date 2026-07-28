@@ -41,8 +41,8 @@ public interface CodecContextBuilder {
    * Sets the client/session time zone temporal codecs render {@code timetz}/{@code timestamptz}
    * against — what {@link CodecContext#getClientTimeZone()} reports. Defaults to UTC.
    *
-   * <p>There is no setter for {@link CodecContext#getDefaultTimeZone()}: that one is the JVM default
-   * rather than context state, so it is read from the JVM and not configured here.</p>
+   * <p>There is no setter for {@link CodecContext#getJvmDefaultTimeZone()}: it is read from the JVM
+   * rather than held as context state.</p>
    *
    * @param clientTimeZone the session time zone
    * @return this builder

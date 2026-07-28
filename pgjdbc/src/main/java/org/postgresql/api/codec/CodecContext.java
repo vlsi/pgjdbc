@@ -70,14 +70,14 @@ public abstract class CodecContext {
    * Returns the JVM default time zone, used for {@code date}/{@code time}/{@code timestamp} (without
    * time zone) when no caller time zone is supplied.
    *
-   * @return the default time zone
+   * @return the JVM default time zone
    */
-  public abstract TimeZone getDefaultTimeZone();
+  public abstract TimeZone getJvmDefaultTimeZone();
 
   /**
    * Returns the time zone of the {@code java.util.Calendar} a caller passed to
    * {@code getDate/getTime/getTimestamp(col, Calendar)}, or {@code null} when none was supplied and
-   * {@link #getDefaultTimeZone()} applies.
+   * {@link #getJvmDefaultTimeZone()} applies.
    *
    * <p>Only the zone crosses this boundary. That is all the driver's own temporal decoding takes
    * from a caller's {@code Calendar}, and handing out the {@code Calendar} itself would publish a

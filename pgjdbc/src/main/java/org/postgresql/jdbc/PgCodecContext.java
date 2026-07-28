@@ -650,7 +650,7 @@ public final class PgCodecContext extends CodecContext {
    * @return the default time zone
    */
   @Override
-  public TimeZone getDefaultTimeZone() {
+  public TimeZone getJvmDefaultTimeZone() {
     return TimeZone.getDefault();
   }
 

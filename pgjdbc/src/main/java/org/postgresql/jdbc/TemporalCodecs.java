@@ -87,7 +87,7 @@ public final class TemporalCodecs {
   /** The timezone to decode in: the caller-supplied zone, else the context default. */
   private static TimeZone decodeTz(CodecContext ctx) {
     TimeZone tz = ctx.getCallerTimeZone();
-    return tz != null ? tz : ctx.getDefaultTimeZone();
+    return tz != null ? tz : ctx.getJvmDefaultTimeZone();
   }
 
   /**
@@ -218,7 +218,7 @@ public final class TemporalCodecs {
     // A date has no time zone: the calendar uses the context zone to pick the day, but the text must
     // not carry a "+hh" suffix (PostgreSQL outputs a bare yyyy-mm-dd). A trailing offset is invalid
     // date syntax and breaks the decode round-trip.
-    return TimestampUtils.toStringDate(ctx.getDefaultTimeZone(), value, false, null, null);
+    return TimestampUtils.toStringDate(ctx.getJvmDefaultTimeZone(), value, false, null, null);
   }
 
   public static String formatLocalDate(LocalDate value, CodecContext ctx) {
@@ -228,12 +228,12 @@ public final class TemporalCodecs {
   public static String formatTime(Time value, CodecContext ctx) {
     // A `time` (without time zone) must not carry a "+hh" suffix; PostgreSQL outputs a bare HH:MM:SS.
     // A trailing offset is invalid time syntax and breaks the decode round-trip.
-    return TimestampUtils.toStringTime(ctx.getDefaultTimeZone(), value, false, null, null);
+    return TimestampUtils.toStringTime(ctx.getJvmDefaultTimeZone(), value, false, null, null);
   }
 
   /** Formats a {@link Time} as a {@code timetz}, assigning it the context zone offset. */
   public static String formatTimetz(Time value, CodecContext ctx) {
-    return TimestampUtils.toStringTime(ctx.getDefaultTimeZone(), value, true, null, null);
+    return TimestampUtils.toStringTime(ctx.getJvmDefaultTimeZone(), value, true, null, null);
   }
 
   public static String formatLocalTime(LocalTime value, CodecContext ctx) {
@@ -245,7 +245,7 @@ public final class TemporalCodecs {
   }
 
   public static String formatTimestamp(Timestamp value, CodecContext ctx) {
-    return TimestampUtils.toStringTimestamp(ctx.getDefaultTimeZone(), value, true, null, null);
+    return TimestampUtils.toStringTimestamp(ctx.getJvmDefaultTimeZone(), value, true, null, null);
   }
 
   public static String formatLocalDateTime(LocalDateTime value, CodecContext ctx) {
@@ -279,7 +279,7 @@ public final class TemporalCodecs {
 
   /** Encodes {@code value} into the 4-byte {@code out} buffer as a PostgreSQL {@code date}. */
   public static void encodeDateBin(Date value, byte[] out, CodecContext ctx) throws SQLException {
-    TimestampUtils.writeBinDate(ctx.getDefaultTimeZone(), out, value);
+    TimestampUtils.writeBinDate(ctx.getJvmDefaultTimeZone(), out, value);
   }
 
   /** Encodes {@code value} as a binary PostgreSQL {@code time} (8 bytes). */
@@ -325,7 +325,7 @@ public final class TemporalCodecs {
   /** Streaming counterpart of {@link #encodeDateBin(Date, byte[], CodecContext)}. */
   public static void writeDateBin(Date value, BackpatchingByteArrayOutputStream out, CodecContext ctx)
       throws SQLException, IOException {
-    TimestampUtils.writeBinDate(ctx.getDefaultTimeZone(), out, value);
+    TimestampUtils.writeBinDate(ctx.getJvmDefaultTimeZone(), out, value);
   }
 
   /** Streaming counterpart of {@link #encodeTimeBin(Object, CodecContext)}. */
@@ -392,11 +392,11 @@ public final class TemporalCodecs {
     }
     if (value instanceof String) {
       Time t = decodeTimeText((String) value, ctx);
-      return TimestampUtils.localTimeOf(t.getTime(), ctx.getDefaultTimeZone(), null);
+      return TimestampUtils.localTimeOf(t.getTime(), ctx.getJvmDefaultTimeZone(), null);
     }
     if (value instanceof java.util.Date) {
       return TimestampUtils.localTimeOf(((java.util.Date) value).getTime(),
-          ctx.getDefaultTimeZone(), null);
+          ctx.getJvmDefaultTimeZone(), null);
     }
     throw Codecs.cannotEncode(value, "time");
   }
@@ -413,7 +413,7 @@ public final class TemporalCodecs {
     if (value instanceof java.util.Date) {
       // The text path renders a java.util.Date time-of-day with the default-zone offset.
       java.util.Date d = (java.util.Date) value;
-      TimeZone tz = ctx.getDefaultTimeZone();
+      TimeZone tz = ctx.getJvmDefaultTimeZone();
       LocalTime lt = TimestampUtils.localTimeOf(d.getTime(), tz, null);
       return lt.atOffset(ZoneOffset.ofTotalSeconds(tz.getOffset(d.getTime()) / 1000));
     }
@@ -438,14 +438,14 @@ public final class TemporalCodecs {
       return ((ZonedDateTime) value).toLocalDateTime();
     }
     if (value instanceof Instant) {
-      return LocalDateTime.ofInstant((Instant) value, ctx.getDefaultTimeZone().toZoneId());
+      return LocalDateTime.ofInstant((Instant) value, ctx.getJvmDefaultTimeZone().toZoneId());
     }
     if (value instanceof String) {
       return localDateTimeOf(decodeTimestampText((String) value, ctx), ctx);
     }
     if (value instanceof java.util.Date) {
       return LocalDateTime.ofInstant(Instant.ofEpochMilli(((java.util.Date) value).getTime()),
-          ctx.getDefaultTimeZone().toZoneId());
+          ctx.getJvmDefaultTimeZone().toZoneId());
     }
     throw Codecs.cannotEncode(value, "timestamp");
   }
