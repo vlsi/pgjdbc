@@ -46,7 +46,7 @@ public final class TimestamptzCodec implements StreamingBinaryCodec, TextCodec {
   public @Nullable Object decodeBinary(byte[] data, int offset, int length, TypeDescriptor type,
       CodecContext ctx) throws SQLException {
     // Check connection property for default type
-    if (ctx.getJavaTimePreferences().forTimestamptz()) {
+    if (ctx.getJavaTimePreferences().prefersOffsetDateTime()) {
       return TemporalCodecs.decodeOffsetDateTimeBin(data, offset, length, ctx);
     }
     return TemporalCodecs.decodeTimestampBin(data, offset, length, true, ctx);
@@ -67,7 +67,7 @@ public final class TimestamptzCodec implements StreamingBinaryCodec, TextCodec {
   public @Nullable Object decodeText(CharSequence data, TypeDescriptor type, CodecContext ctx) throws SQLException {
     String text = data.toString();
     // Check connection property for default type
-    if (ctx.getJavaTimePreferences().forTimestamptz()) {
+    if (ctx.getJavaTimePreferences().prefersOffsetDateTime()) {
       return normalizeToUtc(TemporalCodecs.decodeOffsetDateTimeText(text, ctx));
     }
     return TemporalCodecs.decodeTimestampText(text, ctx);

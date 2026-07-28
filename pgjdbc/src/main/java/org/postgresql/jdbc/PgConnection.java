@@ -453,11 +453,11 @@ public class PgConnection implements BaseConnection {
 
       // Initialize date/time type preferences for getObject()
       this.javaTimePreferences = JavaTimePreferences.builder()
-          .date("java.time".equals(PGProperty.GETOBJECT_DATE.getOrDefault(info)))
-          .time("java.time".equals(PGProperty.GETOBJECT_TIME.getOrDefault(info)))
-          .timetz("java.time".equals(PGProperty.GETOBJECT_TIMETZ.getOrDefault(info)))
-          .timestamp("java.time".equals(PGProperty.GETOBJECT_TIMESTAMP.getOrDefault(info)))
-          .timestamptz("java.time".equals(PGProperty.GETOBJECT_TIMESTAMPTZ.getOrDefault(info)))
+          .prefersLocalDate(prefersJavaTime(info, PGProperty.GETOBJECT_DATE))
+          .prefersLocalTime(prefersJavaTime(info, PGProperty.GETOBJECT_TIME))
+          .prefersOffsetTime(prefersJavaTime(info, PGProperty.GETOBJECT_TIMETZ))
+          .prefersLocalDateTime(prefersJavaTime(info, PGProperty.GETOBJECT_TIMESTAMP))
+          .prefersOffsetDateTime(prefersJavaTime(info, PGProperty.GETOBJECT_TIMESTAMPTZ))
           .build();
       this.mapBooleanToBoolean = "boolean".equals(PGProperty.MAP_PG_TYPE_BOOLEAN.getOrDefault(info));
 
@@ -489,6 +489,15 @@ public class PgConnection implements BaseConnection {
       }
       throw e;
     }
+  }
+
+  /**
+   * Whether a {@code getobject<type>} property asks for the java.time class rather than the
+   * {@code java.sql} one. Both values are validated by {@link PGProperty}, so anything other than
+   * {@code java.time} means {@code java.sql}.
+   */
+  private static boolean prefersJavaTime(Properties info, PGProperty property) {
+    return "java.time".equals(property.getOrDefault(info));
   }
 
   private static ReadOnlyBehavior getReadOnlyBehavior(@Nullable String property) {

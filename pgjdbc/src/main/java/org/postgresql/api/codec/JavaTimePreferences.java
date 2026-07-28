@@ -53,29 +53,29 @@ public final class JavaTimePreferences {
   }
 
   /** Whether {@code date} prefers {@link java.time.LocalDate} over {@link java.sql.Date}. */
-  public boolean forDate() {
+  public boolean prefersLocalDate() {
     return forDate;
   }
 
   /** Whether {@code time} prefers {@link java.time.LocalTime} over {@link java.sql.Time}. */
-  public boolean forTime() {
+  public boolean prefersLocalTime() {
     return forTime;
   }
 
   /** Whether {@code timetz} prefers {@link java.time.OffsetTime} over {@link java.sql.Time}. */
-  public boolean forTimetz() {
+  public boolean prefersOffsetTime() {
     return forTimetz;
   }
 
   /** Whether {@code timestamp} prefers {@link java.time.LocalDateTime} over {@link java.sql.Timestamp}. */
-  public boolean forTimestamp() {
+  public boolean prefersLocalDateTime() {
     return forTimestamp;
   }
 
   /**
    * Whether {@code timestamptz} prefers {@link java.time.OffsetDateTime} over {@link java.sql.Timestamp}.
    */
-  public boolean forTimestamptz() {
+  public boolean prefersOffsetDateTime() {
     return forTimestamptz;
   }
 
@@ -121,56 +121,58 @@ public final class JavaTimePreferences {
     }
 
     /**
-     * Sets whether {@code date} prefers {@link java.time.LocalDate}.
+     * Sets whether {@code date} prefers {@link java.time.LocalDate} over {@link java.sql.Date}.
      *
      * @param prefer true to prefer java.time
      * @return this builder
      */
-    public Builder date(boolean prefer) {
+    public Builder prefersLocalDate(boolean prefer) {
       this.forDate = prefer;
       return this;
     }
 
     /**
-     * Sets whether {@code time} prefers {@link java.time.LocalTime}.
+     * Sets whether {@code time} prefers {@link java.time.LocalTime} over {@link java.sql.Time}.
      *
      * @param prefer true to prefer java.time
      * @return this builder
      */
-    public Builder time(boolean prefer) {
+    public Builder prefersLocalTime(boolean prefer) {
       this.forTime = prefer;
       return this;
     }
 
     /**
-     * Sets whether {@code timetz} prefers {@link java.time.OffsetTime}.
+     * Sets whether {@code timetz} prefers {@link java.time.OffsetTime} over {@link java.sql.Time}.
      *
      * @param prefer true to prefer java.time
      * @return this builder
      */
-    public Builder timetz(boolean prefer) {
+    public Builder prefersOffsetTime(boolean prefer) {
       this.forTimetz = prefer;
       return this;
     }
 
     /**
-     * Sets whether {@code timestamp} prefers {@link java.time.LocalDateTime}.
+     * Sets whether {@code timestamp} prefers {@link java.time.LocalDateTime} over
+     * {@link java.sql.Timestamp}.
      *
      * @param prefer true to prefer java.time
      * @return this builder
      */
-    public Builder timestamp(boolean prefer) {
+    public Builder prefersLocalDateTime(boolean prefer) {
       this.forTimestamp = prefer;
       return this;
     }
 
     /**
-     * Sets whether {@code timestamptz} prefers {@link java.time.OffsetDateTime}.
+     * Sets whether {@code timestamptz} prefers {@link java.time.OffsetDateTime} over
+     * {@link java.sql.Timestamp}.
      *
      * @param prefer true to prefer java.time
      * @return this builder
      */
-    public Builder timestamptz(boolean prefer) {
+    public Builder prefersOffsetDateTime(boolean prefer) {
       this.forTimestamptz = prefer;
       return this;
     }

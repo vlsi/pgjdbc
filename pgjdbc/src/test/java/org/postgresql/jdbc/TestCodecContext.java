@@ -46,35 +46,35 @@ public final class TestCodecContext {
    * Creates a CodecContext that prefers {@link java.time.LocalDate} for {@code date}.
    */
   public static CodecContext preferringJavaTimeForDate() {
-    return create(JavaTimePreferences.builder().date(true).build());
+    return create(JavaTimePreferences.builder().prefersLocalDate(true).build());
   }
 
   /**
    * Creates a CodecContext that prefers {@link java.time.LocalTime} for {@code time}.
    */
   public static CodecContext preferringJavaTimeForTime() {
-    return create(JavaTimePreferences.builder().time(true).build());
+    return create(JavaTimePreferences.builder().prefersLocalTime(true).build());
   }
 
   /**
    * Creates a CodecContext that prefers {@link java.time.OffsetTime} for {@code timetz}.
    */
   public static CodecContext preferringJavaTimeForTimetz() {
-    return create(JavaTimePreferences.builder().timetz(true).build());
+    return create(JavaTimePreferences.builder().prefersOffsetTime(true).build());
   }
 
   /**
    * Creates a CodecContext that prefers {@link java.time.LocalDateTime} for {@code timestamp}.
    */
   public static CodecContext preferringJavaTimeForTimestamp() {
-    return create(JavaTimePreferences.builder().timestamp(true).build());
+    return create(JavaTimePreferences.builder().prefersLocalDateTime(true).build());
   }
 
   /**
    * Creates a CodecContext that prefers {@link java.time.OffsetDateTime} for {@code timestamptz}.
    */
   public static CodecContext preferringJavaTimeForTimestamptz() {
-    return create(JavaTimePreferences.builder().timestamptz(true).build());
+    return create(JavaTimePreferences.builder().prefersOffsetDateTime(true).build());
   }
 
   /**

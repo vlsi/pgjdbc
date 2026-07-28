@@ -40,7 +40,7 @@ public final class TimeCodec implements StreamingBinaryCodec, TextCodec {
   @Override
   public @Nullable Object decodeBinary(byte[] data, int offset, int length, TypeDescriptor type,
       CodecContext ctx) throws SQLException {
-    if (ctx.getJavaTimePreferences().forTime()) {
+    if (ctx.getJavaTimePreferences().prefersLocalTime()) {
       return TemporalCodecs.decodeLocalTimeBin(data, offset, length, ctx);
     }
     return TemporalCodecs.decodeTimeBin(data, offset, length, ctx);
@@ -60,7 +60,7 @@ public final class TimeCodec implements StreamingBinaryCodec, TextCodec {
   @Override
   public @Nullable Object decodeText(CharSequence data, TypeDescriptor type, CodecContext ctx) throws SQLException {
     String text = data.toString();
-    if (ctx.getJavaTimePreferences().forTime()) {
+    if (ctx.getJavaTimePreferences().prefersLocalTime()) {
       return TemporalCodecs.decodeLocalTimeText(text, ctx);
     }
     return TemporalCodecs.decodeTimeText(text, ctx);

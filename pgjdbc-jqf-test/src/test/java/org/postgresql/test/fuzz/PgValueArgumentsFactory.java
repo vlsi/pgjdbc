@@ -415,11 +415,11 @@ public final class PgValueArgumentsFactory implements ArgumentsGeneratorFactory 
     Class<?> targetClass =
         reader == SqlInputReader.READ_OBJECT_AS ? ReadOracle.TARGET_CLASSES[classIndex] : null;
     JavaTimePreferences prefs = JavaTimePreferences.builder()
-        .date(env.generate(Generator.booleans()))
-        .time(env.generate(Generator.booleans()))
-        .timetz(env.generate(Generator.booleans()))
-        .timestamp(env.generate(Generator.booleans()))
-        .timestamptz(env.generate(Generator.booleans()))
+        .prefersLocalDate(env.generate(Generator.booleans()))
+        .prefersLocalTime(env.generate(Generator.booleans()))
+        .prefersOffsetTime(env.generate(Generator.booleans()))
+        .prefersLocalDateTime(env.generate(Generator.booleans()))
+        .prefersOffsetDateTime(env.generate(Generator.booleans()))
         .build();
     // For numeric, half the cases stamp a column modifier numeric(p,s) on the field, so the reader
     // drives the rescale path (NumericCodec.applyTypmodScale) -- including a negative scale on PG15+ --

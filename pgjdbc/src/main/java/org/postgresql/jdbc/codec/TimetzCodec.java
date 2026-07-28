@@ -42,7 +42,7 @@ public final class TimetzCodec implements StreamingBinaryCodec, TextCodec {
   @Override
   public @Nullable Object decodeBinary(byte[] data, int offset, int length, TypeDescriptor type,
       CodecContext ctx) throws SQLException {
-    if (ctx.getJavaTimePreferences().forTimetz()) {
+    if (ctx.getJavaTimePreferences().prefersOffsetTime()) {
       return TemporalCodecs.decodeOffsetTimeBin(data, offset, length, ctx);
     }
     // timetz binary format is 12 bytes: 8 bytes for time + 4 bytes for timezone
@@ -63,7 +63,7 @@ public final class TimetzCodec implements StreamingBinaryCodec, TextCodec {
   @Override
   public @Nullable Object decodeText(CharSequence data, TypeDescriptor type, CodecContext ctx) throws SQLException {
     String text = data.toString();
-    if (ctx.getJavaTimePreferences().forTimetz()) {
+    if (ctx.getJavaTimePreferences().prefersOffsetTime()) {
       return TemporalCodecs.decodeOffsetTimeText(text, ctx);
     }
     return TemporalCodecs.decodeTimeText(text, ctx);

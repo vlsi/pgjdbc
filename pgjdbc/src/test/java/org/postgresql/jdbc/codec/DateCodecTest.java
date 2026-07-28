@@ -70,7 +70,7 @@ class DateCodecTest {
   // ==================== decodeText with java.time preference ====================
 
   @Test
-  void decodeText_prefersDate_whenFalse() throws SQLException {
+  void decodeText_prefersLocalDate_whenFalse() throws SQLException {
     Object result = codec.decodeText("2024-01-15", dateType, ctx);
 
     assertInstanceOf(Date.class, result);

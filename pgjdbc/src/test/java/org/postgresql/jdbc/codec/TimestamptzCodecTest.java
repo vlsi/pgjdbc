@@ -63,7 +63,7 @@ class TimestamptzCodecTest {
   // ==================== decodeText with java.time preference ====================
 
   @Test
-  void decodeText_prefersTimestamp_whenFalse() throws SQLException {
+  void decodeText_prefersOffsetDateTime_whenFalse() throws SQLException {
     Object result = codec.decodeText("2024-01-15 10:30:00+00", timestamptzType, ctx);
 
     assertInstanceOf(Timestamp.class, result);

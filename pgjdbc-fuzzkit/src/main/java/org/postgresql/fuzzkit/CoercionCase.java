@@ -94,11 +94,11 @@ public final class CoercionCase {
   public CoercionCase(ScalarDescriptor kind, Object value, SqlInputReader reader,
       @Nullable Class<?> targetClass, byte javaTimePreferences, int appliedTypmod) {
     this(kind, value, reader, targetClass, JavaTimePreferences.builder()
-        .date((javaTimePreferences & 0x01) != 0)
-        .time((javaTimePreferences & 0x02) != 0)
-        .timetz((javaTimePreferences & 0x04) != 0)
-        .timestamp((javaTimePreferences & 0x08) != 0)
-        .timestamptz((javaTimePreferences & 0x10) != 0)
+        .prefersLocalDate((javaTimePreferences & 0x01) != 0)
+        .prefersLocalTime((javaTimePreferences & 0x02) != 0)
+        .prefersOffsetTime((javaTimePreferences & 0x04) != 0)
+        .prefersLocalDateTime((javaTimePreferences & 0x08) != 0)
+        .prefersOffsetDateTime((javaTimePreferences & 0x10) != 0)
         .build(), appliedTypmod);
   }
 

@@ -56,7 +56,7 @@ class TimeCodecTest {
   // ==================== decodeText with java.time preference ====================
 
   @Test
-  void decodeText_prefersTime_whenFalse() throws SQLException {
+  void decodeText_prefersLocalTime_whenFalse() throws SQLException {
     Object result = codec.decodeText("10:30:00", timeType, ctx);
 
     assertInstanceOf(Time.class, result);

@@ -45,7 +45,7 @@ public final class TimestampCodec implements StreamingBinaryCodec, TextCodec {
   public @Nullable Object decodeBinary(byte[] data, int offset, int length, TypeDescriptor type,
       CodecContext ctx) throws SQLException {
     // Check connection property for default type
-    if (ctx.getJavaTimePreferences().forTimestamp()) {
+    if (ctx.getJavaTimePreferences().prefersLocalDateTime()) {
       return TemporalCodecs.decodeLocalDateTimeBin(data, offset, length, ctx);
     }
     return TemporalCodecs.decodeTimestampBin(data, offset, length, false, ctx);
@@ -66,7 +66,7 @@ public final class TimestampCodec implements StreamingBinaryCodec, TextCodec {
   public @Nullable Object decodeText(CharSequence data, TypeDescriptor type, CodecContext ctx) throws SQLException {
     String text = data.toString();
     // Check connection property for default type
-    if (ctx.getJavaTimePreferences().forTimestamp()) {
+    if (ctx.getJavaTimePreferences().prefersLocalDateTime()) {
       return TemporalCodecs.decodeLocalDateTimeText(text, ctx);
     }
     return TemporalCodecs.decodeTimestampText(text, ctx);

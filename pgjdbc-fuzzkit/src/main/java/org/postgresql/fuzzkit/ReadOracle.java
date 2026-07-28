@@ -73,19 +73,19 @@ public final class ReadOracle {
   /** The connection config for a set of {@code javaTimePreferences} flags. */
   static Map<String, String> configFor(JavaTimePreferences javaTimePreferences) {
     Map<String, String> config = new HashMap<>();
-    if (javaTimePreferences.forDate()) {
+    if (javaTimePreferences.prefersLocalDate()) {
       config.put("prefersJavaTimeForDate", "true");
     }
-    if (javaTimePreferences.forTime()) {
+    if (javaTimePreferences.prefersLocalTime()) {
       config.put("prefersJavaTimeForTime", "true");
     }
-    if (javaTimePreferences.forTimetz()) {
+    if (javaTimePreferences.prefersOffsetTime()) {
       config.put("prefersJavaTimeForTimetz", "true");
     }
-    if (javaTimePreferences.forTimestamp()) {
+    if (javaTimePreferences.prefersLocalDateTime()) {
       config.put("prefersJavaTimeForTimestamp", "true");
     }
-    if (javaTimePreferences.forTimestamptz()) {
+    if (javaTimePreferences.prefersOffsetDateTime()) {
       config.put("prefersJavaTimeForTimestamptz", "true");
     }
     return config;

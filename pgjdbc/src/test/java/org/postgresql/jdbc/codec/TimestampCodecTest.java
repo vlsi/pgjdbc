@@ -76,7 +76,7 @@ class TimestampCodecTest {
   // ==================== decodeText with java.time preference ====================
 
   @Test
-  void decodeText_prefersTimestamp_whenFalse() throws SQLException {
+  void decodeText_prefersLocalDateTime_whenFalse() throws SQLException {
     Object result = codec.decodeText("2024-01-15 10:30:00", timestampType, ctx);
 
     assertInstanceOf(Timestamp.class, result);

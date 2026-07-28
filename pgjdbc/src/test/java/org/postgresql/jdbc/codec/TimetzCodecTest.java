@@ -60,7 +60,7 @@ class TimetzCodecTest {
   // ==================== decodeText with java.time preference ====================
 
   @Test
-  void decodeText_prefersTime_whenFalse() throws SQLException {
+  void decodeText_prefersOffsetTime_whenFalse() throws SQLException {
     Object result = codec.decodeText("10:30:00+00", timetzType, ctx);
 
     assertInstanceOf(Time.class, result);

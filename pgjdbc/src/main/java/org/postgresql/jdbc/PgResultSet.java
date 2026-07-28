@@ -337,27 +337,27 @@ public class PgResultSet implements ResultSet, PGRefCursorResultSet {
       case Types.LONGVARCHAR:
         return getString(columnIndex);
       case Types.DATE:
-        if (connection.getCodecContext().getJavaTimePreferences().forDate()) {
+        if (connection.getCodecContext().getJavaTimePreferences().prefersLocalDate()) {
           return decodeViaCodec(columnIndex);
         }
         return getDate(columnIndex);
       case Types.TIME:
-        if (connection.getCodecContext().getJavaTimePreferences().forTime()) {
+        if (connection.getCodecContext().getJavaTimePreferences().prefersLocalTime()) {
           return decodeViaCodec(columnIndex);
         }
         return getTime(columnIndex);
       case Types.TIME_WITH_TIMEZONE:
-        if (connection.getCodecContext().getJavaTimePreferences().forTimetz()) {
+        if (connection.getCodecContext().getJavaTimePreferences().prefersOffsetTime()) {
           return decodeViaCodec(columnIndex);
         }
         return getTime(columnIndex);
       case Types.TIMESTAMP:
-        if (connection.getCodecContext().getJavaTimePreferences().forTimestamp()) {
+        if (connection.getCodecContext().getJavaTimePreferences().prefersLocalDateTime()) {
           return decodeViaCodec(columnIndex);
         }
         return getTimestamp(columnIndex, null);
       case Types.TIMESTAMP_WITH_TIMEZONE:
-        if (connection.getCodecContext().getJavaTimePreferences().forTimestamptz()) {
+        if (connection.getCodecContext().getJavaTimePreferences().prefersOffsetDateTime()) {
           return decodeViaCodec(columnIndex);
         }
         return getTimestamp(columnIndex, null);
