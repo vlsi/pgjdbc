@@ -96,6 +96,12 @@ To connect, you need to get a `Connection` instance from JDBC. To do this, you u
 ### System Properties
 `pgjdbc.config.cleanup.thread.ttl` (milliseconds, default: 30000). The driver has an internal cleanup thread which monitors and cleans up unclosed connections. This property sets the duration the cleanup thread will keep running if there is nothing to clean up.
 
+`pgjdbc.protocolHardeningMode` (`fail` | `disable`, default: `fail`). The driver bounds the length of every message the backend sends. Where the protocol itself fixes no maximum, the driver applies a ceiling of its own. A ceiling that varies with the workload is an ordinary connection property, listed under Connection Parameters below; `RowDescription` and the pre-authentication token messages get a fixed ceiling instead, since neither varies with the workload.
+
+This property is the escape hatch for those ceilings as a group: `fail` closes the connection when one is exceeded, `disable` skips them entirely. Raising the individual property is almost always the better answer, since it keeps the remaining ceilings in force; reach for `disable` only as a temporary workaround while a false positive is investigated, and please [file an issue](https://github.com/pgjdbc/pgjdbc/issues) when you do.
+
+The ceilings that apply before authentication answer to their property but not to this one: `disable` does not switch them off, because the peer has proved nothing yet. Checks that catch a value no conforming backend can send — an envelope that disagrees with the bytes read, a negative count, a field that overruns its row — always close the connection too, and no configuration relaxes them. This property is read once when the driver class loads and applies to every connection in the JVM; it is deliberately not available in the JDBC URL, so that a connection string cannot be used to switch the checks off.
+
 ### Connection Parameters
 
 In addition to the standard connection parameters the driver supports a number of additional properties which can be used to specify additional driver behaviour specific to PostgreSQL®. These properties may be specified in either the connection
