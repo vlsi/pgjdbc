@@ -1858,6 +1858,14 @@ public abstract class BaseDataSource implements CommonDataSource, Referenceable 
     PGProperty.MAX_RESULT_BUFFER.set(properties, maxResultBuffer);
   }
 
+  public @Nullable String getMaxServerTextMessageSize() {
+    return PGProperty.MAX_SERVER_TEXT_MESSAGE_SIZE.getOrDefault(properties);
+  }
+
+  public void setMaxServerTextMessageSize(@Nullable String maxServerTextMessageSize) {
+    PGProperty.MAX_SERVER_TEXT_MESSAGE_SIZE.set(properties, maxServerTextMessageSize);
+  }
+
   public boolean getAdaptiveFetch() {
     return PGProperty.ADAPTIVE_FETCH.getBoolean(properties);
   }

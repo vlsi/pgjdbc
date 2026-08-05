@@ -11,15 +11,37 @@ import java.nio.charset.StandardCharsets;
 /**
  * Builders for backend messages in their wire form, for tests that feed a canned byte
  * script to the driver instead of talking to a server.
+ *
+ * <p>{@link #message(char, byte[]...)} computes the self-inclusive length prefix, which is
+ * what a well-formed message carries. A test that needs a malformed one -- a length that
+ * contradicts the body -- states the length itself, with {@link #messageWithLength} or with
+ * {@link #bodyWithLength}.</p>
  */
 public final class PgWire {
 
   private PgWire() {
   }
 
+  /** A backend message: type byte, self-inclusive length, then the body. */
+  public static byte[] message(char type, byte[]... body) {
+    int bodyLength = 0;
+    for (byte[] part : body) {
+      bodyLength += part.length;
+    }
+    return messageWithLength(type, 4 + bodyLength, body);
+  }
+
   /**
-   * A message body preceded by a length prefix the test states rather than computes, so a
-   * script can declare one length and send another.
+   * A backend message whose length prefix is stated rather than computed, so a test can
+   * declare one length and send another.
+   */
+  public static byte[] messageWithLength(char type, int declaredLength, byte[]... body) {
+    return concat(int1(type), bodyWithLength(declaredLength, body));
+  }
+
+  /**
+   * The same as {@link #messageWithLength}, without the type byte, for a test that starts
+   * the driver at the length prefix rather than at the message type.
    */
   public static byte[] bodyWithLength(int declaredLength, byte[]... body) {
     return concat(int4(declaredLength), concat(body));
@@ -65,5 +87,64 @@ public final class PgWire {
       bytes[i] = (byte) i;
     }
     return bytes;
+  }
+
+  /**
+   * Counts the frontend messages of the given type in what the driver wrote. The startup
+   * packet carries no type byte, so it is skipped before the framed messages are walked.
+   *
+   * @param sent everything the driver wrote, starting with the startup packet
+   * @param type the frontend message type to count, for example {@code p} for a password
+   */
+  public static int countFrontendMessages(byte[] sent, char type) {
+    int pos = readInt4(sent, 0);
+    int count = 0;
+    while (pos + 5 <= sent.length) {
+      if (sent[pos] == (byte) type) {
+        count++;
+      }
+      pos += 1 + readInt4(sent, pos + 1);
+    }
+    return count;
+  }
+
+  private static int readInt4(byte[] bytes, int offset) {
+    return (bytes[offset] & 0xff) << 24 | (bytes[offset + 1] & 0xff) << 16
+        | (bytes[offset + 2] & 0xff) << 8 | bytes[offset + 3] & 0xff;
+  }
+
+  public static byte[] authenticationOk() {
+    return message('R', int4(0));
+  }
+
+  public static byte[] authenticationCleartextPassword() {
+    return message('R', int4(3));
+  }
+
+  public static byte[] parameterStatus(String name, String value) {
+    return message('S', cstring(name), cstring(value));
+  }
+
+  public static byte[] backendKeyData(int pid, byte[] cancelKey) {
+    return message('K', int4(pid), cancelKey);
+  }
+
+  /** ReadyForQuery. {@code status} is {@code I}, {@code T} or {@code E}. */
+  public static byte[] readyForQuery(char status) {
+    return message('Z', int1(status));
+  }
+
+  /**
+   * The startup dialogue of a server that accepts the connection without asking for
+   * credentials. The reported version keeps the driver from running any setup query.
+   */
+  public static byte[] successfulStartup() {
+    return concat(
+        authenticationOk(),
+        parameterStatus("server_version", "17.0"),
+        parameterStatus("client_encoding", "UTF8"),
+        parameterStatus("standard_conforming_strings", "on"),
+        backendKeyData(4711, filler(4)),
+        readyForQuery('I'));
   }
 }

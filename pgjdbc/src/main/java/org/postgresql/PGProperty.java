@@ -482,6 +482,18 @@ public enum PGProperty {
       "Maximum amount of bytes buffered before sending to the backend"),
 
   /**
+   * Upper bound on a backend message whose body is server-generated text: ErrorResponse,
+   * NoticeResponse, CommandComplete, ParameterStatus and NotificationResponse. The protocol
+   * fixes no maximum for these, so the default is the driver's own 64 MB. Raise it if the
+   * backend legitimately sends larger notices or error details. Sizes are parsed with decimal
+   * suffixes, so {@code 64M} is 64 000 000 bytes.
+   */
+  MAX_SERVER_TEXT_MESSAGE_SIZE(
+      "maxServerTextMessageSize",
+      null,
+      "Specifies the largest ErrorResponse, NoticeResponse, CommandComplete, ParameterStatus or NotificationResponse the driver will accept. Can be specified as a size or a percent of heap memory."),
+
+  /**
    * Specify 'options' connection initialization parameter.
    * The value of this parameter may contain spaces and other special characters or their URL representation.
    */

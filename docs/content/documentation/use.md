@@ -507,6 +507,9 @@ A limit during setting of property is 90% of max heap memory. All given values, 
 will be lowered to the limit. By default, maxResultBuffer is not set (is null), which means that reading of results will
 be performed without limits.
 
+* **`maxServerTextMessageSize (`*String*`)`** *Default `null`*\
+Specifies the largest `ErrorResponse`, `NoticeResponse`, `CommandComplete`, `ParameterStatus` or `NotificationResponse` the driver will accept, in the same styles `maxResultBuffer` accepts. When unset, the driver applies a built-in ceiling of 64 MB. The protocol fixes no maximum for these, and libpq applies none either — they sit in its `VALID_LONG_MESSAGE_TYPE` set, which exempts them from its own 30000-byte limit. Raise this if your server emits larger `RAISE NOTICE` payloads or error details.
+
 * **`adaptiveFetch (`*boolean*`)`** *Default `false`*\
 Specifies if the number of rows, fetched in `ResultSet` per request from the database, should be dynamic.
 Using dynamic number of rows, computed by adaptive fetch, will attempt to use maximize the use of the buffer declared in 
