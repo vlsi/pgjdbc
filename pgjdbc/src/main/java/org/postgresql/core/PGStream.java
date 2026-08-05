@@ -193,6 +193,7 @@ public class PGStream implements Closeable, Flushable {
     // The new VisibleBufferedInputStream starts its byte counter at zero, so an envelope
     // captured against the previous stream would point at an unrelated absolute position.
     resetMessageTracker();
+    markMessageBoundary();
   }
 
   private long nextStreamAvailableCheckTime;
@@ -275,6 +276,22 @@ public class PGStream implements Closeable, Flushable {
   private long messageEndPosition = -1;
 
   /**
+   * Stream position at which the backend dialogue is known to sit on a message boundary.
+   * Advanced by {@link #endMessage()} once an envelope has been consumed exactly, and by
+   * {@link #markMessageBoundary()} where the dialogue steps outside message framing (the
+   * SSL and GSS encryption negotiations). Compared against the current position by
+   * {@link #receiveMessageType()}.
+   */
+  private long messageBoundaryPosition;
+
+  /**
+   * Name of the message that {@link #endMessage()} last closed, quoted by the
+   * message-boundary check so the failure names the reader that left the stream misplaced.
+   * {@code null} until the first message has been read.
+   */
+  private @Nullable String lastMessageName;
+
+  /**
    * Captures the name and declared length of a message that has just been read by
    * {@link #readMessageLength(String, int)} / {@link #readFixedMessageLength(String, int)},
    * so subsequent bounded-string reads and {@link #endMessage()} can quote them in error
@@ -331,6 +348,58 @@ public class PGStream implements Closeable, Flushable {
           "Protocol error. {0} message was read {1} bytes past its declared envelope.",
           name, String.valueOf(actual - expected))));
     }
+    messageBoundaryPosition = actual;
+    lastMessageName = name;
+  }
+
+  /**
+   * Declares that the stream sits on a backend message boundary, so the next
+   * {@link #receiveMessageType()} accepts the current position.
+   *
+   * <p>Reserved for the parts of the dialogue that are not message-framed: the SSL and GSS
+   * encryption negotiations answer a request packet with a bare byte or with a length
+   * prefix that counts only the payload, so neither goes through
+   * {@link #readMessageLength(String, int)} and neither leaves an envelope for
+   * {@link #endMessage()} to close. Call it where the framed dialogue resumes. Regular
+   * message readers must not: for them the boundary is what the check exists to prove.</p>
+   */
+  public void markMessageBoundary() {
+    messageBoundaryPosition = pgInput.getPosition();
+  }
+
+  /**
+   * Rejects a stream that does not sit where the preceding message ended, since the byte
+   * about to be read as a message type would come from the middle of the wire.
+   *
+   * <p>Three situations reach this point, and each names a different culprit. A body left
+   * partly unread means the read was interrupted, and the usual cause is a connection that
+   * failed mid-message: the driver must not run another query over it, which is what it
+   * used to do. A body read in full with the envelope still open means the reader skipped
+   * {@link #endMessage()}. No envelope at all means the reader consumed its length or its
+   * body outside the bounded API. The last two are driver bugs, not wire corruption: a
+   * reader that uses the API lands on the boundary whatever the server sent, since a
+   * server-supplied length that disagrees with the bytes on the wire is rejected by
+   * {@code endMessage()} first.</p>
+   */
+  private void checkMessageBoundary() throws IOException {
+    long position = pgInput.getPosition();
+    if (position == messageBoundaryPosition) {
+      return;
+    }
+    if (messageEndPosition >= 0) {
+      if (position < messageEndPosition) {
+        throw markBroken(new IOException(GT.tr(
+            "Protocol error. Reading the {0} message stopped with {1} bytes of its body unread, so the connection is no longer positioned on a message boundary.",
+            currentMessageNameForError(), String.valueOf(messageEndPosition - position))));
+      }
+      throw markBroken(new IOException(GT.tr(
+          "Protocol error. The {0} message was read without a closing endMessage call, which is a pgjdbc defect.",
+          currentMessageNameForError())));
+    }
+    throw markBroken(new IOException(GT.tr(
+        "Protocol error. The stream is {0} bytes away from the end of the {1} message, so the next byte is not a message type. Read every backend message through readMessageLength or readFixedMessageLength, and close it with endMessage.",
+        String.valueOf(Math.abs(position - messageBoundaryPosition)),
+        lastMessageName == null ? "preceding" : lastMessageName)));
   }
 
   /**
@@ -685,6 +754,7 @@ public class PGStream implements Closeable, Flushable {
     // Same reasoning as in setSecContext: the replacement stream restarts its byte counter,
     // so any envelope endpoint captured against the old one is meaningless now.
     resetMessageTracker();
+    markMessageBoundary();
     int sendBufferSize = Math.min(maxSendBufferSize, Math.max(8192, socket.getSendBufferSize()));
     pgOutput = new PgBufferedOutputStream(connection.getOutputStream(), sendBufferSize);
 
@@ -865,6 +935,22 @@ public class PGStream implements Closeable, Flushable {
       throw new EOFException();
     }
     return c;
+  }
+
+  /**
+   * Receives the one-byte type tag that opens a backend message.
+   *
+   * <p>A reader that dispatches on a backend message type must take the tag from here, not from
+   * {@link #receiveChar()}. That is what makes the envelope rule self-enforcing at run time: the
+   * tag is only in the right place if the preceding message closed its envelope.</p>
+   *
+   * @return the message type tag
+   * @throws IOException if an I/O error occurs, or if the stream is not positioned on a
+   *         message boundary
+   */
+  public int receiveMessageType() throws IOException {
+    checkMessageBoundary();
+    return receiveChar();
   }
 
   /**

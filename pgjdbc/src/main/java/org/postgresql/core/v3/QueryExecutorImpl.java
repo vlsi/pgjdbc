@@ -947,7 +947,7 @@ public class QueryExecutorImpl extends QueryExecutorBase {
           if (useTimeout && timeoutMillis >= 0) {
             setSocketTimeout(timeoutMillis);
           }
-          int c = pgStream.receiveChar();
+          int c = pgStream.receiveMessageType();
           if (useTimeout && timeoutMillis >= 0) {
             setSocketTimeout(0); // Don't timeout after first char
           }
@@ -1007,7 +1007,7 @@ public class QueryExecutorImpl extends QueryExecutorBase {
     byte[] returnValue = null;
 
     while (!endQuery) {
-      int c = pgStream.receiveChar();
+      int c = pgStream.receiveMessageType();
       switch (c) {
         case PgMessageType.ASYNCHRONOUS_NOTICE:
           receiveAsyncNotify();
@@ -1469,7 +1469,7 @@ public class QueryExecutorImpl extends QueryExecutorBase {
           }
         }
 
-        int c = pgStream.receiveChar();
+        int c = pgStream.receiveMessageType();
         switch (c) {
 
           case PgMessageType.ASYNCHRONOUS_NOTICE:
@@ -2431,7 +2431,7 @@ public class QueryExecutorImpl extends QueryExecutorBase {
     boolean doneAfterRowDescNoData = false;
 
     while (!endQuery) {
-      c = pgStream.receiveChar();
+      c = pgStream.receiveMessageType();
       switch (c) {
         case 'A': // Asynchronous Notify
           receiveAsyncNotify();
@@ -3192,7 +3192,7 @@ public class QueryExecutorImpl extends QueryExecutorBase {
 
   public void readStartupMessages() throws IOException, SQLException {
     for (int i = 0; i < 1000; i++) {
-      int beresp = pgStream.receiveChar();
+      int beresp = pgStream.receiveMessageType();
       switch (beresp) {
         case PgMessageType.READY_FOR_QUERY_RESPONSE:
           receiveRFQ();

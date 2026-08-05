@@ -19,6 +19,8 @@ import static org.postgresql.test.util.PgWire.filler;
 import static org.postgresql.test.util.PgWire.int1;
 import static org.postgresql.test.util.PgWire.int2;
 import static org.postgresql.test.util.PgWire.int4;
+import static org.postgresql.test.util.PgWire.message;
+import static org.postgresql.test.util.PgWire.parameterStatus;
 import static org.postgresql.test.util.PgWire.text;
 
 import org.postgresql.test.util.InMemorySocketFactory;
@@ -479,6 +481,26 @@ class ProtocolHardeningModeTest {
   }
 
   @Test
+  void fixedMessageLengthOpensAnEnvelopeOnTheDeclaredLength() throws IOException {
+    // The positive half of the check: a matching length starts an envelope, so the
+    // boundary tracker accepts the next message type. Without it, a mutation that drops
+    // the beginMessage call from readFixedMessageLength would go unnoticed.
+    byte[] data = concat(
+        message('1'),                 // ParseComplete, no body
+        parameterStatus("k", "v"));   // the message that follows it
+
+    PGStream pgStream = newStream(data);
+    assertEquals('1', pgStream.receiveMessageType());
+    pgStream.readFixedMessageLength("ParseComplete", 4);
+    pgStream.endMessage();
+
+    assertEquals('S', pgStream.receiveMessageType(),
+        "A fixed-length message read through the bounded API must leave the stream "
+            + "on a boundary");
+    assertFalse(pgStream.isClosed());
+  }
+
+  @Test
   void endMessageEnvelopeMismatchIsUnconditional() throws IOException {
     // A DataRow that declares 12 bytes and carries no field. receiveTupleV3 reads only the
     // 6 bytes of length and field count; endMessage then compares actual against declared
@@ -704,6 +726,109 @@ class ProtocolHardeningModeTest {
     pgStream.endMessage();
     assertFalse(pgStream.isClosed(),
         "readUntrackedLength must not leave a stale envelope for endMessage to trip on");
+  }
+
+  /**
+   * Two back-to-back ParameterStatus messages, each declaring {@code k=v}. Used by the
+   * message-boundary tests, which differ only in how much of the first message they read
+   * before asking for the second message's type.
+   */
+  private static byte[] twoParameterStatusMessages() {
+    return concat(parameterStatus("k", "v"), parameterStatus("k", "v"));
+  }
+
+  @Test
+  void messageBoundaryAcceptsAFullyBracketedRead() throws IOException {
+    // The baseline the rejecting message-boundary cases are measured against: declare the
+    // envelope, read the body, close the envelope, and the next message type is accepted.
+    PGStream pgStream = newStream(twoParameterStatusMessages());
+
+    assertEquals('S', pgStream.receiveMessageType());
+    assertEquals(8, pgStream.readMessageLength("ParameterStatus", 6));
+    assertEquals("k", pgStream.receiveString());
+    assertEquals("v", pgStream.receiveString());
+    pgStream.endMessage();
+
+    assertEquals('S', pgStream.receiveMessageType(),
+        "A message read through the bounded API must leave the stream on a boundary");
+    assertFalse(pgStream.isClosed());
+  }
+
+  @Test
+  void messageBoundaryRejectsAnInterruptedBody() throws IOException {
+    // What a connection failure mid-message looks like from the next query's point of
+    // view: two body bytes never arrived, so the bytes that follow are body rather than a
+    // message header. Before this check the driver read on and served the caller garbage.
+    PGStream pgStream = newStream(twoParameterStatusMessages());
+
+    assertEquals('S', pgStream.receiveMessageType());
+    assertEquals(8, pgStream.readMessageLength("ParameterStatus", 6));
+    assertEquals("k", pgStream.receiveString());
+
+    IOException e = assertThrows(IOException.class, pgStream::receiveMessageType);
+    assertTrue(e.getMessage().contains("2 bytes of its body unread"),
+        "Expected the count of unread body bytes, got: " + e.getMessage());
+    assertTrue(e.getMessage().contains("ParameterStatus"),
+        "Expected the interrupted message to be named, got: " + e.getMessage());
+    assertTrue(pgStream.isClosed(),
+        "A stream that is no longer on a message boundary must not be reused");
+  }
+
+  @Test
+  void messageBoundaryRejectsAForgottenEndMessage() throws IOException {
+    // A reader that consumes its whole body but skips endMessage leaves the envelope open.
+    // Nothing is wrong with the wire here, so the message says so: it is a driver defect,
+    // and it surfaces on the very next message rather than silently much later.
+    PGStream pgStream = newStream(twoParameterStatusMessages());
+
+    assertEquals('S', pgStream.receiveMessageType());
+    assertEquals(8, pgStream.readMessageLength("ParameterStatus", 6));
+    assertEquals("k", pgStream.receiveString());
+    assertEquals("v", pgStream.receiveString());
+
+    IOException e = assertThrows(IOException.class, pgStream::receiveMessageType);
+    assertTrue(e.getMessage().contains("without a closing endMessage call"),
+        "Expected the missing endMessage to be named, got: " + e.getMessage());
+    assertTrue(pgStream.isClosed());
+  }
+
+  @Test
+  void messageBoundaryRejectsALengthReadOutsideTheApi() throws IOException {
+    // The regression this check exists for: a new message reader that takes its length
+    // from a raw receiveInteger4 gets neither a bound on the length nor an envelope, which
+    // is how the stream desyncs (issue #4015). No test of that reader is needed -- any test
+    // that drives the message at all now fails on the following message type.
+    PGStream pgStream = newStream(twoParameterStatusMessages());
+
+    assertEquals('S', pgStream.receiveMessageType());
+    assertEquals(8, pgStream.receiveInteger4());
+    assertEquals("k", pgStream.receiveString());
+    assertEquals("v", pgStream.receiveString());
+
+    IOException e = assertThrows(IOException.class, pgStream::receiveMessageType);
+    assertTrue(e.getMessage().contains("9 bytes away"),
+        "Expected the distance from the boundary, got: " + e.getMessage());
+    assertTrue(e.getMessage().contains("readMessageLength"),
+        "Expected the message to name the API to use, got: " + e.getMessage());
+    assertTrue(pgStream.isClosed());
+  }
+
+  @Test
+  void markMessageBoundaryCoversTheUnframedHandshake() throws IOException {
+    // The SSL and GSS encryption negotiations answer with a bare byte or with a length
+    // that counts only the payload, so neither leaves an envelope for endMessage to close.
+    // markMessageBoundary is how those paths declare that message framing resumes.
+    byte[] data = concat(
+        int1('N'),                    // SSLRequest refusal, unframed
+        parameterStatus("k", "v"));   // framed dialogue resumes
+
+    PGStream pgStream = newStream(data);
+    assertEquals('N', pgStream.receiveChar());
+    pgStream.markMessageBoundary();
+
+    assertEquals('S', pgStream.receiveMessageType(),
+        "markMessageBoundary must let the framed dialogue resume after an unframed reply");
+    assertFalse(pgStream.isClosed());
   }
 
   @Test

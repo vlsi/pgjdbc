@@ -614,8 +614,11 @@ public class ConnectionFactoryImpl extends ConnectionFactory {
     pgStream.sendInteger2(1234);
     pgStream.sendInteger2(5680);
     pgStream.flush();
-    // Now get the response from the backend, one of N, E, S.
+    // Now get the response from the backend, one of N, E, G.
+    // The GSSENCRequest reply is a bare byte rather than a framed message. This is where
+    // the framed dialogue resumes.
     int beresp = pgStream.receiveChar();
+    pgStream.markMessageBoundary();
     pgStream.setNetworkTimeout(currentTimeout);
     switch (beresp) {
       case 'E':
@@ -709,7 +712,9 @@ public class ConnectionFactoryImpl extends ConnectionFactory {
     pgStream.flush();
 
     // Now get the response from the backend, one of N, E, S.
+    // Same as the GSSENCRequest reply: a bare byte outside message framing.
     int beresp = pgStream.receiveChar();
+    pgStream.markMessageBoundary();
     pgStream.setNetworkTimeout(currentTimeout);
 
     switch (beresp) {
@@ -838,7 +843,7 @@ public class ConnectionFactoryImpl extends ConnectionFactory {
               String.valueOf(MAX_AUTH_ITERATIONS)),
               PSQLState.PROTOCOL_VIOLATION));
         }
-        int beresp = pgStream.receiveChar();
+        int beresp = pgStream.receiveMessageType();
 
         switch (beresp) {
           case PgMessageType.NEGOTIATE_PROTOCOL_RESPONSE:  // Negotiate Protocol Version
@@ -968,6 +973,12 @@ public class ConnectionFactoryImpl extends ConnectionFactory {
               case AUTH_REQ_GSS:
               case AUTH_REQ_SSPI:
                 AuthMethod.checkAuth(authMethods, areq == AUTH_REQ_GSS ? AuthMethod.GSS : AuthMethod.SSPI);
+                // The body is the request type and nothing else, and this case hands the
+                // stream to the GSS handshake, which reads whole messages of its own. Close
+                // the envelope here rather than at the end of the switch: by then the
+                // handshake has already read past it, and the boundary check rejects its
+                // first read. The endMessage after the switch is then a no-op.
+                pgStream.endMessage();
                 /*
                  * Use GSSAPI if requested on all platforms, via JSSE.
                  *
