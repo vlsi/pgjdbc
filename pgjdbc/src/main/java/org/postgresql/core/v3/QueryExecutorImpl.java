@@ -1558,11 +1558,18 @@ public class QueryExecutorImpl extends QueryExecutorBase {
 
             LOGGER.log(Level.FINEST, " <=BE CopyData");
 
-            len = pgStream.receiveInteger4() - 4;
-
-            assert len > 0 : "Copy Data length must be greater than 4";
+            // The protocol bounds nothing here -- CopyData carries user rows -- and
+            // pgStream.receive() below sizes its array straight from this length, which is
+            // what issue #4015 flags: a wire-supplied length driving the allocation.
+            // maxCopyDataSize bounds it, falling back to a soft 64 MB when the user has not
+            // set one. maxResultBuffer deliberately does not apply: it never has, and the
+            // COPY stream is not the result buffer it describes.
+            int copyDataLen = pgStream.readMessageLength("CopyData", 5);
+            pgStream.checkCopyDataSize(copyDataLen);
+            len = copyDataLen - 4;
 
             byte[] buf = pgStream.receive(len);
+            pgStream.endMessage();
             if (op == null) {
               error = new PSQLException(GT.tr("Got CopyData without an active copy operation"),
                   PSQLState.OBJECT_NOT_IN_STATE);

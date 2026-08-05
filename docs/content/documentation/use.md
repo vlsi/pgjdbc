@@ -507,6 +507,10 @@ A limit during setting of property is 90% of max heap memory. All given values, 
 will be lowered to the limit. By default, maxResultBuffer is not set (is null), which means that reading of results will
 be performed without limits.
 
+* **`maxCopyDataSize (`*String*`)`** *Default `null`*\
+Specifies the largest single `CopyData` message the driver will accept, in the same styles `maxResultBuffer` accepts (`100`, `150M`, `10p`), suffixes included. `CopyData` is how the backend delivers both `COPY ... TO STDOUT` output and logical or physical replication data, so this property bounds `PGReplicationStream` as well: a replication client that sets it too low will see its stream fail.\
+When unset, the driver applies a built-in ceiling of 64 MB (`DEFAULT_MAX_COPY_DATA_SIZE`, 64,000,000 bytes), and `pgjdbc.protocolHardeningMode=disable` skips it. When set, the driver enforces your value whatever the mode is, so `maxCopyDataSize=64M` keeps the same number and takes it out of the mode's hands. A message over whichever ceiling is in force fails the `COPY` and closes the connection. The ceiling exists because the protocol gives `CopyData` no maximum: the driver sizes the receiving array from the length the message declares, so without a bound one corrupt or hostile length becomes an out-of-memory error.
+
 * **`maxServerTextMessageSize (`*String*`)`** *Default `null`*\
 Specifies the largest `ErrorResponse`, `NoticeResponse`, `CommandComplete`, `ParameterStatus` or `NotificationResponse` the driver will accept, in the same styles `maxResultBuffer` accepts. When unset, the driver applies a built-in ceiling of 64 MB. The protocol fixes no maximum for these, and libpq applies none either — they sit in its `VALID_LONG_MESSAGE_TYPE` set, which exempts them from its own 30000-byte limit. Raise this if your server emits larger `RAISE NOTICE` payloads or error details.
 

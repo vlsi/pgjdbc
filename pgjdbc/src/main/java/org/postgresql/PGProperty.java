@@ -465,6 +465,17 @@ public enum PGProperty {
       "When connections that are not explicitly closed are garbage collected, log the stacktrace from the opening of the connection to trace the leak source"),
 
   /**
+   * Upper bound on a single CopyData message, which is also the unit the logical and
+   * physical replication streams arrive in. Unset by default, in which case the driver
+   * applies a built-in 64 MB ceiling governed by {@code pgjdbc.protocolHardeningMode}.
+   * Sizes are parsed with decimal suffixes, so {@code 64M} is 64 000 000 bytes.
+   */
+  MAX_COPY_DATA_SIZE(
+      "maxCopyDataSize",
+      null,
+      "Specifies the largest single CopyData message the driver will accept, which also bounds replication stream messages. Can be specified as a size or a percent of heap memory."),
+
+  /**
    * Specifies size of buffer during fetching result set. Can be specified as specified size or
    * percent of heap memory.
    */

@@ -22,6 +22,7 @@ import static org.postgresql.test.util.PgWire.text;
 import org.postgresql.test.util.InMemorySocketFactory;
 import org.postgresql.util.HostSpec;
 import org.postgresql.util.PSQLException;
+import org.postgresql.util.PSQLState;
 
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
@@ -506,6 +507,101 @@ class ProtocolHardeningModeTest {
       assertTrue(pgStream.isClosed(),
           "Envelope over-read must mark the stream broken in every mode, including " + mode);
     }
+  }
+
+  @Test
+  void copyDataUnderTheCeilingIsSilentInEveryMode() throws Exception {
+    // Every COPY row and every replication message goes through this check, so a ceiling that
+    // fires below its own limit would break COPY outright under FAIL. Deliberately covers the
+    // ordinary sizes, not the boundary: copyDataCapIsSoftByDefaultAndHardWhenConfigured passes
+    // lengths that are over the limit, which is exactly how a missing comparison slipped through.
+    for (ProtocolHardeningMode mode : ProtocolHardeningMode.values()) {
+      PGStream pgStream = newStream(new byte[0]);
+      pgStream.setProtocolHardeningMode(mode);
+      capture.records.clear();
+
+      for (int msgLen : new int[]{5, 6, 1024, PGStream.DEFAULT_MAX_COPY_DATA_SIZE}) {
+        pgStream.checkCopyDataSize(msgLen);
+      }
+
+      assertEquals(0, warningCount(),
+          "A CopyData within the ceiling must not be logged, in " + mode);
+      assertFalse(pgStream.isClosed(),
+          "A CopyData within the ceiling must not break the connection, in " + mode);
+    }
+
+    // Same for a configured limit.
+    PGStream pgStream = newStream(new byte[0]);
+    pgStream.setProtocolHardeningMode(ProtocolHardeningMode.FAIL);
+    pgStream.setMaxCopyDataSize("1M");
+    pgStream.checkCopyDataSize(1000000);
+    assertFalse(pgStream.isClosed(),
+        "A CopyData exactly at a configured maxCopyDataSize must pass");
+  }
+
+  @Test
+  void copyDataCapIsSoftByDefaultAndHardWhenConfigured() throws Exception {
+    int over = PGStream.DEFAULT_MAX_COPY_DATA_SIZE + 1;
+
+    // Unset property: the built-in ceiling applies, and DISABLE reads on.
+    for (ProtocolHardeningMode mode : ProtocolHardeningMode.values()) {
+      PGStream pgStream = newStream(new byte[0]);
+      pgStream.setProtocolHardeningMode(mode);
+
+      if (mode == ProtocolHardeningMode.FAIL) {
+        // A PSQLException rather than an IOException, so readFromCopy reports the ceiling
+        // by name instead of rewriting it into "Database connection failed when reading
+        // from copy".
+        PSQLException thrown = assertThrows(PSQLException.class,
+            () -> pgStream.checkCopyDataSize(over));
+        assertEquals(PSQLState.COMMUNICATION_ERROR.getState(), thrown.getSQLState());
+        assertTrue(thrown.getMessage().contains("maxCopyDataSize"),
+            "The message must name the property that raises the ceiling: "
+                + thrown.getMessage());
+        assertTrue(pgStream.isClosed(), "FAIL must mark the stream broken");
+        continue;
+      }
+
+      pgStream.checkCopyDataSize(over);
+      assertFalse(pgStream.isClosed(), "DISABLE must read on past the built-in ceiling");
+    }
+
+    // Configured property: the number is the user's own, so no mode overrides it. It also
+    // surfaces as a SQLException, so readFromCopy reports the limit by name instead of
+    // wrapping it in "Database connection failed when reading from copy".
+    for (ProtocolHardeningMode mode : ProtocolHardeningMode.values()) {
+      PGStream pgStream = newStream(new byte[0]);
+      pgStream.setProtocolHardeningMode(mode);
+      pgStream.setMaxCopyDataSize("1M");
+
+      PSQLException thrown = assertThrows(PSQLException.class,
+          () -> pgStream.checkCopyDataSize(2 * 1024 * 1024),
+          "A configured maxCopyDataSize must reject in every mode, including " + mode);
+      assertEquals(PSQLState.COMMUNICATION_ERROR.getState(), thrown.getSQLState());
+      assertTrue(thrown.getMessage().contains("maxCopyDataSize"),
+          "The error must name the setting that caused it: " + thrown.getMessage());
+      assertFalse(thrown.getMessage().contains(ProtocolHardeningMode.SYSTEM_PROPERTY),
+          "A user-configured limit must not advertise a knob that does not override it: "
+              + thrown.getMessage());
+      assertTrue(pgStream.isClosed());
+    }
+  }
+
+  @Test
+  void maxResultBufferDoesNotApplyToNonResultMessages() throws IOException, PSQLException {
+    // maxResultBuffer is documented as the size of the result buffer, so PGStream must apply
+    // it to DataRow and nothing else -- which is also what earlier driver versions did.
+    // Applying it to every message turned a small maxResultBuffer into a connection that
+    // could not even be established: the GSS handshake token alone may be 65532 bytes, and
+    // setMaxResultBuffer runs before the handshake does.
+    byte[] data = int4(1000);
+
+    PGStream pgStream = newStream(data);
+    pgStream.setMaxResultBuffer("100"); // bytes
+
+    assertEquals(1000, pgStream.readMessageLength("ParameterStatus", 6),
+        "maxResultBuffer must not bound a message that does not fill the result buffer");
+    assertFalse(pgStream.isClosed(), "The stream must stay usable");
   }
 
   @Test
