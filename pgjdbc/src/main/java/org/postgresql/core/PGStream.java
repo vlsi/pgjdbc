@@ -116,6 +116,22 @@ public class PGStream implements Closeable, Flushable {
   public static final int MAX_AUTHENTICATION_MESSAGE_SIZE = 8 + 8000;
 
   /**
+   * Largest row body the driver will pull off the wire and discard in order to keep a
+   * connection usable after a {@code maxResultBuffer} rejection. Skipping trades traffic and
+   * time for a live connection, and the trade only pays while the amount is small enough to
+   * be uninteresting -- 64 MB is under a second on any link a database runs over, and rows
+   * that big are already unusual. Above it, discarding could mean pulling up to
+   * {@link #MAX_MESSAGE_SIZE} per row for as many rows as the peer cares to send, and a
+   * length that far out is far likelier to be a desync than a fat row, so the connection is
+   * closed instead.
+   *
+   * <p>Decimal for the same reason as {@link #DEFAULT_MAX_COPY_DATA_SIZE}: an operator
+   * comparing this threshold against their own {@code maxResultBuffer} reads both in the
+   * units that property's parser uses.</p>
+   */
+  static final int MAX_RECOVERABLE_SKIP = 64_000_000;
+
+  /**
    * Ceiling pgjdbc applies to a single CopyData message when {@code maxCopyDataSize} is not
    * configured. CopyData carries user rows, so the driver cannot derive a bound from the
    * protocol; without one, {@code new byte[len]} takes its size straight off the wire, which is
@@ -197,6 +213,16 @@ public class PGStream implements Closeable, Flushable {
 
   /** Ceiling on server-generated text messages; see {@link #setMaxServerTextMessageSize(String)}. */
   private long maxServerTextMessageSize = DEFAULT_MAX_SERVER_TEXT_MESSAGE_SIZE;
+
+  /**
+   * Set once a row over {@code maxResultBuffer} has been reported, so the rest are skipped
+   * without raising a second exception. Cleared by {@link #clearOversizedRowReport()} on
+   * every ReadyForQuery, which makes the scope one Sync rather than one result set: a simple
+   * query that returns several result sets reports the first over-sized row across all of
+   * them. Harmless, because the exception fails the whole {@code execute()} before the later
+   * result sets are handed to the caller.
+   */
+  private boolean reportedOversizedRow;
 
   private int maxRowSizeBytes = -1;
 
@@ -1158,11 +1184,16 @@ public class PGStream implements Closeable, Flushable {
    * Read a tuple from the back end. A tuple is a two dimensional array of bytes. This variant reads
    * the V3 protocol's tuple representation.
    *
-   * @return tuple from the back end
+   * <p>The caller must surface the exception raised for the first over-sized row: a caller that
+   * swallows it and keeps the rows it did get hands the application a silently truncated result
+   * set.</p>
+   *
+   * @return tuple from the back end, or {@code null} when the row was skipped for exceeding
+   *         {@code maxResultBuffer} and the failure has already been reported
    * @throws IOException if a data I/O error occurs
    * @throws SQLException if read more bytes than set maxResultBuffer
    */
-  public Tuple receiveTupleV3() throws IOException, OutOfMemoryError, SQLException {
+  public @Nullable Tuple receiveTupleV3() throws IOException, OutOfMemoryError, SQLException {
     // DataRow envelope: 4 (self) + 2 (nf) + nf * 4 (per-field lengths), minimum 6.
     int messageSize = readMessageLength("DataRow", 6);
     // The backend sends nf as a signed int16, so cast receiveInteger2()'s unsigned result
@@ -1184,6 +1215,47 @@ public class PGStream implements Closeable, Flushable {
           "Protocol error. DataRow field count {0} requires at least {1} bytes for per-field length prefixes, but message size is only {2}.",
           String.valueOf(nf), String.valueOf(4 * nf), String.valueOf(messageSize))));
     }
+    if (maxResultBuffer > 0 && dataToReadSize > maxResultBuffer) {
+      // A user-configured resource limit, not a protocol violation, so this does not go
+      // through markBroken: none of the row body has been read, the envelope says exactly
+      // how much of it there is, and skipping that much puts the reader back on a message
+      // boundary. The query still fails -- processResults hands the exception to the
+      // handler and handleCompletion rethrows it -- but the connection survives, so an
+      // application that retries with a smaller fetchSize does not need a new one.
+      //
+      // Recovery is only worth it while the amount to discard stays small; see
+      // MAX_RECOVERABLE_SKIP. Every over-sized row in a result set gets skipped, not just
+      // the first: a rule that closed the connection on the second one would fire on an
+      // ordinary query over a table with two wide rows, and the caller would see the
+      // recoverable message from the first row while holding a dead connection -- the
+      // handler keeps the first exception and rethrows that one from handleCompletion.
+      long unreadBody = messageSize - 6L;
+      if (unreadBody > MAX_RECOVERABLE_SKIP) {
+        throw markBroken(new PSQLException(GT.tr(
+            "Result set exceeded maxResultBuffer limit. A row of {0} bytes against a limit of {1} cannot be skipped, so the connection is closed.",
+            String.valueOf(unreadBody), String.valueOf(maxResultBuffer)),
+            PSQLState.COMMUNICATION_ERROR));
+      }
+      skip((int) unreadBody);
+      endMessage();
+      if (reportedOversizedRow) {
+        // Already reported. Raising one exception per skipped row would
+        // grow ResultHandlerBase's chain without bound -- each link carries a stack trace,
+        // roughly a kilobyte held until the query ends -- and a wide enough result set would
+        // exhaust the heap while reporting that the driver refused to spend the heap. The
+        // query still fails: handleCompletion rethrows the first exception, which is the one
+        // the caller wants anyway.
+        return null;
+      }
+      reportedOversizedRow = true;
+      throw new PSQLException(GT.tr(
+          "Result set exceeded maxResultBuffer limit. A single row of {0} bytes exceeds the limit of {1}.",
+          String.valueOf(dataToReadSize), String.valueOf(maxResultBuffer)),
+          PSQLState.COMMUNICATION_ERROR);
+    }
+    // Deliberately after the maxResultBuffer check, so a rejected row feeds neither the
+    // adaptive-fetch row-size estimate (no fetchSize makes a single over-sized row fit) nor
+    // the cumulative counter (its bytes were skipped, not buffered).
     setMaxRowSizeBytes(dataToReadSize);
 
     byte[][] answer = new byte[nf][];
@@ -1483,6 +1555,16 @@ public class PGStream implements Closeable, Flushable {
    */
   public void clearResultBufferCount() {
     resultBufferByteCount = 0;
+  }
+
+  /**
+   * Re-arms the report of a row over {@code maxResultBuffer}, so the next Sync raises its own
+   * exception rather than skipping in silence. A reader that consumes a ReadyForQuery must call
+   * this, since ReadyForQuery is the boundary the flag is scoped to; it cannot ride along in
+   * {@link #clearResultBufferCount()}, which runs only for simple-query executes.
+   */
+  public void clearOversizedRowReport() {
+    reportedOversizedRow = false;
   }
 
   public @Nullable ProtocolVersion getProtocolVersion() {

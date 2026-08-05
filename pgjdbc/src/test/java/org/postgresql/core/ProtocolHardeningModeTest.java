@@ -7,6 +7,8 @@ package org.postgresql.core;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -316,6 +318,59 @@ class ProtocolHardeningModeTest {
   }
 
   @Test
+  void maxResultBufferOverrunSkipsRowAndKeepsConnection() throws Exception {
+    // readMessageLength reads a 4-byte length and rejects it against maxResultBuffer. Three
+    // DataRows: one over the limit, one small enough to pass, and a second over-sized one.
+    // The check runs before any of a row's body is read, so the reader can skip the
+    // over-sized ones and stay on a message boundary either way.
+    byte[] data = concat(
+        bodyWithLength(20, int2(0), filler(14)),   // over the limit
+        bodyWithLength(6, int2(0)),                // small enough to pass
+        bodyWithLength(20, int2(0), filler(14)));  // over the limit again
+
+    for (ProtocolHardeningMode mode : ProtocolHardeningMode.values()) {
+      PGStream pgStream = newStream(data);
+      pgStream.setProtocolHardeningMode(mode);
+      pgStream.setMaxResultBuffer("10"); // bytes
+
+      // maxResultBuffer is a user-configured resource limit, not a protocol violation, so
+      // it must reach the caller as the SQLException that QueryExecutorImpl's
+      // catch (SQLException) hands to the result handler -- not as an IOException that
+      // escapes processResults and is reported as "An I/O error occurred while sending to
+      // the backend".
+      PSQLException thrown = assertThrows(PSQLException.class, pgStream::receiveTupleV3,
+          "maxResultBuffer overrun must throw in every mode, including " + mode);
+      assertEquals(PSQLState.COMMUNICATION_ERROR.getState(), thrown.getSQLState(),
+          "The SQLState must match the one increaseByteCounter raises for the cumulative "
+              + "case, so one setting reports itself one way: " + thrown.getMessage());
+      assertTrue(thrown.getMessage().contains("maxResultBuffer"),
+          "Thrown message must name the maxResultBuffer overrun: " + thrown.getMessage());
+      assertFalse(thrown.getMessage().contains(ProtocolHardeningMode.SYSTEM_PROPERTY),
+          "Unconditional-check message must not advertise a silence knob: " + thrown.getMessage());
+
+      // The over-sized row was skipped rather than half-read, so the connection survives
+      // and the next row still parses. An application that retries with a smaller
+      // fetchSize does not need a new connection.
+      assertFalse(pgStream.isClosed(),
+          "A resource limit must not break the connection in " + mode);
+      Tuple next = pgStream.receiveTupleV3();
+      assertNotNull(next,
+          "A row within the limit is returned normally, whether or not an earlier one was "
+              + "skipped; mode " + mode);
+      assertEquals(0, next.fieldCount(),
+          "The reader must be back on a message boundary in " + mode);
+
+      // The second over-sized row is skipped too, but without a second exception: chaining
+      // one per rejected row would grow ResultHandlerBase's chain without bound. null is how
+      // that is signalled, and QueryExecutorImpl drops it rather than adding a row.
+      assertNull(pgStream.receiveTupleV3(),
+          "A second over-sized row is skipped in silence; mode " + mode);
+      assertFalse(pgStream.isClosed(),
+          "Skipping in silence must not break the connection either, in " + mode);
+    }
+  }
+
+  @Test
   void cStringBudgetOverrunMarksBroken() throws IOException {
     // Declare a tight envelope (msgSize = 12, so body budget = 8 bytes) and feed
     // 9 readable body bytes without a NUL. scanBoundedCStringLength caps the scan
@@ -507,6 +562,28 @@ class ProtocolHardeningModeTest {
       assertTrue(pgStream.isClosed(),
           "Envelope over-read must mark the stream broken in every mode, including " + mode);
     }
+  }
+
+  @Test
+  void maxResultBufferOverrunTooLargeToSkipClosesConnection() throws Exception {
+    // Skipping an over-sized row keeps the connection alive, but only while the amount to
+    // discard stays small. One byte past the ceiling would mean pulling that much off the
+    // wire per row, for as many rows as the peer sends, so the driver stops rather than
+    // paying it. Derived from the constant so the two cannot drift apart.
+    int messageSize = PGStream.MAX_RECOVERABLE_SKIP + 7;
+    byte[] data = bodyWithLength(messageSize, int2(0));
+
+    PGStream pgStream = newStream(data);
+    pgStream.setMaxResultBuffer("10");
+
+    PSQLException thrown = assertThrows(PSQLException.class, pgStream::receiveTupleV3);
+    assertEquals(PSQLState.COMMUNICATION_ERROR.getState(), thrown.getSQLState());
+    assertTrue(thrown.getMessage().contains("cannot be skipped"),
+        "The error must say why the connection was closed rather than the row skipped: "
+            + thrown.getMessage());
+    assertTrue(pgStream.isClosed(),
+        "A row too large to skip must break the connection rather than cost unbounded "
+            + "wire traffic");
   }
 
   @Test

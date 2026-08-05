@@ -3161,6 +3161,10 @@ public class QueryExecutorImpl extends QueryExecutorBase {
     if (LOGGER.isLoggable(Level.FINEST)) {
       LOGGER.log(Level.FINEST, " <=BE ReadyForQuery({0})", tStatus);
     }
+    // This Sync is over, so the next one reports its own first over-sized row rather than
+    // skipping in silence.
+    pgStream.clearOversizedRowReport();
+
     // Update connection state.
     switch (tStatus) {
       case 'I':

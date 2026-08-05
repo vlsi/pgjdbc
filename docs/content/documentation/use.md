@@ -501,11 +501,12 @@ the driver always uses a CALL statement (allowing procedure invocation only).
 
 * **`maxResultBuffer (`*String*`)`** *Default `null`*\
 Specifies size of result buffer in bytes, which can't be exceeded during reading result set. Property can be specified in two styles:
-  * as size of bytes (i.e. 100, 150M, 300K, 400G, 1T);
-  * as percent of max heap memory (i.e. 10p, 15pct, 20percent);
+  * as a number of bytes, with an optional suffix: `100`, `300K`, `150M`, `400G`, `1T`. The suffixes are decimal, so `1K` is 1,000 bytes and `1M` is 1,000,000 bytes, not 1,048,576;
+  * as a percentage of max heap memory: `10p`, `15pct`, `20percent`;
 A limit during setting of property is 90% of max heap memory. All given values, which are going to be higher than the limit,
 will be lowered to the limit. By default, maxResultBuffer is not set (is null), which means that reading of results will
-be performed without limits.
+be performed without limits.\
+The limit applies to a result set in two ways. Cumulatively, as rows are read: once the rows buffered for the current result set exceed the limit, the read fails. And per row: a row whose own size exceeds the limit is rejected before its body is read, so the driver skips it, fails the query, and leaves the connection usable — an application can catch the error and retry with a query that selects less per row, since no `defaultRowFetchSize` makes a single over-wide row fit. A row so far over the limit that skipping it would mean pulling more than 64 MB (`MAX_RECOVERABLE_SKIP`) off the wire closes the connection instead. `COPY` and replication are not covered by this property; see `maxCopyDataSize`.
 
 * **`maxCopyDataSize (`*String*`)`** *Default `null`*\
 Specifies the largest single `CopyData` message the driver will accept, in the same styles `maxResultBuffer` accepts (`100`, `150M`, `10p`), suffixes included. `CopyData` is how the backend delivers both `COPY ... TO STDOUT` output and logical or physical replication data, so this property bounds `PGReplicationStream` as well: a replication client that sets it too low will see its stream fail.\
