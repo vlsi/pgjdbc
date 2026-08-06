@@ -78,6 +78,16 @@ public final class ByteaCodec implements BinaryCodec, TextCodec, ArrayElementCod
   }
 
   @Override
+  public @Nullable String decodeAsString(CharSequence data, TypeDescriptor type, CodecContext ctx)
+      throws SQLException {
+    // The text wire is already the server's own rendering, in whichever bytea_output it chose, so it is
+    // returned verbatim -- the same string ResultSet.getString hands back for a text-transfer column. The
+    // TextCodec default cannot be used here: it decodes to byte[] and calls toString() on it, which
+    // renders an array identity ("[B@1a2b3c") rather than a value.
+    return data.toString();
+  }
+
+  @Override
   @SuppressWarnings("unchecked")
   public <T> @Nullable T decodeBinaryAs(byte[] data, int offset, int length, TypeDescriptor type,
       Class<T> targetClass, CodecContext ctx) throws SQLException {

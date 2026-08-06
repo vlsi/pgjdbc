@@ -66,8 +66,15 @@ public final class ReadOracle {
   private ReadOracle() {
   }
 
-  /** The connection config for a set of {@code javaTimePreferences} flags. */
-  static Map<String, String> configFor(JavaTimePreferences javaTimePreferences) {
+  /**
+   * The connection config for a set of {@code javaTimePreferences} flags -- the property names the
+   * {@code ReadCoercions} views are registered under, so a caller holding the flags can look a cell up
+   * without transcribing the names.
+   *
+   * @param javaTimePreferences the flags to translate
+   * @return the connection properties those flags switch on, never {@code null}
+   */
+  public static Map<String, String> configFor(JavaTimePreferences javaTimePreferences) {
     Map<String, String> config = new HashMap<>();
     if (javaTimePreferences.prefersLocalDate()) {
       config.put("prefersJavaTimeForDate", "true");

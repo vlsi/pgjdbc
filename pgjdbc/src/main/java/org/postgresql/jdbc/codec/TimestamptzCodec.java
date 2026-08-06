@@ -183,7 +183,11 @@ public final class TimestamptzCodec implements StreamingBinaryCodec, TextCodec {
       return targetClass.cast(TemporalCodecs.decodeDateText(text, ctx));
     }
     if (targetClass == Time.class) {
-      return targetClass.cast(TemporalCodecs.decodeTimeText(text, ctx));
+      // The same truncation the binary branch applies, over the same instant, so the two wire formats
+      // agree. TimestampUtils.toTime cannot be used here: it anchors the time of day to 1970-01-01 in
+      // the literal's own offset, which is a day later in UTC once the offset crosses midnight.
+      Timestamp t = TemporalCodecs.decodeTimestampText(text, ctx);
+      return t == null ? null : targetClass.cast(new Time(t.getTime() % TimeUnit.DAYS.toMillis(1)));
     }
     if (targetClass == java.util.Date.class) {
       return targetClass.cast(TemporalCodecs.decodeTimestampText(text, ctx));

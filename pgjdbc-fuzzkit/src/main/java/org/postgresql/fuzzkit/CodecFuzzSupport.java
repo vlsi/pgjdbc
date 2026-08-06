@@ -32,10 +32,12 @@ import org.postgresql.api.codec.TypeName;
 import org.postgresql.api.codec.WireValueSlice;
 import org.postgresql.core.Oid;
 import org.postgresql.fuzzkit.coercion.ArrayDescriptor;
+import org.postgresql.fuzzkit.coercion.CoercionOutcome;
 import org.postgresql.fuzzkit.coercion.Fidelity;
 import org.postgresql.fuzzkit.coercion.LeafRepr;
 import org.postgresql.fuzzkit.coercion.NumericTypmod;
 import org.postgresql.fuzzkit.coercion.PgTypeDescriptors;
+import org.postgresql.fuzzkit.coercion.ReadCoercions;
 import org.postgresql.fuzzkit.coercion.ScalarDescriptor;
 import org.postgresql.jdbc.CodecRegistry;
 import org.postgresql.jdbc.OfflineCodecs;
@@ -50,7 +52,9 @@ import org.postgresql.util.internal.Nullness;
 
 import org.checkerframework.checker.nullness.qual.Nullable;
 
+import java.io.ByteArrayOutputStream;
 import java.io.IOException;
+import java.io.InputStream;
 import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.nio.CharBuffer;
@@ -60,12 +64,14 @@ import java.sql.Struct;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
+import java.util.Comparator;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
 import java.util.TimeZone;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.stream.Stream;
 
 /**
@@ -2355,8 +2361,9 @@ public final class CodecFuzzSupport {
    * target was built for: a read past the value's end runs off the array rather than into trailing slack,
    * so it surfaces as the {@link ArrayIndexOutOfBoundsException} this oracle converts to an
    * {@link AssertionError}. The leading {@code 0xFF} canary catches a decoder that ignores the value
-   * offset and reads from index 0. The rendered form ({@code getString}) is held to the same
-   * offset-invariance.
+   * offset and reads from index 0. The rendered form ({@code getString}) and every typed target the
+   * type declares ({@code getObject(Class)}) are held to the same offset-invariance, so a decoder that
+   * threads the offset on its default target but drops it on one typed branch still fails here.
    *
    * @param data the arbitrary bytes to decode as a binary wire value
    * @param type the backend type to decode the bytes as
@@ -2392,6 +2399,7 @@ public final class CodecFuzzSupport {
     }
     reencodeExpectingNoLeak(atZero, type, ctx, Format.BINARY);
     assertDecodeAsStringOffsetInvariant(data, shifted, type, ctx);
+    assertDecodeBinaryAsOffsetInvariant(data, shifted, type, ctx);
   }
 
   // A distinguished non-null return of decodeBinaryCapturing/decodeAsStringCapturing meaning "the decode
@@ -2463,6 +2471,118 @@ public final class CodecFuzzSupport {
           + leak.getClass().getName() + " (expected only SQLException) on bytes "
           + hexPrefix(sliceValue(buffer, offset, length)), leak);
     }
+  }
+
+  // Holds every typed decode target to the same offset-invariance as the default one: getObject(Class) of
+  // the value at offset 0 and at the canary offset must refuse together or decode to equal values. The
+  // default target is covered by decodeBinaryOffsetInvariant's own two runs, so it is skipped here.
+  private static void assertDecodeBinaryAsOffsetInvariant(byte[] data, byte[] shifted, PgType type,
+      CodecContext ctx) {
+    for (Class<?> target : returningTargets(type.getOid())) {
+      @Nullable Object atZero =
+          decodeBinaryAsCapturing(data, 0, data.length, type, target, ctx, "offset 0");
+      @Nullable Object atOffset = decodeBinaryAsCapturing(shifted, BINARY_CANARY.length, data.length,
+          type, target, ctx, "offset " + BINARY_CANARY.length);
+
+      boolean refusedAtZero = atZero == REFUSED;
+      boolean refusedAtOffset = atOffset == REFUSED;
+      if (refusedAtZero != refusedAtOffset) {
+        throw new AssertionError("binary decode of t" + type.getOid() + " as " + target.getName()
+            + " changed outcome with the value offset: offset 0 "
+            + (refusedAtZero ? "refused" : "returned " + describeValue(atZero)) + " but offset "
+            + BINARY_CANARY.length + " "
+            + (refusedAtOffset ? "refused" : "returned " + describeValue(atOffset)) + " on bytes "
+            + hexPrefix(data));
+      }
+      if (!refusedAtZero && !valueEquals(atZero, atOffset)) {
+        throw new AssertionError("binary decode of t" + type.getOid() + " as " + target.getName()
+            + " changed value with the value offset: offset 0 -> " + describeValue(atZero)
+            + " but offset " + BINARY_CANARY.length + " -> " + describeValue(atOffset) + " on bytes "
+            + hexPrefix(data));
+      }
+    }
+  }
+
+  // Decodes the value at (buffer, offset, length) into one typed target, returning the decoded value
+  // (possibly null), or REFUSED when the codec refuses with a clean SQLException. An unchecked leak
+  // becomes an AssertionError naming the type OID, the target, the offset the run used, and a hex prefix
+  // of the value bytes.
+  private static @Nullable Object decodeBinaryAsCapturing(byte[] buffer, int offset, int length,
+      PgType type, Class<?> target, CodecContext ctx, String where) {
+    try {
+      return drainIfStream(
+          Codecs.decode(WireValueSlice.of(Format.BINARY, buffer, offset, length), type, ctx, target),
+          type, target);
+    } catch (SQLException refused) {
+      return REFUSED;
+    } catch (RuntimeException leak) {
+      throw new AssertionError("binary decode at " + where + " of t" + type.getOid() + " as "
+          + target.getName() + " leaked " + leak.getClass().getName()
+          + " (expected only SQLException) on bytes " + hexPrefix(sliceValue(buffer, offset, length)),
+          leak);
+    }
+  }
+
+  // The comparable form of a decoded value. An InputStream (bytea's stream target) is a handle over the
+  // value bytes and carries identity equality only, so the two offset runs would never compare equal; it is
+  // drained to the bytes it yields, which is the thing the offset decides. Every other registry target
+  // compares by equals.
+  private static @Nullable Object drainIfStream(@Nullable Object value, PgType type, Class<?> target) {
+    if (!(value instanceof InputStream)) {
+      return value;
+    }
+    try (InputStream in = (InputStream) value) {
+      ByteArrayOutputStream drained = new ByteArrayOutputStream();
+      byte[] chunk = new byte[256];
+      int read = in.read(chunk);
+      while (read != -1) {
+        drained.write(chunk, 0, read);
+        read = in.read(chunk);
+      }
+      return drained.toByteArray();
+    } catch (IOException unreadable) {
+      throw new AssertionError("binary decode of t" + type.getOid() + " as " + target.getName()
+          + " returned a stream that could not be read", unreadable);
+    }
+  }
+
+  // Cache behind returningTargets: the fuzz targets call decodeBinaryOffsetInvariant once per input, and
+  // the target list depends on the OID alone.
+  private static final Map<Integer, Class<?>[]> RETURNING_TARGETS = new ConcurrentHashMap<>();
+
+  /**
+   * The {@code getObject(Class)} targets the {@code ReadCoercions} registry expects a type to return a
+   * value for, ordered by class name so a failure names the same target across runs.
+   *
+   * <p>Refused targets are left out. A refusal the registry declares is class-level -- the codec falls
+   * through its target chain without reading a byte, so it cannot depend on the offset -- and building the
+   * {@code SQLException} for one on every fuzz trial would cost more than the check is worth.
+   * {@code Object.class} is left out for the opposite reason: {@link #decodeBinaryOffsetInvariant} already
+   * runs exactly that decode at both offsets.
+   *
+   * <p>The read dictionary covers scalars, so a container type is unpopulated and would sweep nothing. It
+   * falls back to {@code String.class}, the one target the JDBC read contract defines for every column,
+   * which reaches the {@code decodeBinaryAs} rendering branch that {@code decodeAsString} does not.
+   */
+  private static Class<?>[] returningTargets(int oid) {
+    return RETURNING_TARGETS.computeIfAbsent(oid, key -> {
+      List<Class<?>> targets = new ArrayList<>();
+      for (Class<?> candidate : ReadCoercions.allObjectTargets()) {
+        if (candidate == Object.class) {
+          continue;
+        }
+        CoercionOutcome outcome =
+            ReadCoercions.readObjectAs(ReadCoercions.Surface.SQL_INPUT, key, candidate);
+        if (outcome == CoercionOutcome.OK || outcome == CoercionOutcome.OK_OR_COERCE) {
+          targets.add(candidate);
+        }
+      }
+      if (targets.isEmpty()) {
+        targets.add(String.class);
+      }
+      targets.sort(Comparator.comparing(Class::getName));
+      return targets.toArray(new Class<?>[0]);
+    });
   }
 
   // The value bytes a run decoded, extracted from its buffer for an error message. The offset-0 run passes

@@ -163,7 +163,7 @@ public final class PgSQLInputBinary extends PgSQLInput {
 
   @Override
   protected float decodeFloat() throws SQLException {
-    return (float) PrimitiveDecoders.asDouble(getCodec(), source, curOffset, curLength, getCurrentType(), ctx);
+    return PrimitiveDecoders.asFloat(getCodec(), source, curOffset, curLength, getCurrentType(), ctx);
   }
 
   @Override

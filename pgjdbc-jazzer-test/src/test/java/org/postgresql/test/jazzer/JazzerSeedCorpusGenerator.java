@@ -8,10 +8,14 @@ package org.postgresql.test.jazzer;
 import org.postgresql.api.codec.CodecContext;
 import org.postgresql.api.codec.Codecs;
 import org.postgresql.api.codec.Format;
+import org.postgresql.api.codec.JavaTimePreferences;
+import org.postgresql.api.codec.WireValueSlice;
 import org.postgresql.core.Oid;
 import org.postgresql.fuzzkit.CodecFuzzSupport;
+import org.postgresql.fuzzkit.ReadOracle;
 import org.postgresql.fuzzkit.ScalarDecodeRobustnessModel;
 import org.postgresql.fuzzkit.ScalarDecodeRobustnessNaming;
+import org.postgresql.fuzzkit.coercion.ReadCoercions;
 import org.postgresql.jdbc.PgType;
 import org.postgresql.test.data.Bit1EdgeCases;
 import org.postgresql.test.data.BoolEdgeCases;
@@ -83,7 +87,7 @@ import java.util.stream.Stream;
  *
  * <p>The generated scalar targets are seeded from the same {@link ScalarDecodeRobustnessModel} the source
  * generator drives, mapped to a per-OID edge-case catalogue: a binary target seeds from the canonical
- * binary wire of each edge case that has a bindable value; a text target seeds from each edge case's
+ * binary wire of each edge case (see {@link #binarySeeds}); a text target seeds from each edge case's
  * literal, plus the catalogue's malformed literals, which a text target's oracle accepts as refusals.
  * A disabled target ({@code numeric} binary, finding F3) never runs, so it is not seeded, and an
  * OID with no catalogue is left with the empty input only. The method name comes from
@@ -104,6 +108,22 @@ import java.util.stream.Stream;
 public final class JazzerSeedCorpusGenerator {
 
   private static final String PACKAGE_PATH = "org/postgresql/test/jazzer";
+
+  /**
+   * The connection config every {@code java.time} preference switches on. {@link #binaryWire} looks the
+   * type's default {@code getObject} class up under it, which for a temporal type is the {@code java.time}
+   * class that carries the whole value rather than the legacy {@code java.sql} one: {@code timetz} resolves
+   * to {@code OffsetTime} instead of {@code java.sql.Time}, which drops the zone and the sub-millisecond
+   * digits that several of its cases exist to cover.
+   */
+  private static final Map<String, String> JAVA_TIME_CONFIG =
+      ReadOracle.configFor(JavaTimePreferences.builder()
+          .prefersLocalDate(true)
+          .prefersLocalTime(true)
+          .prefersOffsetTime(true)
+          .prefersLocalDateTime(true)
+          .prefersOffsetDateTime(true)
+          .build());
 
   private JazzerSeedCorpusGenerator() {
   }
@@ -170,27 +190,67 @@ public final class JazzerSeedCorpusGenerator {
         + targetsSeeded + " targets under " + resourcesRoot.resolve(PACKAGE_PATH));
   }
 
-  /** The canonical binary wire of each edge case that has a bindable value, as the target's {@code byte[]}. */
+  /**
+   * The canonical binary wire of each edge case, as the target's {@code byte[]}.
+   *
+   * <p>A case with a bindable value is encoded from it. A read-only catalogue -- every temporal and
+   * geometric type, which carry a {@code null} {@link EdgeCase#value()} throughout -- would otherwise seed
+   * nothing, leaving those binary targets to start from the empty input, so its literal is routed through
+   * the type's own text decoder first and the decoded value is encoded from there. The wire that comes
+   * back is canonical rather than literal-faithful (a {@code timetz} with nanosecond digits arrives
+   * truncated to the microseconds the wire format carries), which is what a starting corpus needs: a
+   * well-formed value of the right shape for the mutator to work from.
+   */
   private static List<NamedArg> binarySeeds(int oid, List<EdgeCase> cases) throws SQLException {
     PgType type = CodecFuzzSupport.scalar(oid, "t" + oid, 'X');
     CodecContext ctx = CodecFuzzSupport.builtins();
+    Class<?> losslessClass = losslessClass(oid);
     List<NamedArg> out = new ArrayList<>();
     for (EdgeCase edgeCase : cases) {
-      Object value = edgeCase.value();
-      if (value == null) {
-        // No representable Java value (NaN, Infinity, ...): read-side only, so it cannot be encoded here.
-        continue;
-      }
-      byte[] wire;
-      try {
-        wire = Codecs.encode(value, type, ctx, Format.BINARY).toByteArray();
-      } catch (SQLException cannotBind) {
-        // A best-effort seed the codec will not bind in binary; skip it rather than fail generation.
+      byte[] wire = binaryWire(edgeCase, type, losslessClass, ctx);
+      if (wire == null) {
         continue;
       }
       out.add(new NamedArg(edgeCase.name(), wire));
     }
     return out;
+  }
+
+  /**
+   * The Java class a literal is decoded into before it is re-encoded: the type's default {@code getObject}
+   * class under {@link #JAVA_TIME_CONFIG}, or {@code Object.class} for a type the read registry does not
+   * populate.
+   *
+   * <p>Naming the class is what makes the fallback lossless. {@code Object.class} would not do: the
+   * {@code javaTimePreferences} flags reach the codec's plain {@code decodeText}, not the
+   * {@code decodeTextAs(Object.class)} that {@code Codecs.decode} calls, so a {@code timetz} literal would
+   * come back as a {@code java.sql.Time} -- no zone, milliseconds only -- and every offset and
+   * sub-millisecond case would re-encode to the same degenerate wire.
+   */
+  private static Class<?> losslessClass(int oid) {
+    Class<?> declared = ReadCoercions.defaultObjectClass(oid, JAVA_TIME_CONFIG);
+    return declared == null ? Object.class : declared;
+  }
+
+  // The binary wire for one edge case, or null when this case cannot produce one: a literal the type's own
+  // text decoder rejects, a value or decoded value the codec will not bind in binary, or a type with no
+  // binary encoder at all. A seed is best-effort, so an unusable case is skipped rather than failing
+  // generation -- the target keeps the seeds its siblings produced.
+  private static byte @Nullable [] binaryWire(EdgeCase edgeCase, PgType type, Class<?> losslessClass,
+      CodecContext ctx) {
+    try {
+      Object value = edgeCase.value();
+      if (value == null) {
+        value = Codecs.decode(WireValueSlice.text(edgeCase.literal().getBytes(ctx.getCharset())),
+            type, ctx, losslessClass);
+        if (value == null) {
+          return null;
+        }
+      }
+      return Codecs.encode(value, type, ctx, Format.BINARY).toByteArray();
+    } catch (SQLException unusable) {
+      return null;
+    }
   }
 
   /**

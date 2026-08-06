@@ -113,7 +113,7 @@ public final class TimetzCodec implements StreamingBinaryCodec, TextCodec {
         return null;
       }
       Timestamp r = new Timestamp(t.getTime());
-      r.setNanos(TemporalCodecs.decodeTimestampBin(data, 0, 8, false, ctx).getNanos());
+      r.setNanos(TemporalCodecs.decodeTimestampBin(data, offset, 8, false, ctx).getNanos());
       return targetClass.cast(r);
     }
     // LocalTime / LocalDateTime / LocalDate are explicitly rejected per the
