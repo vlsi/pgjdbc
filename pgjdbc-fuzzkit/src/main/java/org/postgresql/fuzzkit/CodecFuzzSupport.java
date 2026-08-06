@@ -822,10 +822,9 @@ public final class CodecFuzzSupport {
 
   /**
    * Asserts the binary primitive accessors of {@code type}'s codec are mutually consistent on
-   * {@code wire}: the int, long, float, double and boolean accessors read the same value at offset 0
-   * and at a non-zero offset, and a numeric codec's views agree through {@link #numericLattice}.
-   * {@code decodeAsBigDecimal} is read at offset 0 only, so its offset handling is not covered here.
-   * A no-op when the codec is not a {@link PrimitiveBinaryDecoder}, so it is safe for any type.
+   * {@code wire}: every accessor reads the same value at offset 0 and at a non-zero offset, and a
+   * numeric codec's views agree through {@link #numericLattice}. A no-op when the codec is not a
+   * {@link PrimitiveBinaryDecoder}, so it is safe for any type.
    *
    * @param type the backend type whose codec the context resolves
    * @param wire the (fuzzed) binary wire bytes fed to every accessor
@@ -847,8 +846,8 @@ public final class CodecFuzzSupport {
     Outcome ob = Outcome.capture(() -> dec.decodeAsBoolean(wire, 0, len, type, ctx));
     Outcome obd = Outcome.capture(() -> dec.decodeAsBigDecimal(wire, 0, len, type, ctx));
 
-    // Layer 1: the int, long, float, double and boolean accessors honour the offset (same value read
-    // at offset 0 and at offset 3 of a pad). decodeAsBigDecimal is not re-read at an offset.
+    // Layer 1: every accessor honours the offset (same value read at offset 0 and at offset 3 of a
+    // pad).
     byte[] pad = pad(wire);
     assertValueAgrees(name + " decodeAsInt(byte[]) offset", oi,
         Outcome.capture(() -> dec.decodeAsInt(pad, 3, len, type, ctx)));
@@ -860,6 +859,8 @@ public final class CodecFuzzSupport {
         Outcome.capture(() -> dec.decodeAsDouble(pad, 3, len, type, ctx)));
     assertValueAgrees(name + " decodeAsBoolean(byte[]) offset", ob,
         Outcome.capture(() -> dec.decodeAsBoolean(pad, 3, len, type, ctx)));
+    assertValueAgrees(name + " decodeAsBigDecimal(byte[]) offset", obd,
+        Outcome.capture(() -> dec.decodeAsBigDecimal(pad, 3, len, type, ctx)));
 
     // Layer 2 + getObject cross-check.
     NumericFamily family = familyOf(type.getOid(), codec.getDefaultJavaType());
@@ -921,6 +922,12 @@ public final class CodecFuzzSupport {
         Outcome.capture(() -> dec.decodeAsDouble(CharBuffer.wrap(pad, 3, clen), type, ctx)));
     assertValueAgrees(name + " decodeAsBoolean(char[])", ob,
         Outcome.capture(() -> dec.decodeAsBoolean(CharBuffer.wrap(chars, 0, clen), type, ctx)));
+    assertValueAgrees(name + " decodeAsBoolean(char[]) offset", ob,
+        Outcome.capture(() -> dec.decodeAsBoolean(CharBuffer.wrap(pad, 3, clen), type, ctx)));
+    assertValueAgrees(name + " decodeAsBigDecimal(char[])", obd,
+        Outcome.capture(() -> dec.decodeAsBigDecimal(CharBuffer.wrap(chars, 0, clen), type, ctx)));
+    assertValueAgrees(name + " decodeAsBigDecimal(char[]) offset", obd,
+        Outcome.capture(() -> dec.decodeAsBigDecimal(CharBuffer.wrap(pad, 3, clen), type, ctx)));
 
     numericLattice(name + " text", familyOf(type.getOid(), codec.getDefaultJavaType()), oi, ol, of, od,
         obd);
