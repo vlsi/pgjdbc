@@ -24,7 +24,6 @@ import java.time.LocalDateTime;
 import java.time.OffsetDateTime;
 import java.time.ZoneOffset;
 import java.time.ZonedDateTime;
-import java.util.concurrent.TimeUnit;
 
 /**
  * Codec for PostgreSQL timestamptz (timestamp with time zone) type.
@@ -142,9 +141,10 @@ public final class TimestamptzCodec implements StreamingBinaryCodec, TextCodec {
       return t == null ? null : targetClass.cast(TemporalCodecs.extractDate(t.getTime(), ctx));
     }
     if (targetClass == Time.class) {
-      // JDBC: getTime on a binary TIMESTAMPTZ truncates the UTC instant to the day.
+      // JDBC: getTime on a timestamptz keeps the time of day the instant falls on in the target time
+      // zone, anchored to 1970-01-01 there, as java.sql.Time requires and TimestampCodec already does.
       Timestamp t = TemporalCodecs.decodeTimestampBin(data, offset, length, true, ctx);
-      return t == null ? null : targetClass.cast(new Time(t.getTime() % TimeUnit.DAYS.toMillis(1)));
+      return t == null ? null : targetClass.cast(TemporalCodecs.extractTime(t.getTime(), ctx));
     }
     if (targetClass == java.util.Date.class) {
       return targetClass.cast(TemporalCodecs.decodeTimestampBin(data, offset, length, true, ctx));
@@ -183,11 +183,11 @@ public final class TimestamptzCodec implements StreamingBinaryCodec, TextCodec {
       return targetClass.cast(TemporalCodecs.decodeDateText(text, ctx));
     }
     if (targetClass == Time.class) {
-      // The same truncation the binary branch applies, over the same instant, so the two wire formats
-      // agree. TimestampUtils.toTime cannot be used here: it anchors the time of day to 1970-01-01 in
-      // the literal's own offset, which is a day later in UTC once the offset crosses midnight.
+      // The same anchoring the binary branch applies, over the same instant, so the two wire formats
+      // agree. TemporalCodecs.decodeTimeText cannot be used here: it anchors the time of day in the
+      // literal's own offset, which is a day off once that offset crosses midnight.
       Timestamp t = TemporalCodecs.decodeTimestampText(text, ctx);
-      return t == null ? null : targetClass.cast(new Time(t.getTime() % TimeUnit.DAYS.toMillis(1)));
+      return t == null ? null : targetClass.cast(TemporalCodecs.extractTime(t.getTime(), ctx));
     }
     if (targetClass == java.util.Date.class) {
       return targetClass.cast(TemporalCodecs.decodeTimestampText(text, ctx));
