@@ -198,12 +198,17 @@ public class GeometricTest extends BaseTest4 {
   }
 
   /**
-   * getString must be wire-format-independent: a geometric value read in binary transfer must render
-   * whole-number coordinates the same way the server's own text form does ({@code 1}, not Java's
-   * {@code 1.0}). The binary codec once formatted coordinates through {@code Double.toString} and drifted
-   * from the text rendering; this reads each value's getString alongside the server's {@code ::text} of
-   * the same value and asserts they match, in both text and binary mode. point and box are out of scope
-   * (they still render {@code 1.0} in binary, matching the released driver).
+   * Fails when {@code getString} on a geometric value differs from the server's own {@code ::text}
+   * of that value.
+   *
+   * <p>Rendering must not depend on the wire format: a whole-number coordinate read in binary
+   * transfer has to come back as {@code 1}, the way the server writes it, not as Java's
+   * {@code 1.0}. Every case is checked against {@code ::text} of the same value, in text and in
+   * binary mode. The binary codec once formatted coordinates through {@code Double.toString} and
+   * drifted from the text form.</p>
+   *
+   * <p>point and box are out of scope: they still render {@code 1.0} in binary, matching the
+   * released driver.</p>
    */
   @Test
   public void testGetStringMatchesServerText() throws Exception {
@@ -217,8 +222,8 @@ public class GeometricTest extends BaseTest4 {
     cases.add(new String[]{"circle", "<(0,0),1e100>"});
     // Coordinates straddling float8out's fixed<->scientific switch (the leading digit's exponent
     // leaving [-4, 14]): 1e14 still renders fixed (100000000000000), 1e15 flips to scientific (1e+15),
-    // and 1e-4/1e-5 do the same at the small end. These are where a Double.toString-based rendering
-    // drifts from the server, so cross-check them against ::text over both wire formats.
+    // and 1e-4/1e-5 do the same at the small end. This is where a Double.toString-based rendering
+    // drifts from the server.
     cases.add(new String[]{"circle", "<(0,0),1e14>"});
     cases.add(new String[]{"circle", "<(0,0),1e15>"});
     cases.add(new String[]{"circle", "<(0,0),0.0001>"});

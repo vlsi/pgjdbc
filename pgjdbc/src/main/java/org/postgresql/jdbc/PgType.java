@@ -24,6 +24,13 @@ import java.util.Set;
 /**
  * Represents a PostgreSQL type.
  *
+ * <p>Instances are immutable; {@link #withAttributes}, {@link #withTypmod},
+ * {@link #withRangeSubtype} and {@link #withMultirangeRange} each return a copy. Those copies are
+ * how lazily-loaded catalog structure arrives: a composite's attributes, a range's subtype and a
+ * multirange's range type stay absent until {@link org.postgresql.core.TypeInfo} loads them, and an
+ * absent one reads the same as "this kind of type has none" — {@link Oid#UNSPECIFIED}, or an empty
+ * attribute list. {@link #hasFieldsLoaded()} is the only member that separates the two.</p>
+ *
  * @since 42.8.0
  */
 @Experimental("PgType API is experimental and may change in future releases")
@@ -624,9 +631,8 @@ public class PgType implements TypeDescriptor {
    * Gets the attributes of a composite type, or an empty list when this type has none.
    *
    * <p>A composite whose fields the driver has not loaded yet also reports an empty list, because
-   * the public contract has no "not loaded" state. Callers inside the driver that must tell the two
-   * apart — the lazy loader and the {@code SQLInput}/{@code SQLOutput} adapters — ask
-   * {@link #hasFieldsLoaded()} first.</p>
+   * the public contract has no "not loaded" state; {@link #hasFieldsLoaded()} tells the two
+   * apart.</p>
    *
    * @return the list of attributes, empty when the type has none or they are not loaded
    */
@@ -719,10 +725,22 @@ public class PgType implements TypeDescriptor {
         rangeSubtype, multirangeRange, typmod);
   }
 
+  /**
+   * Reports whether values of this type are case-sensitive.
+   *
+   * @return the same as {@link #isCaseSensitive(int)} for this type's OID
+   */
   public boolean isCaseSensitive() {
     return isCaseSensitive(oid);
   }
 
+  /**
+   * Reports whether values of the given type are case-sensitive.
+   *
+   * @param oid the type's OID
+   * @return false for the built-in numeric, boolean, bit and date/time types; true for every other
+   *     OID, including one the driver does not recognise
+   */
   public static boolean isCaseSensitive(int oid) {
     switch (oid) {
       case Oid.OID:
@@ -747,10 +765,22 @@ public class PgType implements TypeDescriptor {
     }
   }
 
+  /**
+   * Reports whether values of this type carry a sign.
+   *
+   * @return the same as {@link #isSigned(int)} for this type's OID
+   */
   public boolean isSigned() {
     return isSigned(oid);
   }
 
+  /**
+   * Reports whether values of the given type carry a sign.
+   *
+   * @param oid the type's OID
+   * @return true only for the built-in signed numeric types; false for every other OID, including
+   *     one the driver does not recognise
+   */
   public static boolean isSigned(int oid) {
     switch (oid) {
       case Oid.INT2:
@@ -765,10 +795,22 @@ public class PgType implements TypeDescriptor {
     }
   }
 
+  /**
+   * Reports whether a literal of this type has to be quoted in SQL.
+   *
+   * @return the same as {@link #requiresQuotingSqlType(int)} for {@link #getSqlType()}
+   */
   public boolean requiresQuoting() {
     return requiresQuotingSqlType(getSqlType());
   }
 
+  /**
+   * Reports whether a literal of the given JDBC type has to be quoted in SQL.
+   *
+   * @param sqlType a constant from {@link java.sql.Types}
+   * @return false for the numeric type codes, whose literals are self-delimiting; true for every
+   *     other code, so an unrecognised type is quoted rather than pasted in raw
+   */
   public static boolean requiresQuotingSqlType(int sqlType) {
     switch (sqlType) {
       case Types.BIGINT:

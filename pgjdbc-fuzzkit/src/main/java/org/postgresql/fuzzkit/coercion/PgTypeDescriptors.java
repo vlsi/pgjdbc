@@ -46,16 +46,14 @@ import java.util.TreeSet;
  *       reference would fail only mid-fuzz, so the guard raises it at class init.</li>
  * </ul>
  *
- * <p>The registry holds the ten coercion scalars ({@code int4}, {@code int8}, {@code numeric},
- * {@code text}, {@code bool}, {@code date}, {@code time}, {@code timetz}, {@code timestamp},
- * {@code timestamptz}), eight read-only scalars ({@code int2}, {@code float4}, {@code float8},
- * {@code bytea}, {@code oid}, {@code varchar}, {@code bpchar}, {@code name}), the nine arrays
- * ({@code int4[]}, {@code text[]}, {@code int2[]}, {@code int8[]}, {@code float4[]}, {@code float8[]},
- * {@code oid[]}, {@code bytea[]}, {@code bool[]}) over their scalar elements, and the {@code point}
- * composite ({@code x int4, y int4, label text}). The read-only scalars are read-populated but not
- * write-populated, so they carry a descriptor and reach the reader axis ({@link #readScalars()}) yet
- * stay out of the write-populated coercion round-trip ({@link #coercionScalars()}); the arrays and
- * composite are populated in neither dictionary, so the coercion guards do not apply to them.
+ * <p>The registry holds a scalar descriptor per backend leaf type the fuzzers drive, an array
+ * descriptor over each scalar element that is fuzzed as an array, and the {@code point} composite
+ * ({@code x int4, y int4, label text}). Every scalar carries a {@link ReadCoercions} row, so every
+ * scalar reaches the reader axis ({@link #readScalars()}). Every scalar but {@code "char"} also
+ * carries a {@link WriteCoercions} row and so reaches the coercion write/round-trip matrix
+ * ({@link #coercionScalars()}); {@code "char"} stays out because its encoder truncates a string to a
+ * single byte, which no value-fidelity round-trip can satisfy. Arrays and composites are populated in
+ * neither dictionary, so the coercion guards do not apply to them.
  */
 public final class PgTypeDescriptors {
 
@@ -116,11 +114,11 @@ public final class PgTypeDescriptors {
         JDBCType.TIMESTAMP_WITH_TIMEZONE, OffsetDateTime.class, null, null, Fidelity.SAME_INSTANT,
         ScalarDescriptor.NO_POISON));
 
-    // Four codec-only scalars (read-populated, not write-populated): the codec round-trip fuzzers
-    // need their PgType and natural class, but they carry no WriteCoercions row, so they stay out of the
-    // coercion round-trip's identity pairs (which build only from write-populated types). int2's natural
-    // class is Short (its WRITE_SHORT/READ_SHORT typed identity); its default getObject class stays
-    // Integer, delegated to the dictionary (pgjdbc's documented smallint backward-compat).
+    // Four more scalars the codec fuzzers drive: the codec round-trip fuzzers need their PgType and
+    // natural class. Each carries a WriteCoercions row and a typed writer/reader pair, so it also joins
+    // the coercion round-trip's identity pairs. int2's natural class is Short (its WRITE_SHORT/READ_SHORT
+    // typed identity); its default getObject class stays Integer, delegated to the dictionary (pgjdbc's
+    // documented smallint backward-compat).
     // int2, float4, float8 and bytea are bound to locals, because the leaf-type array descriptors below
     // reference them as elements (int2[], float4[], float8[], bytea[]).
     ScalarDescriptor int2 = new ScalarDescriptor(Oid.INT2, "int2", 'N', JDBCType.SMALLINT, Short.class,
@@ -141,9 +139,9 @@ public final class PgTypeDescriptors {
     add(map, bytea);
 
     // Four more read-populated scalars (oid, varchar, bpchar, name): each carries a ReadCoercions and a
-    // WriteCoercions row but no typed writer pair, so, like the codec-only scalars above, they gain a
-    // descriptor for the reader axis and reach identity through the object axis (typedWriter/typedReader
-    // both null, guard G5), the same shape timetz/timestamptz use -- but stay off the typed-pair set.
+    // WriteCoercions row but no typed writer pair, so they gain a descriptor for the reader axis and
+    // reach identity through the object axis (typedWriter/typedReader both null, guard G5), the same
+    // shape timetz/timestamptz use -- but stay off the typed-pair set.
     // oid decodes to Long; varchar, bpchar and name delegate to the text codec and decode to String.
     // Keeping them off the typed-pair set is deliberate: the SQLData composite schema
     // (CodecFuzzSupport.SQL_DATA_FIELD_OIDS) is derived from the typed-pair scalars and pinned to the
@@ -308,11 +306,8 @@ public final class PgTypeDescriptors {
   }
 
   /**
-   * The write-populated scalar descriptors, in registration order -- the coercion scalars that carry a
-   * {@link WriteCoercions} row and so take part in the coercion write/round-trip matrix. This excludes
-   * the codec-only scalars ({@code int2}, {@code float4}, {@code float8}, {@code bytea}), which are
-   * read-populated but not write-populated, keeping the coercion matrix at exactly the ten types it
-   * covered before the codec scalars joined the registry.
+   * The write-populated scalar descriptors, in registration order -- the scalars that carry a
+   * {@link WriteCoercions} row and so take part in the coercion write/round-trip matrix.
    *
    * @return the write-populated scalar descriptors
    */
@@ -328,14 +323,9 @@ public final class PgTypeDescriptors {
   }
 
   /**
-   * The read-populated scalar descriptors, in registration order -- every registered scalar. Guard G3
-   * requires each scalar descriptor's OID to carry a {@link ReadCoercions} row (a scalar that could
-   * never be read back is an error), so every registered scalar is read-populated by construction and
-   * this returns the same set as {@link #scalars()}. It is the reader axis: the reader and read-side
-   * round-trip fuzzers drive every read-populated scalar, not just the write-populated
-   * {@link #coercionScalars()} subset, so the read-only scalars ({@code int2}, {@code float4},
-   * {@code float8}, {@code bytea}, {@code oid}, {@code varchar}, {@code bpchar}, {@code name},
-   * {@code char}) all reach the reader oracle.
+   * The read-populated scalar descriptors, in registration order -- by guard G3 the same set as
+   * {@link #scalars()}. The reader and read-side round-trip fuzzers drive all of them, not just the
+   * write-populated {@link #coercionScalars()} subset.
    *
    * @return the read-populated scalar descriptors
    */

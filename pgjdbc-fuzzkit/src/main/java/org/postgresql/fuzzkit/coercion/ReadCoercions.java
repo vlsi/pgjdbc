@@ -58,8 +58,8 @@ import java.util.function.Consumer;
  * <ul>
  *   <li><b>Source</b> -- the SQL type, keyed by {@code OID}. OID rather than {@code JDBCType}: the
  *       latter collapses distinct types ({@code uuid}, {@code json}, {@code hstore}, geometric all map
- *       to {@code OTHER}; {@code text} and {@code varchar} both to {@code VARCHAR}), which "whole
- *       driver" cannot lose. {@code JDBCType} instead serves population (group by
+ *       to {@code OTHER}; {@code text} and {@code varchar} both to {@code VARCHAR}), distinctions
+ *       this table cannot afford to lose. {@code JDBCType} instead serves population (group by
  *       {@code getSqlTypeCode(oid)}, then override exceptions) and an optional spec-parity overlay.</li>
  *   <li><b>Target</b> -- a fixed reader ({@link Accessor}) or {@code readObject(Class)}.</li>
  *   <li><b>Surface</b> -- {@link Surface#SQL_INPUT} (SQLData/composite), {@link Surface#RESULT_SET}
@@ -76,7 +76,8 @@ import java.util.function.Consumer;
  *
  * <p>A populated type is <b>default-deny</b>: list only the readers and classes that succeed
  * ({@code OK} / {@code OK_OR_COERCE}); any other value reader or class refuses with
- * {@code DATA_TYPE_MISMATCH} by default (the state {@code Codec.cannotDecode} raises), which absorbs
+ * {@code DATA_TYPE_MISMATCH} by default (the state
+ * {@link org.postgresql.api.codec.Codecs#cannotDecode(String, String)} raises), which absorbs
  * the unbounded class space ({@code Date[]}, user types, ...) and plain type mismatches without
  * enumerating them. {@code readBoolean} is the one reader that defaults to {@code CANNOT_COERCE}
  * instead (it runs through {@code BooleanCoercion}). Two more exceptions to the default:
@@ -89,9 +90,10 @@ import java.util.function.Consumer;
  *
  * <p>A fourth dimension is the <b>connection config</b>. The base is one {@link View}; each
  * {@link #connectionParam} view holds the cells a property switches on ({@code convertBooleanToNumeric}
- * flips bool's numeric readers; {@code javaTimePreferences} will switch the temporal default classes), and
- * the lookups layer matching views over the default. {@link #defaultObjectClass(int)} exposes the
- * class the no-arg {@code getObject} returns, which a property view can also change.
+ * flips bool's numeric readers; the {@code prefersJavaTimeFor*} properties switch the temporal
+ * default classes), and the lookups layer matching views over the default.
+ * {@link #defaultObjectClass(int)} exposes the class the no-arg {@code getObject} returns, which a
+ * property view can also change.
  */
 public final class ReadCoercions {
 
@@ -137,9 +139,9 @@ public final class ReadCoercions {
 
   /**
    * Connection-bound or type-specific readers. Default-deny does not apply to them: an unlisted cell
-   * stays {@code null} rather than {@code CANNOT_COERCE}, because their outcome depends on the surface
-   * and the connection (an array codec, a large object, an offline limitation), not on a value
-   * coercion.
+   * stays {@code null} rather than the {@code DATA_TYPE_MISMATCH} default-deny gives a value reader,
+   * because their outcome depends on the surface and the connection (an array codec, a large object,
+   * an offline limitation), not on a value coercion.
    */
   private static final Set<Accessor> STRUCTURAL = EnumSet.of(
       Accessor.READ_REF, Accessor.READ_BLOB, Accessor.READ_CLOB, Accessor.READ_ARRAY,
@@ -311,10 +313,10 @@ public final class ReadCoercions {
 
   /**
    * Returns the outcome pgjdbc produces for a fixed reader under the given connection config. Returns
-   * {@code NOT_IMPLEMENTED} for a reader the surface does not implement, {@code CANNOT_COERCE} by
-   * default-deny for an unlisted value reader once the type is populated, and {@code null} for an
-   * unlisted structural reader or an unpopulated type. A property view overrides the default cell when
-   * its property matches {@code config}.
+   * {@code NOT_IMPLEMENTED} for a reader the surface does not implement, {@code DATA_TYPE_MISMATCH}
+   * by default-deny for an unlisted value reader once the type is populated ({@code CANNOT_COERCE}
+   * for {@code readBoolean}), and {@code null} for an unlisted structural reader or an unpopulated
+   * type. A property view overrides the default cell when its property matches {@code config}.
    *
    * @param surface the reading API
    * @param oid the PostgreSQL type OID
@@ -349,7 +351,7 @@ public final class ReadCoercions {
     if (STRUCTURAL.contains(accessor)) {
       return null;
     }
-    // A decode failure carries DATA_TYPE_MISMATCH (Codec.cannotDecode). readBoolean is the exception:
+    // A decode failure carries DATA_TYPE_MISMATCH (Codecs.cannotDecode). readBoolean is the exception:
     // it runs through BooleanCoercion, which refuses with CANNOT_COERCE.
     return accessor == Accessor.READ_BOOLEAN ? CANNOT_COERCE : DATA_TYPE_MISMATCH;
   }
@@ -388,7 +390,7 @@ public final class ReadCoercions {
     if (listed != null) {
       return listed;
     }
-    // readObject(Class) always refuses through Codec.cannotDecode, so the default is DATA_TYPE_MISMATCH.
+    // readObject(Class) always refuses through Codecs.cannotDecode, so the default is DATA_TYPE_MISMATCH.
     return populated ? DATA_TYPE_MISMATCH : null;
   }
 
@@ -428,7 +430,7 @@ public final class ReadCoercions {
   /**
    * Returns the class the no-arg {@code readObject()} / {@code getObject()} returns for a type under
    * the given config (the codec's default Java type), or {@code null} when unspecified. A property
-   * view can change it -- for example {@code javaTimePreferences} switches the temporal types from
+   * view can change it -- for example {@code prefersJavaTimeFor*} switches the temporal types from
    * {@code java.sql.*} to {@code java.time.*}.
    *
    * @param oid the PostgreSQL type OID
@@ -469,10 +471,10 @@ public final class ReadCoercions {
   }
 
   /**
-   * The union of every read-populated type's {@code readObject(Class)} targets under the default view --
-   * the whole {@code readObject} target-class axis the read fuzzers exercise. Derived from the object
-   * rows, so the fuzzer no longer keeps a hand-written class list; a type joining the read dictionary
-   * widens the axis automatically. The result is unordered; the caller imposes a stable order.
+   * Returns the union of every read-populated type's {@code readObject(Class)} targets under the
+   * default view -- the whole {@code readObject} target-class axis the read fuzzers exercise.
+   * Derived from the object rows, so a type joining the read dictionary widens the axis
+   * automatically. The result is unordered; the caller imposes a stable order.
    *
    * @return the union of all {@code readObject(Class)} target classes, never {@code null}
    */
@@ -541,7 +543,7 @@ public final class ReadCoercions {
     integralValueReaders(Oid.INT4, Integer.class, OK, OK);
     integralObjectAs(Oid.INT4, OK, OK_OR_COERCE, OK_OR_COERCE);
     // Representative surface override: ResultSet.getObject(Blob.class) on a non-LOB column throws
-    // INVALID_PARAMETER_VALUE instead of the default CANNOT_COERCE.
+    // INVALID_PARAMETER_VALUE instead of the default DATA_TYPE_MISMATCH.
     oid(Oid.INT4, t -> t.objectOverride(Surface.RESULT_SET, Blob.class, INVALID_PARAMETER_VALUE));
 
     // int8: readInt/readShort/readByte range-check the long first, so they are value-dependent.
@@ -780,10 +782,9 @@ public final class ReadCoercions {
   }
 
   // ---------------------------------------------------------------------------------------------
-  // bytea. Sourced from ByteaCodec and the BinaryCodec default readers. The byte and string readers
-  // succeed; the numeric readers refuse with DATA_TYPE_MISMATCH (not the default CANNOT_COERCE), so
-  // they are listed. readObject(Class) refuses other classes with CANNOT_COERCE -- a different state
-  // from the fixed numeric readers.
+  // bytea. Sourced from ByteaCodec and the BinaryCodec default readers. The byte, string and stream
+  // readers succeed; everything else is left to default-deny -- DATA_TYPE_MISMATCH for the numeric
+  // readers and for an unlisted readObject(Class) target, CANNOT_COERCE for readBoolean.
   // ---------------------------------------------------------------------------------------------
 
   private static void defineBytea() {
@@ -865,9 +866,9 @@ public final class ReadCoercions {
   // TimetzCodec/TimestampCodec/TimestamptzCodec. The numeric readers refuse with DATA_TYPE_MISMATCH
   // (no time/date -> number coercion); readString formats the value. The readObject(Class) whitelist
   // is config-independent -- the codec accepts both the java.sql and the java.time targets regardless
-  // of javaTimePreferences; only the no-arg default class changes (see the javaTimePreferences views). One
-  // known deviation, not modelled as an outcome: the off-diagonal fixed readDate/readTime/readTimestamp
-  // go through java.sql.*.valueOf and leak on the cross-type they are listed OK for.
+  // of the prefersJavaTimeFor* views; only the no-arg default class changes. One known deviation,
+  // not modelled as an outcome: the off-diagonal fixed readDate/readTime/readTimestamp go through
+  // java.sql.*.valueOf and leak on the cross-type they are listed OK for.
   // ---------------------------------------------------------------------------------------------
 
   private static void defineTemporalFamily() {
@@ -1101,7 +1102,7 @@ public final class ReadCoercions {
       t.read(Accessor.READ_BIG_DECIMAL, OK);
     }));
 
-    // javaTimePreferences switches the no-arg getObject default for a temporal type from java.sql.* to
+    // prefersJavaTimeFor* switches the no-arg getObject default for a temporal type from java.sql.* to
     // java.time.*. The readObject(Class) whitelist is unchanged (the codec accepts both either way).
     connectionParam("prefersJavaTimeForDate", "true",
         v -> v.oid(Oid.DATE, t -> t.defaultObject(LocalDate.class)));

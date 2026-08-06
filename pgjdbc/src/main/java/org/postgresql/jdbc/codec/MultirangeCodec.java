@@ -28,9 +28,10 @@ import java.util.List;
  * Codec for PostgreSQL multirange types (PostgreSQL 14+).
  *
  * <p>A multirange is an ordered list of non-overlapping {@link PGRange} values of one subtype, such
- * as {@code int4multirange}, {@code nummultirange}, or {@code tstzmultirange}. This codec composes
- * on top of {@link RangeCodec}: it owns the multirange framing (the {@code {...}} braces in text,
- * the count-and-length headers in binary) and delegates each range to the range codec, which
+ * as {@code int4multirange}, {@code nummultirange}, or {@code tstzmultirange}. Decoding drops empty
+ * ranges from either format, the way the server drops them when it builds a multirange. This codec
+ * composes on top of {@link RangeCodec}: it owns the multirange framing (the {@code {...}} braces in
+ * text, the count-and-length headers in binary) and delegates each range to the range codec, which
  * resolves the bound subtype in turn. The range type itself is taken from the multirange metadata
  * ({@code pg_range.rngtypid}, joined on {@code rngmultitypid}; see
  * {@link TypeDescriptor#getMultirangeRange()}).</p>

@@ -230,7 +230,7 @@ public class ResultSetTest extends BaseTest4 {
 
   @Test
   public void testGetDateTimeTimestampOnStringColumns() throws SQLException {
-    // getDate/getTime/getTimestamp now coerce string columns through the text codecs, so a
+    // getDate/getTime/getTimestamp coerce string columns through the text codecs, so a
     // date/time literal stored in varchar/text parses just like a temporal column.
     try (Statement stmt = con.createStatement();
          ResultSet rs = stmt.executeQuery(
@@ -381,7 +381,8 @@ public class ResultSetTest extends BaseTest4 {
   }
 
   /**
-   * getString cases for {@link #getStringHonorsMaxFieldSize}. Each row is
+   * getString cases for {@link #getStringHonorsMaxFieldSize} and
+   * {@link #getObjectAsStringHonorsMaxFieldSize}. Each row is
    * {@code (label, sql, expected)}. The class is parameterized over {@link BinaryMode}, so every
    * case runs once in text transfer (REGULAR) and once in binary transfer (FORCE); the expected
    * value is the same for both formats.
@@ -821,7 +822,7 @@ public class ResultSetTest extends BaseTest4 {
     // than clamp to Integer.MAX_VALUE. The server agrees: '2147483647'::float4::int4 errors.
     assertFloatAccessorOverflows("float4", "2147483647", "getInt", rs -> rs.getInt(1));
     // (float8) 9223372036854775807 rounds up to 2^63, one past Long.MAX_VALUE: getLong must overflow
-    // rather than clamp to Long.MAX_VALUE. The server agrees: '9.2e18'::float8::int8 errors.
+    // rather than clamp to Long.MAX_VALUE. The server agrees: the same cast to int8 errors.
     assertFloatAccessorOverflows("float8", "9223372036854775807", "getLong", rs -> rs.getLong(1));
   }
 
@@ -869,7 +870,7 @@ public class ResultSetTest extends BaseTest4 {
   @Test
   public void testIntegerAccessorsOnOidAboveIntRange() throws SQLException {
     // oid is an unsigned 32-bit type. getInt reinterprets the raw 32-bit value as a signed int (wrapping
-    // above Integer.MAX_VALUE) and no longer throws, matching the legacy driver; getLong keeps the full
+    // above Integer.MAX_VALUE) rather than throwing, matching the legacy driver; getLong keeps the full
     // unsigned value. getByte/getShort narrow that wrapped int and throw 22003 only when it does not fit
     // their range. The BinaryMode parameterization runs this under both text and binary transfer.
 

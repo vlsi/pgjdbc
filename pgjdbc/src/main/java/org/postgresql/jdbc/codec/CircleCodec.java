@@ -74,7 +74,7 @@ public final class CircleCodec implements StreamingBinaryCodec, TextCodec {
     if (length != 24) {
       throw Exceptions.invalidBinaryLength("circle", length);
     }
-    // Render the centre and radius in the server's float8 text form (1, not Java's 1.0) so getString
+    // Render the center and radius in the server's float8 text form (1, not Java's 1.0) so getString
     // reads back the same value whether the circle arrived in binary or text.
     StringBuilder sb = new StringBuilder("<");
     PGpointFormat.appendServerText(sb, ByteConverter.float8(data, offset),

@@ -25,7 +25,7 @@ import java.util.List;
  */
 final class MoneyFractionDigits {
 
-  /** Symbols whose locale prints three fraction digits, longest first so a prefix cannot shadow. */
+  /** Symbols whose locale prints three fraction digits, longest first for a stable order. */
   private static final List<String> THREE = Collections.unmodifiableList(Arrays.asList(
       "ج.س.",           // U+062C U+002E U+0633 U+002E  ar_SD
       "ج.م.",           // U+062C U+002E U+0645 U+002E  ar_EG

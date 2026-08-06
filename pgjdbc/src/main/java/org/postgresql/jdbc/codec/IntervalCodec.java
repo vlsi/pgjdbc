@@ -22,7 +22,9 @@ import java.sql.SQLException;
 /**
  * Codec for PostgreSQL interval type.
  *
- * <p>Returns {@link PGInterval} for getObject().</p>
+ * <p>Returns {@link PGInterval} for getObject(). {@code getString} renders from the wire fields
+ * instead, so it succeeds on a max-range interval whose hour count overflows {@link PGInterval}'s
+ * {@code int} hours.</p>
  *
  * <p>Binary format is: 8 bytes (microseconds), 4 bytes (days), 4 bytes (months).</p>
  */
@@ -48,11 +50,9 @@ public final class IntervalCodec implements StreamingBinaryCodec, TextCodec {
   }
 
   /**
-   * Splits a 16-byte binary interval into its rendering fields. The hour count is kept as a
-   * {@code long}: near the microsecond field's int64 limit it reaches about 2562047788 hours, past
-   * what an {@code int} holds, and the whole-microsecond split must stay in long arithmetic anyway so
-   * the {@code hours * 3600} term does not overflow (it does past ~596_523 hours, corrupting the
-   * minutes).
+   * Splits a 16-byte binary interval into the rendering fields {@link Parts} describes. The
+   * whole-microsecond split stays in long arithmetic so the {@code hours * 3600} term does not
+   * overflow, which it does past ~596_523 hours and corrupts the minutes.
    */
   private static Parts normalize(byte[] data, int offset) {
     // Binary format: 8 bytes microseconds, 4 bytes days, 4 bytes months.
@@ -425,8 +425,8 @@ public final class IntervalCodec implements StreamingBinaryCodec, TextCodec {
   }
 
   /**
-   * The hours variant: an interval's hour field can exceed {@code int} (up to ~2562047788), so it is
-   * printed from a {@code long}. Still pads to two digits, and prints wider values in full.
+   * The overload for the hour field, which {@link Parts} keeps as a {@code long}. Pads to two
+   * digits, and prints wider values in full.
    */
   private static void appendZeroPadded2(StringBuilder sb, long value) {
     if (value < 10) {

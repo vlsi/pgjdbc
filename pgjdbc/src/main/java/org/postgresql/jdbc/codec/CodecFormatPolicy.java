@@ -20,12 +20,8 @@ import java.sql.SQLException;
  * <p>Unlike {@link org.postgresql.api.codec.Codecs#encode}, which enforces a format the caller has
  * already fixed, this negotiates: binary when the backend accepts it and the codec can produce it
  * for the value, otherwise text. The fallback belongs to the live extended-query protocol, which
- * picks a format per parameter; the offline and {@code COPY} paths never fall back, so this stays on
- * the driver side rather than in the public codec API.</p>
- *
- * <p>Both {@code PgPreparedStatement} bind sites route through here so the binary/text decision
- * cannot drift between them: the array path and the scalar path apply the same rule, and neither
- * feeds a value into {@code encodeBinary} that the codec cannot binary-encode.</p>
+ * picks a format per parameter; the offline path never falls back, so this stays on the driver side
+ * rather than in the public codec API.</p>
  */
 public final class CodecFormatPolicy {
 
@@ -38,13 +34,9 @@ public final class CodecFormatPolicy {
    * {@link Format#TEXT}.
    *
    * @param codec the codec resolved for the parameter type
-   * @param value the value to bind
-   * @param type the target type metadata
-   * @param ctx the codec context
    * @param backendCanBinary whether the caller's protocol state and the server both allow a binary
    *     send for this type (for example {@code binaryTransferSend(oid)} plus
    *     {@code backendCanReceiveBinary(type)})
-   * @return the chosen wire format
    * @throws SQLException if the codec can write neither format, or capability resolution fails
    */
   public static Format chooseBindFormat(Codec codec, Object value, TypeDescriptor type,

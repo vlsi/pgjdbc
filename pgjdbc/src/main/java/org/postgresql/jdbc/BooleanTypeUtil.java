@@ -55,11 +55,11 @@ public class BooleanTypeUtil {
   }
 
   /**
-   * Parses a boolean value from a character sequence.
+   * Parses a boolean value from a character sequence, ignoring case and surrounding whitespace.
    * Accepts PostgreSQL boolean literals: true, false, t, f, yes, no, y, n, on, off, 1, 0.
    *
    * <p>Takes a {@link CharSequence} so a container decoding a {@code bool[]}/{@code bit[]} element can
-   * pass a borrowed view over their buffer, and a {@link String} caller passes itself: the
+   * pass a borrowed view over its buffer, and a {@link String} caller passes itself: the
    * happy path reads the literal in place and copies nothing out.</p>
    *
    * @param strval the sequence to parse
@@ -67,8 +67,8 @@ public class BooleanTypeUtil {
    * @throws PSQLException if the sequence is not a recognized boolean literal
    */
   public static boolean fromString(final CharSequence strval) throws PSQLException {
-    // Leading or trailing whitespace is ignored, and case does not matter. Trim by moving bounds
-    // rather than copying out a trimmed String, so a borrowed slice stays allocation-free.
+    // Trim by moving bounds rather than copying out a trimmed String, so a borrowed slice stays
+    // allocation-free.
     int start = 0;
     int end = strval.length();
     while (start < end && strval.charAt(start) <= ' ') {
@@ -77,9 +77,7 @@ public class BooleanTypeUtil {
     while (end > start && strval.charAt(end - 1) <= ' ') {
       end--;
     }
-    // Every single-character literal ('t'/'f'/'y'/'n'/'1'/'0', either case) is exactly what
-    // fromCharacter recognizes, so delegate rather than repeat the checks; only the multi-character
-    // words are matched here.
+    // The one-character literals are exactly the set fromCharacter recognizes.
     if (end - start == 1) {
       return fromCharacter(strval.charAt(start));
     }
@@ -140,8 +138,8 @@ public class BooleanTypeUtil {
   }
 
   /**
-   * Functional adapter the codec layer uses to lazily retrieve the codec's
-   * native string representation when constructing an error message.
+   * Supplies the string form a codec would produce for a value, for use in an error message.
+   * {@link #castAndCheck} calls it only on the failure path.
    */
   @FunctionalInterface
   public interface StringSupplier {
@@ -149,15 +147,15 @@ public class BooleanTypeUtil {
   }
 
   /**
-   * Coerces {@code value} to boolean using the legacy contract (Boolean,
-   * Number with values 0/1, String/Character literals). On failure, formats
-   * the error message using {@code stringSupplier} so callers (codecs) can
-   * provide a richer text representation than {@code value.toString()}.
+   * Coerces {@code value} to boolean, accepting what {@link #castToBoolean} accepts and also
+   * unwrapping a {@link org.postgresql.util.PGobject}.
    *
    * @param value decoded codec value
-   * @param stringSupplier supplier for the codec's native string form
+   * @param stringSupplier the codec's own string form of the value, used in the error message in
+   *     place of {@code value.toString()}; when it returns null, {@code value.toString()} is used
    * @return the boolean value
-   * @throws SQLException if conversion fails
+   * @throws SQLException with {@link PSQLState#CANNOT_COERCE} if the value is none of those, or
+   *     whatever {@code stringSupplier} throws
    */
   public static boolean castAndCheck(@Nullable Object value, StringSupplier stringSupplier)
       throws SQLException {

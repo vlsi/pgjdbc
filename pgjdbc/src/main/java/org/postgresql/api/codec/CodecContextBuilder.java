@@ -16,8 +16,9 @@ import java.util.TimeZone;
  *
  * <p>Supply the wire settings (charset, time zone, integer-datetime mode), the {@link CodecLookup}
  * that resolves codecs, and descriptors for any child types a container resolves. The result drives
- * {@link Codecs#encode} and {@link Codecs#decode} for scalar and temporal types with no connection;
- * container types still need a live connection.</p>
+ * {@link Codecs#encode} and {@link Codecs#decode} with no connection. A container resolves a child
+ * type through the descriptors registered here, falling back to the driver's built-in catalog, and
+ * fails when the OID is in neither.</p>
  *
  * <p>Defaults: UTF-8, UTC, integer datetimes, a fresh registry with the built-in codecs, no
  * {@code getObject} java.time preferences, and no boolean-to-numeric coercion.</p>

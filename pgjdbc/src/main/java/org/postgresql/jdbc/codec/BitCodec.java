@@ -25,18 +25,16 @@ import java.sql.SQLException;
  * {@code ceil(n/8)} bytes.</p>
  *
  * <p>{@code getObject()} on a scalar {@code bit} column is special-cased in {@code PgResultSet}
- * ({@code bit(1)} → {@link Boolean}, wider → {@link PGobject}), so this codec's default
- * representation is the {@link PGobject} bit string, matching the legacy fallback. On encode it also
- * accepts a {@link Boolean} ({@code "1"}/{@code "0"}), so a {@code boolean[]} binds correctly to
+ * ({@code bit(1)} → {@link Boolean}, wider → {@link PGobject}; in binary the width comes from the
+ * int4 prefix), so this codec's default representation is the {@link PGobject} bit string, matching
+ * the legacy fallback. Array elements are always {@link PGobject}, so {@code bit[]}/{@code varbit[]}
+ * decode to {@code PGobject[]} via the array codec walker. On encode this codec also accepts a
+ * {@link Boolean} ({@code "1"}/{@code "0"}), so a {@code boolean[]} binds correctly to
  * {@code bit[]}.</p>
  *
- * <p>Binary is fully supported in both directions: {@link #decodeBinary} parses the packed wire form
- * and {@link #encodeBinary} produces it. The packed binary is ~8× smaller than the text form, so
- * {@code bit}/{@code varbit} (scalars and arrays) are registered for binary transfer like the other
- * built-in types. The scalar {@code bit(1) → Boolean} contract is preserved by reading the bit count
- * from the int4 prefix when the value arrives in binary (see {@code PgResultSet}); array elements are
- * always {@link PGobject}, so {@code bit[]}/{@code varbit[]} decode to {@code PGobject[]} via the
- * array codec walker.</p>
+ * <p>Binary works in both directions: {@link #decodeBinary} and {@link #encodeBinary}. The packed
+ * form is ~8× smaller than the text form, so {@code bit}/{@code varbit} scalars and arrays are
+ * registered for binary transfer like the other built-in types.</p>
  */
 public final class BitCodec implements PrimitiveBinaryDecoder, PrimitiveTextDecoder {
 
@@ -190,12 +188,11 @@ public final class BitCodec implements PrimitiveBinaryDecoder, PrimitiveTextDeco
       throw Exceptions.invalidBinaryLength("bit", length);
     }
     int nbits = ByteConverter.int4(data, offset);
-    // The wire form is a 4-byte bit count followed by ceil(nbits/8) packed bytes. Validate the count
-    // against the bytes actually present before allocating the StringBuilder or walking the packed
-    // body: a negative or oversized count read from untrusted or corrupt wire would otherwise drive an
-    // OutOfMemoryError on the allocation or an ArrayIndexOutOfBoundsException in the loop. The server
-    // never emits a mismatched length, so reject it with DATA_ERROR. The ceil is computed in long to
-    // avoid the (nbits + 7) overflow near Integer.MAX_VALUE.
+    // Validate the count against the bytes actually present before allocating the StringBuilder or
+    // walking the packed body: a negative or oversized count read from untrusted or corrupt wire would
+    // otherwise drive an OutOfMemoryError on the allocation or an ArrayIndexOutOfBoundsException in
+    // the loop. The server never emits a mismatched length, so reject it with DATA_ERROR. The ceil is
+    // computed in long to avoid the (nbits + 7) overflow near Integer.MAX_VALUE.
     long expectedBytes = 4L + (nbits + 7L) / 8L;
     if (nbits < 0 || expectedBytes != length) {
       throw Exceptions.invalidBitCount(nbits, length);

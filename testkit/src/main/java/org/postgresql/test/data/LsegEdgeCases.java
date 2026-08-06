@@ -10,8 +10,9 @@ import java.util.Collections;
 import java.util.List;
 
 /**
- * Edge-case {@code lseg} (line segment) values: a unit segment, a degenerate zero-length segment, signed
- * and large endpoints. Read-only ({@link EdgeCase#value()} is {@code null}).
+ * Edge-case {@code lseg} (line segment) values: a unit segment, a degenerate zero-length segment, a
+ * horizontal segment, and signed and large endpoints. Read-only ({@link EdgeCase#value()} is
+ * {@code null}).
  */
 public final class LsegEdgeCases {
   /** Every case, in a stable order. */

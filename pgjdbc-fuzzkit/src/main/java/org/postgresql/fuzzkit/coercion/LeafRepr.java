@@ -13,10 +13,9 @@ package org.postgresql.fuzzkit.coercion;
  *
  * <p>The two representations carry different NULL contracts on the codec wire: a boxed leaf reads a
  * wire NULL back as {@code null}, whereas a primitive leaf has no null form and refuses it. The codec
- * round-trip therefore fuzzes the primitive leaf with non-null values only (the recommended step of
- * the C3 brief); the NULL-into-primitive refusal is a separate oracle track. A scalar type whose
- * natural class has no primitive ({@code text}, {@code bytea}, {@code numeric}) offers {@link #BOXED}
- * only.
+ * round-trip therefore fuzzes the primitive leaf with non-null values only; the NULL-into-primitive
+ * refusal is a separate oracle track. A scalar type whose natural class has no primitive
+ * ({@code text}, {@code bytea}, {@code numeric}) offers {@link #BOXED} only.
  */
 public enum LeafRepr {
   /** A wrapper leaf, such as {@code Integer} -- accepts and reads back a wire NULL as {@code null}. */

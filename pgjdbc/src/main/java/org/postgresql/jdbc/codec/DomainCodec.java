@@ -28,12 +28,9 @@ import java.sql.SQLException;
 /**
  * Codec for PostgreSQL domain types.
  *
- * <p>Domain types in PostgreSQL are custom types based on an underlying base type
- * with optional constraints. This codec delegates all encoding and decoding to the
- * base type's codec.</p>
- *
- * <p>Example: {@code CREATE DOMAIN positive_int AS integer CHECK (value > 0)}.
- * The {@code positive_int} domain uses {@code Int4Codec} for its encoding and decoding.</p>
+ * <p>A domain is a base type carrying optional constraints, for example
+ * {@code CREATE DOMAIN positive_int AS integer CHECK (value > 0)}; {@code positive_int} is encoded
+ * and decoded by {@link Int4Codec}.</p>
  *
  * <h2>Contract: a domain is unwrapped transparently to its base type</h2>
  *
@@ -51,10 +48,11 @@ import java.sql.SQLException;
  *
  *   <li><strong>The domain's type modifier is propagated on decode.</strong> A domain may pin a
  *   typmod on its base type (for example {@code CREATE DOMAIN price AS numeric(10,2)}), stored in
- *   {@code pg_type.typtypmod}. This codec forwards that modifier to the base type via
- *   {@link TypeDescriptor#withTypmod(int)}, so a modifier-sensitive base codec — numeric rescaling to
- *   the declared scale, for instance — observes it through {@link TypeDescriptor#getAppliedTypmod()}. Encode
- *   is unaffected: the numeric codecs encode from the value's own scale and the server enforces the
+ *   {@code pg_type.typtypmod}. Through {@link TypeDescriptor#withTypmod(int)} this codec forwards the
+ *   modifier the domain column applies, falling back to that pinned one when the column applies none,
+ *   so a modifier-sensitive base codec — numeric rescaling to the declared scale, for instance —
+ *   observes it through {@link TypeDescriptor#getAppliedTypmod()}.
+ *   Encode is unaffected: the numeric codecs encode from the value's own scale and the server enforces the
  *   domain constraint on input regardless. The domain's own {@link TypeDescriptor#getCatalogTypmod()} is
  *   left unchanged for metadata such as column-size reporting.</li>
  * </ul>
@@ -88,11 +86,7 @@ public final class DomainCodec implements StreamingBinaryCodec, StreamingTextCod
     if (baseTypeOid == 0) {
       return domainType;
     }
-    // A domain pins its base type's modifier in pg_type.typtypmod (CREATE DOMAIN price AS
-    // numeric(10,2)); a domain column may also arrive with an applied modifier. Forward whichever
-    // applies so the base codec can decode a modifier-sensitive base type such as numeric. Encode
-    // ignores it (numeric encodes from the value's own scale), so stamping here is decode-only in
-    // effect.
+    // -1 means the column applies no modifier; the class contract covers the fallback to the pinned one.
     int typmod = domainType.getAppliedTypmod() != -1 ? domainType.getAppliedTypmod() : domainType.getCatalogTypmod();
     return ctx.resolveType(baseTypeOid, typmod);
   }

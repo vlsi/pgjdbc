@@ -30,18 +30,17 @@ import java.sql.SQLException;
  * {@code decodeBinaryAs} accessors are convenience defaults that fan out from it. The
  * {@code decodeAsBigDecimal} accessor is an opt-in {@link PrimitiveBinaryDecoder} capability rather
  * than a base default. A codec overrides a slice accessor only when its result differs from decoding
- * through
- * {@code decodeBinary} and converting (for example {@code bytea}'s hex text, or a numeric codec that
- * converts to {@code Long}/{@code Double}).</p>
+ * through {@code decodeBinary} and converting (for example {@code bytea}'s hex text, or a numeric
+ * codec that converts to {@code Long}/{@code Double}).</p>
  *
- * <h2>Primitive Specializations</h2>
+ * <h2>Primitive specializations</h2>
  *
  * <p>Decoding a value to a Java primitive without boxing it first is an opt-in capability: a codec
  * that can produce a primitive from its binary wire form implements {@link PrimitiveBinaryDecoder}.
  * A caller holding a base-typed reference goes through {@link PrimitiveDecoders}, which falls back to
  * boxing through {@link #decodeBinary} when the codec does not implement that capability.</p>
  *
- * <h2>Overflow Handling</h2>
+ * <h2>Overflow handling</h2>
  *
  * <p>Implementations MUST check for overflow when converting between numeric types
  * and throw {@link SQLException} on overflow. Reference implementation:

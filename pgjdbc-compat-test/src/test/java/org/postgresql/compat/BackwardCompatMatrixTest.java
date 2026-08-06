@@ -119,8 +119,9 @@ class BackwardCompatMatrixTest {
 
   /**
    * The accessors swept over every fixed {@link #READ_TYPES} value. Derived from {@link Accessor#values()}
-   * minus the Calendar getters: those are wired only into the temporal edge axes (below), so a Calendar
-   * getter does not run against, say, an {@code int4} column where it only adds noise. Deriving it — rather
+   * minus the Calendar getters: those are wired only into the temporal edge axes such as
+   * {@link #TIMESTAMP_EDGE_ACCESSORS}, so a Calendar getter does not run against, say, an
+   * {@code int4} column where it only adds noise. Deriving it — rather
    * than listing the members by hand — keeps a newly added accessor in the fixed sweep automatically.
    */
   private static final Accessor[] FIXED_MATRIX_ACCESSORS =

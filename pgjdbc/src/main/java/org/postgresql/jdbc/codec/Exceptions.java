@@ -16,14 +16,13 @@ import org.checkerframework.checker.nullness.qual.Nullable;
 import java.sql.SQLException;
 
 /**
- * Factory for the errors thrown by codecs across the codec API.
+ * Factory for the errors the codecs in this package throw.
  *
- * <p>Every {@code new PSQLException}/{@code new SQLException}/{@code GT.tr} call for the codec
- * API lives here so message text and {@link PSQLState} choices stay in one place instead of
- * duplicated across codecs.</p>
+ * <p>Message text and {@link PSQLState} choices for this package's codecs live here rather than in
+ * the codecs themselves, so a wording or state change touches one file.</p>
  *
  * <p>{@code cannotDecode}/{@code cannotEncode} delegate to {@link Codecs}, which is public: codecs
- * outside this package (e.g. {@code org.postgresql.api.codec.BinaryCodec}) need the same errors and
+ * outside this package (e.g. {@link org.postgresql.api.codec.BinaryCodec}) need the same errors and
  * cannot see this package-private class.</p>
  */
 class Exceptions {
@@ -108,9 +107,11 @@ class Exceptions {
   }
 
   /**
-   * Value could not be encoded as {@code typeName} (used by codecs that phrase the base
-   * {@link #cannotEncode(Object, String)} case as "encode ... as ..." with
-   * {@link PSQLState#DATA_TYPE_MISMATCH} rather than {@link PSQLState#INVALID_PARAMETER_TYPE}).
+   * A value could not be encoded as {@code typeName}.
+   *
+   * <p>Differs from {@link #cannotEncode(Object, String)} in wording and state: the message reads
+   * "encode ... as ..." and carries {@link PSQLState#DATA_TYPE_MISMATCH} rather than
+   * {@link PSQLState#INVALID_PARAMETER_TYPE}.</p>
    *
    * @param value the value being encoded
    * @param typeName target PostgreSQL type name (or description, e.g. {@code "range type"})
@@ -127,7 +128,7 @@ class Exceptions {
    *
    * @param value the out-of-range value
    * @param targetType target type name
-   * @return conversion error
+   * @return conversion error, carrying {@link PSQLState#NUMERIC_VALUE_OUT_OF_RANGE}
    */
   static SQLException outOfRange(Object value, String targetType) {
     return new PSQLException(
@@ -278,8 +279,7 @@ class Exceptions {
         PSQLState.DATA_ERROR);
   }
 
-  // One-off codec errors, still centralized here so no other class in this package builds
-  // a PSQLException/SQLException/GT.tr message directly.
+  // One-off codec errors.
 
   /**
    * A bit-string literal carries a character that is not {@code '0'} or {@code '1'}.

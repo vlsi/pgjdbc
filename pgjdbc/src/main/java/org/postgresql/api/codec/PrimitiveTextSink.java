@@ -11,17 +11,18 @@ import java.io.IOException;
 import java.io.StringWriter;
 
 /**
- * An {@link Appendable} that also accepts a Java integer as its decimal text without allocating an
+ * An {@link Appendable} that also accepts a Java primitive number as its text without allocating an
  * intermediate {@code String} — the text counterpart of {@link BackpatchingByteArrayOutputStream}'s typed
  * writers.
  *
  * <p>{@link StringBuilder} already offers {@code append(int)}/{@code append(long)} that write the
  * digits straight into its buffer. The static {@link #appendInt}/{@link #appendLong} helpers take
- * that allocation-free path when the target is a {@link StringBuilder} and fall back to
- * {@link Integer#toString(int)} otherwise. A wrapping text sink (such as the composite/array escaping
- * sink) overrides {@code append(int)}/{@code append(long)} to forward to its {@link StringBuilder}
- * delegate, so its digits reach the buffer without an intermediate {@code String}. A sink that leaves
- * the defaults in place gets the correct but allocating fallback.</p>
+ * that allocation-free path when the target is a {@link StringBuilder}, a {@link StringWriter}, or a
+ * {@code PrimitiveTextSink}, and fall back to {@link Integer#toString(int)} otherwise. A wrapping
+ * text sink (such as the composite/array escaping sink) overrides {@code append(int)} and
+ * {@code append(long)} to forward to its {@link StringBuilder} delegate, so its digits reach the
+ * buffer without an intermediate {@code String}. A sink that leaves the defaults in place gets the
+ * correct but allocating fallback.</p>
  *
  * <h2>Why the encode signatures still take {@code Appendable}</h2>
  *
@@ -98,9 +99,8 @@ public interface PrimitiveTextSink extends Appendable {
   }
 
   /**
-   * Appends {@code value}'s decimal text to {@code out}, avoiding an intermediate {@code String} when
-   * {@code out} is a {@link StringBuilder} and falling back to {@link Integer#toString(int)}
-   * otherwise.
+   * Appends {@code value}'s decimal text to {@code out}, taking the allocation-free path when the
+   * concrete target offers one and falling back to {@link Integer#toString(int)} otherwise.
    *
    * @param out the sink to append to
    * @param value the value to append
@@ -119,9 +119,8 @@ public interface PrimitiveTextSink extends Appendable {
   }
 
   /**
-   * Appends {@code value}'s decimal text to {@code out}, avoiding an intermediate {@code String} when
-   * {@code out} is a {@link StringBuilder} and falling back to {@link Long#toString(long)}
-   * otherwise.
+   * Appends {@code value}'s decimal text to {@code out}, taking the allocation-free path when the
+   * concrete target offers one and falling back to {@link Long#toString(long)} otherwise.
    *
    * @param out the sink to append to
    * @param value the value to append
@@ -140,9 +139,8 @@ public interface PrimitiveTextSink extends Appendable {
   }
 
   /**
-   * Appends {@code value}'s text to {@code out}, avoiding an intermediate {@code String} when
-   * {@code out} is a {@link StringBuilder} and falling back to {@link Float#toString(float)}
-   * otherwise.
+   * Appends {@code value}'s text to {@code out}, taking the allocation-free path when the concrete
+   * target offers one and falling back to {@link Float#toString(float)} otherwise.
    *
    * @param out the sink to append to
    * @param value the value to append
@@ -161,9 +159,8 @@ public interface PrimitiveTextSink extends Appendable {
   }
 
   /**
-   * Appends {@code value}'s text to {@code out}, avoiding an intermediate {@code String} when
-   * {@code out} is a {@link StringBuilder} and falling back to {@link Double#toString(double)}
-   * otherwise.
+   * Appends {@code value}'s text to {@code out}, taking the allocation-free path when the concrete
+   * target offers one and falling back to {@link Double#toString(double)} otherwise.
    *
    * @param out the sink to append to
    * @param value the value to append

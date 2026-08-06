@@ -70,6 +70,8 @@ public final class WireValueSlice {
    * @param offset start of this value within {@code bytes}
    * @param length number of bytes for this value
    * @return the wrapped value
+   * @throws IndexOutOfBoundsException if {@code offset} or {@code length} is negative, or the slice
+   *     runs past the end of {@code bytes}
    */
   public static WireValueSlice of(Format format, byte[] bytes, int offset, int length) {
     return new WireValueSlice(format, bytes, offset, length);

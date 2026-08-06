@@ -17,18 +17,12 @@ package org.postgresql.jdbc.codec;
  * arrays avoid boxing. Element types without this capability fall back to
  * {@link GenericArrayLeafCodec}, which delegates each element to the element's
  * scalar codec.</p>
- *
- * <p>This keeps the array model single — one {@code ArrayCodec} for every array
- * type — while letting hot built-in element types opt into a fast path without
- * a separate per-element array codec.</p>
  */
 interface ArrayElementCodec {
 
   /**
    * Returns the leaf strategy that reads and writes one 1-D slice of this
    * element type.
-   *
-   * @return the array leaf for this element type
    */
   ArrayLeafCodec arrayLeaf();
 }

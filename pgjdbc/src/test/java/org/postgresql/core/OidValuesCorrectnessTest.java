@@ -29,7 +29,10 @@ import java.util.Locale;
 import java.util.Map;
 
 /**
- * Test to check if values in Oid class are correct with Oid values in a database.
+ * Fails when a constant in {@link Oid} does not match the OID {@code pg_type} reports for the type
+ * it names. Every public field of {@link Oid} is swept, so a newly added constant is tested unless
+ * {@link #oidsToIgnore} excuses it or {@link #oidsMinimumVersions} holds it back on an older
+ * server.
  */
 @ParameterizedClass
 @MethodSource("data")
@@ -41,8 +44,8 @@ public class OidValuesCorrectnessTest extends BaseTest4 {
   public int oidValue;
 
   /**
-   * List to contain names of all variables, which should be ignored by this test.
-   * Prevents situation that a new value will be added to Oid class with ignoring the test.
+   * Names of {@link Oid} constants left out of the sweep: an entry that is not a type OID at all, or
+   * one whose OID varies between installations.
    */
   private static List<String> oidsToIgnore = Arrays.asList(
       "UNSPECIFIED", //UNSPECIFIED isn't an Oid, it's a value to specify that Oid value is unspecified

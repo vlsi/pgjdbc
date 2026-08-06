@@ -451,7 +451,6 @@ public class PgConnection implements BaseConnection {
       this.disableColumnSanitiser = PGProperty.DISABLE_COLUMN_SANITISER.getBoolean(info);
       this.convertBooleanToNumeric = PGProperty.CONVERT_BOOLEAN_TO_NUMERIC.getBoolean(info);
 
-      // Initialize date/time type preferences for getObject()
       this.javaTimePreferences = JavaTimePreferences.builder()
           .prefersLocalDate(prefersJavaTime(info, PGProperty.GETOBJECT_DATE))
           .prefersLocalTime(prefersJavaTime(info, PGProperty.GETOBJECT_TIME))
@@ -904,13 +903,15 @@ public class PgConnection implements BaseConnection {
    * This method is used internally to return an object based around org.postgresql's more unique
    * data types.
    *
-   * <p>It uses an internal HashMap to get the handling class. If the type is not supported, then an
-   * instance of org.postgresql.util.PGobject is returned.
+   * <p>A type the connection's type map binds to a {@link java.sql.SQLData} class is decoded through
+   * that class. Otherwise it uses an internal HashMap to get the handling class. If the type is not
+   * supported, then an instance of org.postgresql.util.PGobject is returned.
    *
    * <p>You can use the getValue() or setValue() methods to handle the returned object. Custom objects
    * can have their own methods.
    *
-   * @return PGobject for this type, and set to value
+   * @return the {@code SQLData} instance when the type map binds the type to one and the payload is
+   *     non-empty, otherwise a PGobject for this type, and set to value
    *
    * @throws SQLException if value is not correct for this type
    */
@@ -1702,7 +1703,6 @@ public class PgConnection implements BaseConnection {
   public Struct createStruct(String typeName, Object[] attributes) throws SQLException {
     checkClosed();
 
-    // Validate that the type exists
     PgType pgType = typeCache.getPgTypeByPgName(typeName);
     if (pgType.getOid() == Oid.UNSPECIFIED) {
       throw new PSQLException(
@@ -1710,7 +1710,6 @@ public class PgConnection implements BaseConnection {
           PSQLState.INVALID_NAME);
     }
 
-    // Get the expected number of fields for this composite type
     List<PgField> fields = typeCache.getFields(pgType.getOid());
     if (!fields.isEmpty() && attributes.length != fields.size()) {
       throw new PSQLException(
@@ -2244,13 +2243,12 @@ public class PgConnection implements BaseConnection {
   }
 
   /**
-   * Returns a PgCodecContext for this connection.
+   * Returns the {@link PgCodecContext} for this connection.
    *
-   * <p>The PgCodecContext provides access to codecs and type information
-   * needed for encoding and decoding values.</p>
+   * <p>The same instance comes back until {@link #setTypeMap} replaces the type map, so a caller
+   * must not hold on to it across that call.</p>
    *
    * @return the codec context
-   * @throws SQLException if the context cannot be created
    */
   @Override
   public PgCodecContext getCodecContext() throws SQLException {

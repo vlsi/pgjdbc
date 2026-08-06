@@ -118,7 +118,7 @@ public final class TimetzCodec implements StreamingBinaryCodec, TextCodec {
     }
     // LocalTime / LocalDateTime / LocalDate are explicitly rejected per the
     // JDBC contract — they discard the time zone information that this column
-    // carries. Fall through to the throw below.
+    // carries.
     if (targetClass == java.util.Date.class) {
       return targetClass.cast(TemporalCodecs.decodeTimeBin(data, offset, length, ctx));
     }

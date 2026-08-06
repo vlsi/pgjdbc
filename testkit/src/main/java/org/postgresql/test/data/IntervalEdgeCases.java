@@ -23,7 +23,7 @@ import java.util.List;
 public final class IntervalEdgeCases {
   /**
    * Literals no {@code interval_in} accepts. The parser used to pair each number with the unit word
-   * after it and drop whatever did not fit, so all of these read back as a zero interval.
+   * after it and drop whatever did not fit.
    *
    * <p>Deliberately absent from {@link #ALL}, whose literals all cast cleanly. Two shapes are absent from
    * here as well: the empty string, which {@code IntervalCodec.decodeText} maps to {@code null} before the
@@ -33,7 +33,7 @@ public final class IntervalEdgeCases {
    */
   public static final List<EdgeCase> MALFORMED = Collections.unmodifiableList(malformed());
 
-  /** Every case, in a stable order. */
+  /** Every literal that casts cleanly to {@code interval}, in a stable order. */
   public static final List<EdgeCase> ALL = Collections.unmodifiableList(all());
 
   private IntervalEdgeCases() {

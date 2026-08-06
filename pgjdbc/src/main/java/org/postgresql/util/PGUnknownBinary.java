@@ -11,14 +11,15 @@ import java.io.Serializable;
 import java.util.Arrays;
 
 /**
- * Represents an unknown PostgreSQL type received in binary format.
+ * Holds a value of an unknown PostgreSQL type as the raw bytes the server sent in binary format.
  *
- * <p>This class is used when the driver receives binary data for a type
- * that has no registered codec. Unlike {@link PGobject} which stores text
- * representations, this class preserves the raw binary data.</p>
+ * <p>The driver produces one when it reads binary data for a type that has no registered codec.
+ * {@link PGobject} keeps the server's text rendering of such a value; this class keeps the wire
+ * bytes, so the value can be bound back to the server without a lossy text conversion.</p>
  *
- * <p>This allows round-tripping unknown binary types back to the server
- * without data loss from text conversion.</p>
+ * <p>Both the type name and the bytes may be absent; a no-argument instance starts with neither.
+ * Byte arrays are copied in and out, so a caller may keep and modify the array it passed to
+ * {@link #setBytes(byte[])} or got back from {@link #getBytes()}.</p>
  *
  * @since 42.8.0
  */
@@ -53,6 +54,10 @@ public class PGUnknownBinary implements Serializable, Cloneable {
     this.bytes = bytes != null ? bytes.clone() : null;
   }
 
+  /**
+   * Renders the bytes as {@code \x} followed by two lowercase hex digits per byte, or as the literal
+   * text {@code null} when no bytes are set. The type name does not appear.
+   */
   @Override
   public String toString() {
     byte[] data = bytes;

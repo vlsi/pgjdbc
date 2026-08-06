@@ -12,13 +12,12 @@ import org.checkerframework.checker.nullness.qual.Nullable;
 /**
  * The per-type {@code getObject} java.time preferences, matching the per-type connection properties.
  * Each flag makes {@code decode(..., Object.class)} on that temporal type yield the java.time class
- * rather than the {@code java.sql} one. An immutable value carried into
- * {@link CodecContextBuilder#javaTimePreferences(JavaTimePreferences)} so the five flags travel as one named
- * value rather than five positional booleans.
+ * rather than the {@code java.sql} one. Instances are immutable, and
+ * {@link CodecContextBuilder#javaTimePreferences(JavaTimePreferences)} takes one.
  *
  * <p>Build one with {@link #builder()} and set only the flags you need; unset flags default to
- * {@code false}. {@link #NONE} is the all-false value -- every temporal type yields its {@code java.sql}
- * class.
+ * {@code false}. {@link #NONE} is the all-false value: every temporal type yields its
+ * {@code java.sql} class.
  *
  * @since 42.8.0
  */

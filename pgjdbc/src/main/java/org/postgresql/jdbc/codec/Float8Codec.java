@@ -176,9 +176,9 @@ public final class Float8Codec implements PrimitiveBinaryEncoder, PrimitiveBinar
     return decodeDoubleAs(value, targetClass);
   }
 
-  // float8's natural getObject type is Double (and the value is already a double); resolve it and
-  // Object directly. String uses Double's text form, and Long is range-checked separately because
-  // decodeFloatingAs has no Long branch. The rest share NumberDecoders.
+  // Object, String and Long are the targets NumberDecoders.decodeFloatingAs has no branch for:
+  // Object resolves to Double because that is float8's default Java type, and Long goes through the
+  // range-checked floatingToLong. Double bypasses decodeFloatingAs because the value already is a double.
   @SuppressWarnings("unchecked")
   private static <T> T decodeDoubleAs(double value, Class<T> targetClass) throws SQLException {
     if (targetClass == Double.class || targetClass == Object.class) {
@@ -193,6 +193,13 @@ public final class Float8Codec implements PrimitiveBinaryEncoder, PrimitiveBinar
     return NumberDecoders.decodeFloatingAs(value, targetClass, "float8");
   }
 
+  /**
+   * Converts a bound value to the {@code double} the float8 encoders write.
+   *
+   * @param value a {@link Number}, a {@link String} that parses as a double once trimmed, or a
+   *     {@link Boolean}, where {@code true} converts to {@code 1.0}
+   * @throws SQLException if the value is of any other class, or the string does not parse
+   */
   static double toDouble(Object value) throws SQLException {
     if (value instanceof Number) {
       return ((Number) value).doubleValue();

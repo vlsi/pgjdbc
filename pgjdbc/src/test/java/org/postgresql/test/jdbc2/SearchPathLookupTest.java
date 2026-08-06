@@ -34,8 +34,8 @@ class SearchPathLookupTest {
   // TODO: make @getMetaData() consider search_path as well
 
   /**
-   * This usecase is most common, here the object we are searching for is in the current_schema (the
-   * first schema in the search_path).
+   * Resolves an unqualified type name to the copy in the current_schema, the first schema in the
+   * search_path. This is the most common case.
    */
   @Test
   void searchPathNormalLookup() throws Exception {
@@ -69,9 +69,8 @@ class SearchPathLookupTest {
   }
 
   /**
-   * This usecase is for the situations, when an object is located in a schema, that is in the
-   * search_path, but not in the current_schema, for example a public schema or some kind of schema,
-   * that is used for keeping utility objects.
+   * Resolves an unqualified type name to a schema that is in the search_path but is not the
+   * current_schema, such as public or a schema kept for utility objects.
    */
   @Test
   void searchPathHiddenLookup() throws Exception {
@@ -104,6 +103,9 @@ class SearchPathLookupTest {
     }
   }
 
+  /**
+   * Falls back to the type with the highest OID when no schema in the search_path holds the name.
+   */
   @Test
   void searchPathBackwardsCompatibleLookup() throws Exception {
     Statement stmt = con.createStatement();

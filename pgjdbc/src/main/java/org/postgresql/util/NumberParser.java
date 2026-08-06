@@ -6,7 +6,7 @@
 package org.postgresql.util;
 
 /**
- * Optimised byte[] to number parser.
+ * Optimised parsers from a sequence of ASCII digits to a number.
  */
 public class NumberParser {
   @SuppressWarnings("StaticAssignmentOfThrowable")

@@ -135,7 +135,7 @@ public final class Oid8Codec implements StreamingBinaryCodec, PrimitiveBinaryDec
 
   // float must mirror the unsigned decodeAsDouble above. The boxing default would widen decodeBinary's
   // raw signed long, so for an oid8 at or above 2^63 it would read a large negative value while
-  // decodeAsDouble reads the unsigned one. (The char[] forms follow via the String-routing default.)
+  // decodeAsDouble reads the unsigned one.
   @Override
   public float decodeAsFloat(byte[] data, int offset, int length, TypeDescriptor type, CodecContext ctx)
       throws SQLException {

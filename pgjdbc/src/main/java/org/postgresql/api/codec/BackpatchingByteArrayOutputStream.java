@@ -123,14 +123,18 @@ public final class BackpatchingByteArrayOutputStream extends OutputStream {
   }
 
   /**
-   * @return current write position (== size of data written so far).
+   * Returns the current write position, counted in bytes from the start.
+   *
+   * @return the write position, which equals the number of bytes written so far
    */
   public int position() {
     return tailStart + tailUsed;
   }
 
   /**
-   * @return number of bytes written so far, the same value as {@link #position()}
+   * Returns the number of bytes written so far.
+   *
+   * @return the same value as {@link #position()}
    */
   public int size() {
     return position();
@@ -231,8 +235,9 @@ public final class BackpatchingByteArrayOutputStream extends OutputStream {
   }
 
   /**
-   * Reserves a 4-byte slot at the current position and returns the index of the
-   * slot, which can later be passed to {@link #setInt32At(int, int)}.
+   * Reserves a 4-byte slot at the current position, to be filled in once its value is known.
+   *
+   * @return the absolute position of the slot, for {@link #setInt32At(int, int)}
    */
   public int reserveInt32() {
     int offset = reserve(4);
@@ -241,8 +246,11 @@ public final class BackpatchingByteArrayOutputStream extends OutputStream {
 
   /**
    * Overwrites the {@code int32} slot at the given position with {@code value}.
-   * Caller must have previously written or reserved at least 4 bytes at that
-   * position.
+   *
+   * @param position absolute position of the slot, normally one {@link #reserveInt32()} returned
+   * @param value the {@code int32} to store there
+   * @throws IndexOutOfBoundsException if {@code position} is negative, or if fewer than 4 bytes were
+   *     written or reserved at or after it
    */
   public void setInt32At(int position, int value) {
     if (position < 0 || position > size() - 4) {

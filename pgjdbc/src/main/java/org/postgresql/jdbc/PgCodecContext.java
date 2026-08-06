@@ -80,7 +80,8 @@ public final class PgCodecContext extends CodecContext {
   // mutable Calendar from being retained or published.
   private final @Nullable TimeZone callerTimeZone;
 
-  // Date/time type preferences (from connection properties)
+  // Per-type java.time preferences getObject decodes temporal values with; see
+  // getJavaTimePreferences().
   private final JavaTimePreferences javaTimePreferences;
 
   // When true, getInt/Long/Float/Double/BigDecimal on a BOOL column converts
@@ -205,8 +206,8 @@ public final class PgCodecContext extends CodecContext {
    * <p>Supply the wire settings (charset, time zone, integer-datetime mode), the
    * {@link CodecRegistry} that resolves codecs, and descriptors for any child types a container
    * would resolve. The result drives {@link org.postgresql.api.codec.Codecs#encode} and
-   * {@link org.postgresql.api.codec.Codecs#decode} for scalar and temporal types with no
-   * connection.</p>
+   * {@link org.postgresql.api.codec.Codecs#decode} with no connection; see
+   * {@link #requireConnection(TypeDescriptor)} for the values that still need one.</p>
    *
    * @return a new offline builder
    */
@@ -226,14 +227,12 @@ public final class PgCodecContext extends CodecContext {
   }
 
   /**
-   * Returns a new PgCodecContext with the specified type map.
+   * Returns a context that maps user-defined types through {@code typeMap}, as
+   * {@link #getTypeMapClass(TypeDescriptor)} reads it.
    *
-   * <p>This is used for operations that accept a type map parameter,
-   * such as {@code getArray(Map)} or {@code getObject(int, Map)}.</p>
-   *
-   * @param typeMap the new type map
-   * @return a new PgCodecContext with the specified type map
-   * @throws SQLException if the encoding cannot be retrieved
+   * @param typeMap the type map to carry; null or empty clears the current one
+   * @return a context carrying {@code typeMap}, or {@code this} when there is nothing to change
+   * @throws SQLException if this context is connectionless, or if the encoding cannot be retrieved
    */
   public PgCodecContext withTypeMap(Map<String, Class<?>> typeMap) throws SQLException {
     if (typeMap == null || typeMap.isEmpty()) {
@@ -242,9 +241,8 @@ public final class PgCodecContext extends CodecContext {
       }
       typeMap = Collections.emptyMap();
     }
-    // withTypeMap is only meaningful on a connection-backed context; the
-    // test-only constructor produces a context with a null connection / null
-    // registries. Reject calls on such a context rather than synthesizing a
+    // withTypeMap is only meaningful on a connection-backed context; an offline or test-only one
+    // has no connection and no registries. Reject the call rather than synthesizing a
     // partially-constructed copy.
     BaseConnection conn = connection;
     CodecRegistry registries = codecs;
@@ -388,11 +386,10 @@ public final class PgCodecContext extends CodecContext {
   /**
    * Returns the live connection, or fails with a clear message when this context is connectionless.
    *
-   * <p>The container codecs build a connection-bound {@link PgArray} / {@link PgStruct} and call this
-   * so an offline context reports the limitation instead of dereferencing a null connection (which
-   * {@link #getConnection()} would do, since {@code castNonNull} is a no-op without assertions).
-   * Offline encode and decode currently covers scalar and temporal types; materialising a container
-   * value still needs a connection.</p>
+   * <p>Called where the decoded value can only be a connection-bound object — a {@link PgArray} or
+   * a {@link PgSQLXML} — so an offline context reports the limitation instead of dereferencing a
+   * null connection, which {@link #getConnection()} would do since {@code castNonNull} is a no-op
+   * without assertions. A container otherwise encodes and decodes offline as a plain Java value.</p>
    *
    * @param type the type being decoded, named in the error
    * @return the live connection

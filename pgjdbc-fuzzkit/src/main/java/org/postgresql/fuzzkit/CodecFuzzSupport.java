@@ -69,11 +69,13 @@ import java.util.TimeZone;
 import java.util.stream.Stream;
 
 /**
- * Offline building blocks shared by the codec fuzz targets: the connectionless
- * {@link CodecContext}, the {@link PgType} descriptors the fuzzers resolve from
- * {@link PgTypeDescriptors}, and the round-trip and cross-format properties the {@code @FuzzTest}
- * methods assert. Nothing here opens a connection, so every property runs from the guided byte stream
- * alone.
+ * The codec properties the fuzz targets assert -- round-trip, cross-format, primitive-capability
+ * parity, getter consistency, stream-vs-materialise parity and decode robustness -- and the values
+ * they run against: a connectionless
+ * {@link CodecContext} and the {@link PgType}s the fuzzers resolve from {@link PgTypeDescriptors}.
+ *
+ * <p>Nothing here opens a connection, so every {@code @FuzzTest} method runs from the guided byte
+ * stream alone.
  */
 public final class CodecFuzzSupport {
 
@@ -82,11 +84,11 @@ public final class CodecFuzzSupport {
 
   // --- Type descriptors ----------------------------------------------------------------------
 
-  // Every PgType comes from the descriptor registry: scalars from ScalarDescriptor.pgType(), arrays
-  // from ArrayDescriptor.pgType(), and the point composite from CompositeDescriptor.pgType(). Nothing
-  // is built inline here any more, except the PGobject/PGInterval scalars below, which carry a codec
-  // but no coercion-dictionary row and so are deliberately kept out of the descriptor registry (a
-  // ScalarDescriptor requires a ReadCoercions row that guard G3 checks for).
+  // The types the coercion dictionary covers come from the descriptor registry: scalars from
+  // ScalarDescriptor.pgType(), arrays from ArrayDescriptor.pgType(), and the point composite from
+  // CompositeDescriptor.pgType(). The PGobject/PGInterval scalars are the exception: they carry a codec
+  // but no coercion-dictionary row, and a ScalarDescriptor requires the ReadCoercions row that guard G3
+  // checks for, so they are deliberately kept out of the registry and built by scalar() instead.
 
   /**
    * Builds an offline scalar {@link PgType} the codec context resolves by OID, for the PGobject and
@@ -236,8 +238,9 @@ public final class CodecFuzzSupport {
    * every codec, forcing the delegate's materialising fallback branch. The two wire forms must match
    * in both formats.
    *
-   * <p>This is the property {@link #encodeParity} cannot reach for {@link org.postgresql.jdbc.codec
-   * .RangeCodec} and {@link org.postgresql.jdbc.codec.MultirangeCodec}, whose {@code byte[]} form
+   * <p>This is the property {@link #encodeParity} cannot reach for
+   * {@link org.postgresql.jdbc.codec.RangeCodec} and
+   * {@link org.postgresql.jdbc.codec.MultirangeCodec}, whose {@code byte[]} form
    * merely buffers their own streaming form -- so their materialising child branch is otherwise never
    * taken, since every registered child codec streams. The de-streamed run exercises that branch and
    * pins its length framing against the back-patched streaming one.
@@ -297,7 +300,10 @@ public final class CodecFuzzSupport {
     intPrimitiveParity(value, PgTypeDescriptors.scalar(oid).pgType(), ctx);
   }
 
-  /** Same, against an explicit type -- lets a domain forward the accessors to its base codec. */
+  /**
+   * Same as {@link #intPrimitiveParity(int, int, CodecContext)}, against an explicit type -- lets a
+   * domain forward the accessors to its base codec.
+   */
   public static void intPrimitiveParity(int value, PgType type, CodecContext ctx) throws SQLException {
     Codec codec = ctx.resolveCodec(type.getOid());
     Integer boxed = value;
@@ -359,7 +365,10 @@ public final class CodecFuzzSupport {
     longPrimitiveParity(value, PgTypeDescriptors.scalar(oid).pgType(), ctx);
   }
 
-  /** Same, against an explicit type -- lets a domain forward the accessors to its base codec. */
+  /**
+   * Same as {@link #longPrimitiveParity(long, int, CodecContext)}, against an explicit type -- lets a
+   * domain forward the accessors to its base codec.
+   */
   public static void longPrimitiveParity(long value, PgType type, CodecContext ctx) throws SQLException {
     Codec codec = ctx.resolveCodec(type.getOid());
     Long boxed = value;
@@ -412,11 +421,11 @@ public final class CodecFuzzSupport {
 
   /**
    * Same as {@link #longPrimitiveParity(long, PgType, CodecContext)}, for a scalar codec whose text
-   * form is the <em>unsigned</em> decimal of {@code value}'s bit pattern (currently {@code oid8}, an
-   * unsigned 64-bit object identifier) rather than {@code Long.toString}. A value at or above
-   * 2<sup>63</sup> is exactly the case {@code longPrimitiveParity} cannot check: its decode-side text
-   * probe would build a leading-minus string the codec's own {@code decodeText} rejects, so the two
-   * oracles cannot share one method.
+   * form is the <em>unsigned</em> decimal of {@code value}'s bit pattern ({@code oid8} and
+   * {@code xid8}, the unsigned 64-bit identifier types) rather than {@code Long.toString}. A value at
+   * or above 2<sup>63</sup> is exactly the case {@code longPrimitiveParity} cannot check: its
+   * decode-side text probe would build a leading-minus string the codec's own {@code decodeText}
+   * rejects, so the two oracles cannot share one method.
    */
   public static void unsignedLongPrimitiveParity(long value, PgType type, CodecContext ctx) throws SQLException {
     Codec codec = ctx.resolveCodec(type.getOid());
@@ -479,7 +488,10 @@ public final class CodecFuzzSupport {
     floatPrimitiveParity(value, PgTypeDescriptors.scalar(oid).pgType(), ctx);
   }
 
-  /** Same, against an explicit type -- lets a domain forward the accessors to its base codec. */
+  /**
+   * Same as {@link #floatPrimitiveParity(float, int, CodecContext)}, against an explicit type -- lets a
+   * domain forward the accessors to its base codec.
+   */
   public static void floatPrimitiveParity(float value, PgType type, CodecContext ctx) throws SQLException {
     Codec codec = ctx.resolveCodec(type.getOid());
     Float boxed = value;
@@ -539,7 +551,10 @@ public final class CodecFuzzSupport {
     doublePrimitiveParity(value, PgTypeDescriptors.scalar(oid).pgType(), ctx);
   }
 
-  /** Same, against an explicit type -- lets a domain forward the accessors to its base codec. */
+  /**
+   * Same as {@link #doublePrimitiveParity(double, int, CodecContext)}, against an explicit type -- lets
+   * a domain forward the accessors to its base codec.
+   */
   public static void doublePrimitiveParity(double value, PgType type, CodecContext ctx) throws SQLException {
     Codec codec = ctx.resolveCodec(type.getOid());
     Double boxed = value;
@@ -602,7 +617,10 @@ public final class CodecFuzzSupport {
     booleanPrimitiveParity(value, PgTypeDescriptors.scalar(oid).pgType(), ctx);
   }
 
-  /** Same, against an explicit type -- lets a domain forward the accessors to its base codec. */
+  /**
+   * Same as {@link #booleanPrimitiveParity(boolean, int, CodecContext)}, against an explicit type --
+   * lets a domain forward the accessors to its base codec.
+   */
   public static void booleanPrimitiveParity(boolean value, PgType type, CodecContext ctx) throws SQLException {
     Codec codec = ctx.resolveCodec(type.getOid());
     Boolean boxed = value;
@@ -804,8 +822,10 @@ public final class CodecFuzzSupport {
 
   /**
    * Asserts the binary primitive accessors of {@code type}'s codec are mutually consistent on
-   * {@code wire}. A no-op when the codec is not a {@link PrimitiveBinaryDecoder}, so it is safe for any
-   * type. See the section comment for the properties.
+   * {@code wire}: the int, long, float, double and boolean accessors read the same value at offset 0
+   * and at a non-zero offset, and a numeric codec's views agree through {@link #numericLattice}.
+   * {@code decodeAsBigDecimal} is read at offset 0 only, so its offset handling is not covered here.
+   * A no-op when the codec is not a {@link PrimitiveBinaryDecoder}, so it is safe for any type.
    *
    * @param type the backend type whose codec the context resolves
    * @param wire the (fuzzed) binary wire bytes fed to every accessor
@@ -827,7 +847,8 @@ public final class CodecFuzzSupport {
     Outcome ob = Outcome.capture(() -> dec.decodeAsBoolean(wire, 0, len, type, ctx));
     Outcome obd = Outcome.capture(() -> dec.decodeAsBigDecimal(wire, 0, len, type, ctx));
 
-    // Layer 1: every accessor honours the offset (same value read at offset 0 and at offset 3 of a pad).
+    // Layer 1: the int, long, float, double and boolean accessors honour the offset (same value read
+    // at offset 0 and at offset 3 of a pad). decodeAsBigDecimal is not re-read at an offset.
     byte[] pad = pad(wire);
     assertValueAgrees(name + " decodeAsInt(byte[]) offset", oi,
         Outcome.capture(() -> dec.decodeAsInt(pad, 3, len, type, ctx)));
@@ -849,7 +870,9 @@ public final class CodecFuzzSupport {
 
   /**
    * Asserts the text primitive accessors of {@code type}'s codec are mutually consistent on
-   * {@code text}. A no-op when the codec is not a {@link PrimitiveTextDecoder}. See the section comment.
+   * {@code text}: the overloads of one accessor return the same value, and a numeric codec's views
+   * agree through {@link #numericLattice}. A no-op when the codec is not a
+   * {@link PrimitiveTextDecoder}.
    *
    * @param type the backend type whose codec the context resolves
    * @param text the (fuzzed) text input fed to every accessor
@@ -1230,7 +1253,7 @@ public final class CodecFuzzSupport {
     try {
       decoded = Codecs.decode(raw, type, ctx, target);
     } catch (SQLException | RuntimeException e) {
-      // "либо падает": a target the codec cannot produce (or a bad wire) is an allowed outcome.
+      // A target the codec cannot produce (or a bad wire) is an allowed outcome, not a failure.
       return;
     }
     if (decoded == null || primitive.threw) {
@@ -1415,8 +1438,9 @@ public final class CodecFuzzSupport {
    * A {@link BinaryCodec} and {@link TextCodec} that forwards every call to a wrapped codec but does
    * not implement {@link StreamingBinaryCodec} or {@link StreamingTextCodec}, so a delegating codec
    * resolving it as a child takes the materialising branch. Capability probes
-   * ({@code supportsBinaryEncoding}, {@code canEncodeBinary}, {@code mayRequireQuoting}) are delegated
-   * too, so the wrapped codec still steers format selection exactly as it would unwrapped.
+   * ({@link BinaryCodec#encodesBinary()}, {@link BinaryCodec#canEncodeBinary},
+   * {@link TextCodec#mayRequireQuoting}) are delegated too, so the wrapped codec still steers format
+   * selection exactly as it would unwrapped.
    */
   private static final class NonStreamingCodec implements BinaryCodec, TextCodec {
     private final BinaryCodec bin;
@@ -1856,8 +1880,7 @@ public final class CodecFuzzSupport {
   public static void crossFormatString(Object value, PgType type, CodecContext ctx)
       throws SQLException {
     Codec codec = ctx.resolveCodec(type.getOid());
-    // Compares getString across both formats, so both must be readable. canReadBinary/canReadText fold
-    // the instanceof and the read-capability flag, so a codec that reads only one format is skipped.
+    // canReadBinary/canReadText fold the instanceof and the read-capability flag into one predicate.
     if (!CodecFormatSupport.canReadBinary(codec) || !CodecFormatSupport.canReadText(codec)) {
       return;
     }
@@ -2231,8 +2254,8 @@ public final class CodecFuzzSupport {
         + quoteLiteral(literal) + " and returned " + decoded + "; it must refuse with an SQLException");
   }
 
-  // Leading canary chars prepended to the value in assertDecodeTextSliceOffsetInvariant so one decode of
-  // the decode runs off a view with a non-zero offset; U+FFFF (a noncharacter no scalar text value
+  // Leading canary chars prepended to the value in assertDecodeTextSliceOffsetInvariant so one of its
+  // two decodes runs off a view with a non-zero offset; U+FFFF (a noncharacter no scalar text value
   // begins with) so a decoder that ignores the offset and reads from index 0 sees a foreign char rather
   // than the value.
   private static final char[] TEXT_CANARY = {'\uFFFF', '\uFFFF', '\uFFFF'};
@@ -2306,8 +2329,8 @@ public final class CodecFuzzSupport {
    * canonical-wire round-trip fuzzers never reach, since every buffer those fuzzers decode is one a
    * matching encoder just produced. A hostile or corrupt server can send a truncated header, a
    * negative length, or an over-large element count; the decoder is expected to refuse per value, not
-   * crash. The allocation guards phase F1 added to those decoders are what let a guided campaign run
-   * this without exhausting the heap.
+   * crash. The allocation guards in those decoders are what let a guided campaign run this without
+   * exhausting the heap.
    *
    * <p>A leaked unchecked exception is rethrown as an {@link AssertionError} naming the type OID, the
    * leaked class, and a hex prefix of the offending bytes, so the finding surfaces the same way under
@@ -2476,8 +2499,7 @@ public final class CodecFuzzSupport {
 
   /**
    * The scalar OIDs the raw-bytes decode fuzzers sweep: the idempotent set followed by the no-leak set. A
-   * fuzzer that drives arbitrary bytes through every scalar decode (for example {@code
-   * RawScalarDecodeFuzzTest}, or a generated per-OID equivalent) enumerates this surface, so both engines
+   * fuzzer that drives arbitrary bytes through every scalar decode enumerates this surface, so both engines
    * exercise the same types under the same partition.
    *
    * @return the scalar OIDs to sweep, in a stable order
@@ -2701,8 +2723,6 @@ public final class CodecFuzzSupport {
       throw new AssertionError("char binary " + pathLabel + "decode leaked " + leak.getClass().getName()
           + " on wire " + hexPrefix(wire), leak);
     }
-    // Full charout correctness: 0x00 is the empty string, 0x01..0x7F is that one character, and a high byte
-    // is its backslash-octal escape (0x80 -> "\200").
     int b = wire[0] & 0xFF;
     String expected = b == 0 ? "" : b <= 0x7F ? String.valueOf((char) b)
         : "\\" + (char) ('0' + ((b >> 6) & 7)) + (char) ('0' + ((b >> 3) & 7)) + (char) ('0' + (b & 7));

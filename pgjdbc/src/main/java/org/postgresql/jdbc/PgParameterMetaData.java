@@ -65,12 +65,14 @@ public class PgParameterMetaData implements ParameterMetaData {
     return connection.getTypeInfo().getPgTypeByOid(oids[param - 1]).getSqlType();
   }
 
+  /**
+   * {@inheritDoc} The name is the raw {@code pg_type.typname} ({@code timestamp}, {@code _int4}),
+   * which the driver has always returned here, and not the display name {@code format_type()}
+   * produces ({@code timestamp without time zone}, {@code integer[]}).
+   */
   @Override
   public String getParameterTypeName(int param) throws SQLException {
     checkParamIndex(param);
-    // Return the raw pg_type.typname (e.g. "timestamp", "_int4") rather than
-    // format_type()'s pretty name ("timestamp without time zone", "integer[]"),
-    // matching the legacy contract that callers rely on.
     return connection.getTypeInfo().getPgTypeByOid(oids[param - 1]).getName().getLocalName();
   }
 

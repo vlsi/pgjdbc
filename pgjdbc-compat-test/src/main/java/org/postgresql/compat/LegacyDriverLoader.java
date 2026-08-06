@@ -42,10 +42,11 @@ public final class LegacyDriverLoader implements AutoCloseable {
   }
 
   /**
-   * The platform class loader on a modular JDK (9+), reached as the application class loader's parent.
-   * It carries {@code java.sql.*} but not the current driver, so the baseline's {@code org.postgresql.*}
-   * resolves from its jar alone. A {@code null} result (bootstrap loader) is acceptable: on Java 8
-   * {@code java.sql} lives on the bootstrap loader anyway.
+   * Returns the class loader the baseline jar loads under; see {@link LegacyDriverLoader} for why it is
+   * this one.
+   *
+   * @return the application class loader's parent, or {@code null} when that parent is the bootstrap
+   *     loader, which is acceptable because on Java 8 {@code java.sql} lives on the bootstrap loader
    */
   private static @Nullable ClassLoader platformClassLoader() {
     return ClassLoader.getSystemClassLoader().getParent();
@@ -67,7 +68,7 @@ public final class LegacyDriverLoader implements AutoCloseable {
     return connection;
   }
 
-  /** Returns the baseline driver version as reported by the jar, e.g. {@code 42.7}. */
+  /** Returns the baseline driver version as reported by the jar, for example {@code 42.7}. */
   public String version() {
     return driver.getMajorVersion() + "." + driver.getMinorVersion();
   }

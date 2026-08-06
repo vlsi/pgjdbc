@@ -440,11 +440,15 @@ public class PgResultSetMetaData implements ResultSetMetaData, PGResultSetMetaDa
     return field;
   }
 
+  /**
+   * Returns the PostgreSQL name of a column's type.
+   *
+   * <p>A type on the search path is named by its raw {@code pg_type.typname} ({@code int4},
+   * {@code _int4}); an off-path or shadowed type takes the qualified {@code "schema"."typname"}
+   * form ({@code "Composites"."Table"}). That is the legacy {@code ResultSetMetaData} contract
+   * {@link #getColumnTypeName} builds on.
+   */
   protected @Nullable String getPGType(int columnIndex) throws SQLException {
-    // Return the raw pg_type.typname (e.g. "int4", "_int4") for on-path types,
-    // but a fully qualified \"schema\".\"typname\" form for off-path/shadowed
-    // types (e.g. "Composites"."Table"). Matches the legacy ResultSetMetaData
-    // contract used by getColumnTypeName.
     PgType pgType = getFieldWithType(columnIndex).getPgType();
     TypeInfo typeInfo = connection.getTypeInfo();
     if (typeInfo instanceof TypeInfoCache) {
@@ -458,7 +462,6 @@ public class PgResultSetMetaData implements ResultSetMetaData, PGResultSetMetaDa
 
   protected int getSQLType(int columnIndex) throws SQLException {
     int sqlType = getFieldWithType(columnIndex).getPgType().getSqlType();
-    // Handle boolean type mapping preference
     if (sqlType == Types.BIT && connection.getMapBooleanToBoolean()) {
       return Types.BOOLEAN;
     }
@@ -473,10 +476,10 @@ public class PgResultSetMetaData implements ResultSetMetaData, PGResultSetMetaDa
   public String getColumnClassName(int column) throws SQLException {
     PgType pgType = getFieldWithType(column).getPgType();
     int oid = pgType.getOid();
-    // For built-in types JavaTypeRegistry has a precise mapping; for extension
-    // types (e.g. hstore, whose OID is assigned at install time) fall through
-    // to the codec's default Java type so callers see the right wrapper class
-    // (Map for hstore, etc.) instead of the registry's default String.
+    // The codec answers first: an extension type such as hstore gets its OID at
+    // install time and is absent from JavaTypeRegistry, which would answer with
+    // its String fallback rather than the class the codec decodes to (Map for
+    // hstore). JavaTypeRegistry serves the OIDs whose codec declares no default.
     org.postgresql.api.codec.Codec codec =
         connection.getTypeInfo().getCodecRegistry().getByOid(oid, pgType);
     if (codec != null) {

@@ -26,10 +26,6 @@ import java.sql.SQLException;
  * {@link #requireBinaryEncoder} is the local enforcement gate (this level's flag plus the value, run
  * as the encode recurses). The read-side and text checks depend only on the codec.</p>
  *
- * <p>{@link #requireBinaryEncoder} is the single enforcement gate for a binary payload: every
- * sink-based write funnels through {@link #writeBinary}, and the {@code byte[]}-materializing paths
- * call it directly, so no {@code encodeBinary} bytes reach a binary wire without it.</p>
- *
  * @since 42.8.0
  */
 @Experimental("Codec API is experimental and may change in future releases")
@@ -49,16 +45,15 @@ public final class CodecFormatSupport {
   }
 
   /**
-   * Whether {@code value} can be bound as a real binary payload for {@code type}, end to end: it is a
-   * {@link BinaryCodec}, {@code type} and every type nested inside it are binary-capable
-   * ({@link BinaryCodec#canEncodeBinaryType}), and {@code value} and every value nested inside it are
-   * binary-encodable ({@link BinaryCodec#canEncodeBinaryValue}). Both walks are recursive, so a
-   * text-only child <em>type</em> (a {@code time} subtype in a range) and a text-only nested
-   * <em>value</em> (a plain {@code PGobject} attribute in a composite) both make the value bind as
-   * text rather than fail at encode. This is the negotiation check — {@code chooseBindFormat} and
-   * {@link org.postgresql.jdbc.PgArray#toBytes()} gate the binary path on it. The recursive walks run
-   * once per bind here, not per element: the enforcement gate {@link #requireBinaryEncoder} checks
-   * each level locally as the encode recurses.
+   * Whether {@code value} can be bound as a real binary payload for {@code type}, end to end.
+   *
+   * <p>Three conditions have to hold: {@code codec} is a {@link BinaryCodec}, {@code type} and every
+   * type nested inside it are binary-capable ({@link BinaryCodec#canEncodeBinaryType}), and
+   * {@code value} and every value nested inside it are binary-encodable
+   * ({@link BinaryCodec#canEncodeBinaryValue}). Both walks are recursive, so a text-only child
+   * <em>type</em> (a {@code time} subtype in a range) and a text-only nested <em>value</em> (a plain
+   * {@code PGobject} attribute in a composite) both make the value bind as text rather than fail at
+   * encode.</p>
    *
    * @param codec the codec to inspect
    * @param value the value to be encoded
@@ -103,17 +98,15 @@ public final class CodecFormatSupport {
 
   /**
    * Narrows {@code codec} to a {@link BinaryCodec} that can binary-encode {@code value} for
-   * {@code type} at this level, or fails. This is the enforcement gate for a real binary payload: it
-   * is the last check before {@link BinaryCodec#encodeBinary} bytes reach a binary wire, so a codec
-   * that cannot produce binary for this value is rejected here rather than writing text-shaped bytes
-   * into the binary format. {@link #writeBinary} funnels every sink-based binary write through it, and
-   * the {@code byte[]}-materializing paths ({@link Codecs#encode}, {@code DomainCodec}) call it
-   * directly.
+   * {@code type} at this level, or fails.
    *
-   * <p>The check is local — {@link BinaryCodec#encodesBinary()} plus the value-level
-   * {@link BinaryCodec#canEncodeBinary} — not the recursive {@link #canWriteBinary}. Each container
-   * level runs its own gate as the encode recurses, so the whole tree is covered one frame at a time;
-   * the recursive type walk belongs to the once-per-bind negotiation, not to every element write.
+   * <p>{@link #writeBinary} runs it before every sink-based binary write, and the
+   * {@code byte[]}-materializing paths ({@link Codecs#encode}, {@code DomainCodec}) call it directly:
+   * a codec that cannot produce binary for this value is rejected here rather than writing
+   * text-shaped bytes into the binary format. The check is local —
+   * {@link BinaryCodec#encodesBinary()} plus the value-level {@link BinaryCodec#canEncodeBinary} —
+   * not the recursive {@link #canWriteBinary}. Each container level runs its own gate as the encode
+   * recurses, so the whole tree is covered one frame at a time.</p>
    *
    * @param codec the codec resolved for {@code type}
    * @param value the value to be encoded
@@ -163,10 +156,9 @@ public final class CodecFormatSupport {
    * {@link BinaryCodec} encodes into a {@code byte[]} first, which is then copied in. The body
    * carries no length prefix — {@link #writeBinaryElement} adds one where the format needs it.</p>
    *
-   * <p>Every sink-based binary write funnels through here, so the {@link #requireBinaryEncoder}
-   * gate runs once for every value before its bytes reach the sink: a codec that cannot binary-encode
-   * {@code value} — a delegating codec whose child is text-only, a plain {@code PGobject} bound to a
-   * composite — fails here instead of writing text-shaped bytes into the binary wire.</p>
+   * <p>{@link #requireBinaryEncoder} runs before any bytes reach the sink, so a codec that cannot
+   * binary-encode {@code value} — a delegating codec whose child is text-only, a plain
+   * {@code PGobject} bound to a composite — fails here.</p>
    *
    * @param out the sink the body is written to
    * @param value the value to encode

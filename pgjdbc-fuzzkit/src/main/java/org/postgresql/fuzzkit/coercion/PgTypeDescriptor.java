@@ -54,8 +54,7 @@ public abstract class PgTypeDescriptor {
 
   /**
    * The offline {@link PgType} this backend type resolves to in a connectionless {@code CodecContext}:
-   * a scalar builds it from its name and {@code typcategory}. Built the way the codec unit tests build
-   * their hand-written descriptors, so the fuzzers no longer keep the {@code PgType} constants inline.
+   * a scalar builds it from its name and {@code typcategory}.
    *
    * @return the offline type descriptor for the codec context
    */

@@ -19,10 +19,11 @@ import java.sql.SQLException;
 /**
  * Codec for PostgreSQL json type.
  *
- * <p>Returns {@link PGobject} for getObject() (consistent with the legacy
- * driver and with master fix #3926); applications can extract the JSON text
- * via {@link PGobject#getValue()} or request String/byte[] explicitly through
- * {@code getObject(i, String.class)} / {@code getString(i)}.</p>
+ * <p>Returns {@link PGobject} from {@code getObject}, consistent with the legacy
+ * driver and with master fix #3926. Applications can extract the JSON text via
+ * {@link PGobject#getValue()}, or ask for a {@code String} through
+ * {@code getObject(i, String.class)} or {@code getString(i)}; every other target
+ * class is refused.</p>
  */
 public final class JsonCodec implements BinaryCodec, TextCodec {
 

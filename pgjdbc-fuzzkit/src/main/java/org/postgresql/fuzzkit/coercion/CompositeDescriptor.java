@@ -15,8 +15,7 @@ import java.util.List;
 
 /**
  * A composite {@link PgTypeDescriptor}: a named row type with an ordered list of {@link Field fields},
- * each a column name and the OID of a registered scalar descriptor. It replaces the hand-built
- * {@code point} composite the codec fuzz support carried inline -- {@code (x int4, y int4, label text)}.
+ * each a column name and the OID of a registered scalar descriptor.
  *
  * <p>Like {@link ArrayDescriptor}, a composite is not populated in the coercion dictionaries, so the
  * coercion guards G3 and G5 do not apply. The registry instead checks that every field OID resolves to
@@ -84,7 +83,7 @@ public final class CompositeDescriptor extends PgTypeDescriptor {
         pgFields);
   }
 
-  /** The ordered composite fields. */
+  /** The ordered composite fields, as an unmodifiable list. */
   public List<Field> fields() {
     return fields;
   }

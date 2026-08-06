@@ -10,7 +10,7 @@ import java.math.BigInteger;
 import java.util.Arrays;
 
 /**
- * Helper methods to parse java base types from byte arrays.
+ * Reads and writes Java base types in PostgreSQL's binary wire form, over byte arrays.
  *
  * @author Mikko Tiihonen
  * @author Brett Okken

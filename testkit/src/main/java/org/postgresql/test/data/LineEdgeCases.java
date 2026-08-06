@@ -11,8 +11,8 @@ import java.util.List;
 
 /**
  * Edge-case {@code line} values ({@code {A,B,C}} for {@code Ax+By+C=0}): the axis-aligned and diagonal
- * lines, a general line, and a large coefficient. The geometric codecs were rewritten, so these exercise
- * the line decode. Read-only ({@link EdgeCase#value()} is {@code null}).
+ * lines, a general line, negative coefficients, and a large coefficient. These exercise the line
+ * decode. Read-only ({@link EdgeCase#value()} is {@code null}).
  */
 public final class LineEdgeCases {
   /** Every case, in a stable order. */

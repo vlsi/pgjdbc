@@ -41,18 +41,11 @@ import java.util.logging.Level;
 import java.util.logging.Logger;
 
 /**
- * Cache for PostgreSQL type information.
+ * Caches {@link PgType} metadata for one connection, keyed by OID and by name.
  *
- * <p>This class maintains a cache of PostgreSQL type metadata (PgType) and provides
- * methods to look up types by OID or name. The cache is automatically invalidated
- * when DDL commands (CREATE, DROP, ALTER) are executed in the current session.</p>
- *
- * <p><b>Known Limitation:</b> DDL changes (ALTER TYPE, DROP TYPE, CREATE TYPE)
- * executed in other database sessions are not detected until the next DDL command
- * is executed in the current session. This can result in stale type information
- * being used until the next DDL command triggers cache invalidation. Applications
- * that modify types concurrently from multiple connections should be aware of this
- * behavior.</p>
+ * <p>A DDL command (CREATE, DROP, ALTER) run in this session invalidates the cache. DDL run in
+ * another session is not detected until the next DDL command here, so a type this connection has
+ * already resolved can go stale.</p>
  */
 public class TypeInfoCache implements TypeInfo {
 
@@ -91,10 +84,8 @@ public class TypeInfoCache implements TypeInfo {
   // Global name -> PgType cache which includes only well-known types
   private static final Map<String, PgType> DEFAULT_TYPES_BY_PGNAME;
 
-  // Java type registry for Java ↔ PostgreSQL type mappings
   private final JavaTypeRegistry javaTypeRegistry = new JavaTypeRegistry();
 
-  // Codec registry for type encoding/decoding
   private final CodecRegistry codecRegistry = new CodecRegistry();
 
   private final BaseConnection conn;
@@ -114,7 +105,7 @@ public class TypeInfoCache implements TypeInfo {
   private final Map<Integer, Boolean> binarySendCapable = new ConcurrentHashMap<>();
 
   // Memoized result of backendCanReceiveBinary(), keyed by type OID. Mirrors
-  // binarySendCapable for the send direction: a type may have a binary output
+  // binarySendCapable in the opposite direction: a type may have a binary output
   // (typsend) but no binary input (typreceive), so the server could send it in
   // binary yet reject a binary parameter of that type.
   private final Map<Integer, Boolean> binaryReceiveServerCapable = new ConcurrentHashMap<>();
@@ -364,10 +355,8 @@ public class TypeInfoCache implements TypeInfo {
     int typeCacheEpoch = this.typeCacheEpoch;
     int connectionTypeCacheEpoch = conn.getTypeCacheEpoch();
     if (typeCacheEpoch == connectionTypeCacheEpoch) {
-      // All good
       return;
     }
-    // Epoch mismatch, invalidating the caches
     typesByPgName.clear();
     typesByOid.clear();
     displayNameByOid.clear();
@@ -1094,10 +1083,10 @@ public class TypeInfoCache implements TypeInfo {
   }
 
   private boolean computeBackendCanReceiveBinary(PgType type) throws SQLException {
-    // Mirrors computeBackendCanSendBinary for the send direction: a type can be sent
-    // in binary only if the server has a binary input (typreceive) for it, recursing
-    // into element/field/base types. A type may have typsend but not typreceive, so
-    // the two directions are genuinely independent (matters for custom types).
+    // Mirrors computeBackendCanSendBinary in the opposite direction: the backend accepts a binary
+    // parameter only if the type has a binary input (typreceive), recursing into element/field/base
+    // types. A type may have typsend but not typreceive, so the two directions are genuinely
+    // independent (matters for custom types).
     if (type.isArray()) {
       int elementOid = type.getTypelem();
       return elementOid == Oid.UNSPECIFIED

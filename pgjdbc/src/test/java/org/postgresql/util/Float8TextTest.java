@@ -11,7 +11,7 @@ import org.junit.jupiter.api.Test;
 
 /**
  * {@link Float8Text} must render a {@code double} exactly as PostgreSQL's {@code float8out} does, so a
- * binary geometric value's {@code getString} agrees with its text transfer. The expected strings below
+ * binary geometric value's {@code getString} agrees with its text transfer. The expected strings here
  * are the live server's own {@code float8out} (PostgreSQL 16, {@code extra_float_digits = 1}, the
  * default since PostgreSQL 12); the cross-format geometric checks in {@code GeometricTest} keep them
  * pinned to the server.
@@ -107,7 +107,7 @@ class Float8TextTest {
    * Whatever the layout, the rendering must round-trip: {@code Double.parseDouble(render(x)) == x} for
    * every finite {@code x}. This holds on every JVM (a non-shortest {@link Double#toString} still
    * round-trips, and {@link Float8Text} only re-lays-out its digits), so it covers the awkward values
-   * the exact-string pins above deliberately avoid.
+   * the exact-string pins deliberately avoid.
    */
   @Test
   void renderingRoundTrips() {

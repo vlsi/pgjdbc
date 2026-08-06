@@ -253,8 +253,8 @@ public class GetObject310Test extends BaseTest4 {
   }
 
   /**
-   * Test the behavior getObject for time columns with value "24:00", which isn't supported by
-   * {@link LocalTime}, and thus gets converted to {@link LocalTime#MAX}
+   * Test the behavior of getObject for time columns with value "24:00", which isn't supported by
+   * {@link LocalTime} and is therefore refused; getString still reads it back.
    */
   @Test
   public void testGetLocalTimeMax() throws SQLException {

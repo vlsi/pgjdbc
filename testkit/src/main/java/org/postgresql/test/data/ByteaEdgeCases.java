@@ -32,7 +32,6 @@ public final class ByteaEdgeCases {
     out.add(at("ascii_hello", "\\x48656c6c6f"));
     out.add(at("nul_and_high", "\\x0001027f80ff"));
     out.add(at("high_bytes", "\\xdeadbeefcafe"));
-    // Lengths around byte and 16-bit-length boundaries.
     out.add(sized("len_255", 255));
     out.add(sized("len_256", 256));
     out.add(sized("len_257", 257));

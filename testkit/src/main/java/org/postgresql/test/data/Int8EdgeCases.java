@@ -11,8 +11,9 @@ import java.util.List;
 
 /**
  * Edge-case {@code int8} (bigint) values: the type's own min/max and, since a stored {@code int8} is often
- * read back through a narrower getter, the {@code int}/{@code short}/{@code byte} boundaries (and one past
- * them) that make {@code getInt}/{@code getShort}/{@code getByte} overflow.
+ * read back through a narrower getter, the values that make one overflow. {@link #ALL} carries both
+ * {@code int} boundaries and one past each, and for {@code short} and {@code byte} the first value past the
+ * positive boundary.
  */
 public final class Int8EdgeCases {
   /**

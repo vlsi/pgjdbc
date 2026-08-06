@@ -196,7 +196,7 @@ public class QueryExecutorImpl extends QueryExecutorBase {
    * Type info consulted (cache-only) to decide binary receive by the column type's
    * catalog capability and the recursive binaryTransferDisable opt-out. Null when the
    * capability fallback is off (for example binaryTransfer=false), in which case only
-   * {@link #useBinaryReceiveForOids} enables binary receive.
+   * {@link #useBinaryReceiveForOids} and {@link #forceBinaryReceiveAll} enable binary receive.
    */
   private @Nullable TypeInfo binaryReceiveTypeInfo;
 
@@ -1903,8 +1903,8 @@ public class QueryExecutorImpl extends QueryExecutorBase {
     // Re-evaluate still-text columns on every Bind, not just once: a column whose type capability was
     // cold at an earlier execution (its memos not yet warmed) upgrades to binary as soon as the type is
     // warm. Already-binary columns are never revisited, and this only ever promotes text -> binary.
-    // needUpdateFieldFormats() is consumed to preserve the reset handshake with the noBinaryTransfer
-    // branch below; it no longer gates the loop.
+    // needUpdateFieldFormats() is consumed only to preserve the reset handshake with the
+    // noBinaryTransfer branch below; it does not gate the loop.
     if (!noBinaryTransfer && fields != null) {
       query.needUpdateFieldFormats();
       boolean anyBinary = false;
@@ -2041,7 +2041,7 @@ public class QueryExecutorImpl extends QueryExecutorBase {
    *
    * @param field The field whose Oid type to analyse.
    * @return True if {@link Field#BINARY_FORMAT} should be used, false if
-   *         {@link Field#BINARY_FORMAT}.
+   *         {@link Field#TEXT_FORMAT}.
    */
   private boolean useBinary(Field field) {
     // binaryTransferDisable=* forces text for every column, overriding everything below.

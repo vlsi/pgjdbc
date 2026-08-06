@@ -20,7 +20,7 @@ public final class VarbitEdgeCases {
   /**
    * Literals carrying a character that is not a binary digit, which {@code varbit_in} rejects with
    * {@code 22P02}. The packed binary form has one bit per character and no way to express a bad one, so
-   * the codec used to write anything but {@code '1'} as a zero bit.
+   * the driver screens the characters itself rather than leaving them to the server.
    *
    * <p>Deliberately absent from {@link #ALL}, whose literals all cast cleanly. Length is not represented
    * here: it is checked against the column's typmod by the server, not by the codec, so a bit string that

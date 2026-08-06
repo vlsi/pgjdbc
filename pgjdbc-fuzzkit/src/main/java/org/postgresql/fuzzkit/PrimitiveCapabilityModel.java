@@ -38,19 +38,16 @@ import java.util.TreeSet;
  * decode-robustness family uses) and, for every codec whose {@link Codec#getDefaultJavaType()} is a Java
  * primitive wrapper, emits a parity target keyed off that primitive -- {@code Short}/{@code Integer}
  * &rarr; an {@code int} target plus a {@code long} overflow sibling, {@code Long} &rarr; {@code long},
- * {@code Float}/{@code Double}/{@code Boolean} &rarr; their kind. So {@code int2}/{@code int4}/{@code int8}/
- * {@code oid}/{@code oid8}/{@code xid8}/{@code float4}/{@code float8}/{@code bool} appear automatically, and
- * a primitive type added to (or removed from) the registry follows without touching this class -- the whole
- * reason the targets are generated. {@code String}/{@code PGobject}/{@code BigDecimal} defaults (text,
- * {@code bit}, {@code numeric}) are not primitives, so those codecs contribute nothing.
+ * {@code Float}/{@code Double}/{@code Boolean} &rarr; their kind. A primitive type added to (or removed
+ * from) the registry follows without touching this class -- the whole reason the targets are generated.
+ * A codec whose default type is anything else contributes nothing.
  *
  * <p>This model records only what the default-Java-type signal cannot express on its own:
  * <ul>
  *   <li>{@code oid}'s unsigned-32-bit mask (its default type is {@code Long} like {@code int8}, but its
  *       wire value must be masked);</li>
  *   <li>{@code oid8}/{@code xid8}: unsigned 64-bit types with no coercion descriptor, tested against the
- *       {@code unsignedLongPrimitiveParity} oracle rather than {@code longPrimitiveParity} -- the
- *       version-gated comments are kept here on purpose;</li>
+ *       {@code unsignedLongPrimitiveParity} oracle rather than {@code longPrimitiveParity};</li>
  *   <li>{@link #EXCLUDED}: a primitive-default codec that is deliberately NOT a parity target
  *       ({@code money}, whose default is {@code Double} but whose primitive accessors are coercions, not a
  *       natural-primitive identity);</li>
@@ -70,8 +67,7 @@ public final class PrimitiveCapabilityModel {
   // Built-in codecs whose default Java type is a primitive wrapper yet which are NOT parity targets.
   // money's getDefaultJavaType is Double, but its primitive accessors are coercions (it has no matching
   // primitive encoder and no coercion descriptor), so the "no-box override == boxing default" oracle is
-  // not the right one. A new such type triggers a generation-time error until it is listed here or given a
-  // recipe above.
+  // not the right one.
   private static final Set<Integer> EXCLUDED = Collections.singleton(Oid.MONEY);
 
   private PrimitiveCapabilityModel() {
@@ -127,8 +123,7 @@ public final class PrimitiveCapabilityModel {
     }
 
     // --- Additions: not standalone registry codecs. ---
-    // A domain forwards its base type's primitive accessors, so a domain over a pure codec inherits the
-    // same outcome parity -- the no-box path that DomainCodec restores. A curated subset of the base types.
+    // The domain targets cover a curated subset of the base types, not every one.
     List<String> domainHeader = Arrays.asList(
         "// A domain forwards its base type's primitive accessors, so a domain over a pure codec inherits the",
         "// same outcome parity -- the no-box path that DomainCodec restores.");
@@ -141,8 +136,6 @@ public final class PrimitiveCapabilityModel {
     out.add(domainParity("domainOverBoolParity", "boolean", "domainBooleanPrimitiveParity", Oid.BOOL, 'B',
         Collections.emptyList()));
 
-    // A narrowing accessor (int8 -> int) is NOT outcome-parity with its boxing default, which truncates
-    // via Long.intValue(); instead it must reject an out-of-range value rather than silently truncate.
     out.add(new Target("int8NarrowingRejectsOverflow", "long", Arrays.asList(
         "// A narrowing accessor (int8 -> int) is NOT outcome-parity with its boxing default, which truncates",
         "// via Long.intValue(); instead it must reject an out-of-range value rather than silently truncate."),
@@ -180,7 +173,6 @@ public final class PrimitiveCapabilityModel {
     }
     String type = ScalarDecodeRobustnessNaming.typeName(oid);
     if (oid == Oid.OID) {
-      // oid is an unsigned 32-bit value; mask so encodeBinary produces a canonical 4-byte wire.
       out.add(new Target(type + "Parity", "long", Collections.emptyList(), Arrays.asList(
           "// oid is an unsigned 32-bit value; mask so encodeBinary produces a canonical 4-byte wire.",
           parityCall("longPrimitiveParity", "value & 0xFFFFFFFFL", oid))));

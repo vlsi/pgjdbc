@@ -10,11 +10,12 @@ import org.postgresql.core.Oid;
 import java.sql.SQLType;
 
 /**
- * PostgreSQL-specific SQLType implementation for JDBC 4.2+.
+ * Names PostgreSQL's built-in types as JDBC 4.2 {@link SQLType} constants.
  *
- * <p>Provides built-in PostgreSQL types as SQLType constants for use with
- * {@link java.sql.PreparedStatement#setObject(int, Object, SQLType)} and
- * {@link java.sql.CallableStatement#registerOutParameter(int, SQLType)}.</p>
+ * <p>Pass a constant to {@link java.sql.PreparedStatement#setObject(int, Object, SQLType)} to bind
+ * the parameter as that PostgreSQL type instead of letting the driver infer one from the Java
+ * value, or to {@link java.sql.CallableStatement#registerOutParameter(int, SQLType)} to register
+ * the out parameter under that type.</p>
  *
  * @since 42.8.0
  */
@@ -71,8 +72,8 @@ public enum PGSQLType implements SQLType {
    * <p>Public so a caller can implement {@link SQLType} directly for a PostgreSQL type this enum
    * does not declare a constant for (a domain, an extension type, ...): {@code PgPreparedStatement}
    * recognizes any {@link SQLType} that reports this vendor and routes it through the codec
-   * registry using {@link #getVendorTypeNumber()} as the OID, exactly like the built-in constants
-   * below.</p>
+   * registry using {@link #getVendorTypeNumber()} as the OID, exactly like the constants this enum
+   * declares.</p>
    */
   public static final String VENDOR = "org.postgresql";
 

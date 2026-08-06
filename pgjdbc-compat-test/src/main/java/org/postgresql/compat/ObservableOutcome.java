@@ -21,7 +21,7 @@ import java.sql.SQLException;
 public final class ObservableOutcome {
   /** Exception family for a thrown {@link SQLException}. */
   public static final String FAMILY_SQL = "SQLException";
-  /** Exception family for a thrown unchecked exception. */
+  /** Exception family for a thrown {@link RuntimeException}. */
   public static final String FAMILY_RUNTIME = "RuntimeException";
   /** Exception family for anything else thrown (should not normally happen on the JDBC surface). */
   public static final String FAMILY_OTHER = "Throwable";

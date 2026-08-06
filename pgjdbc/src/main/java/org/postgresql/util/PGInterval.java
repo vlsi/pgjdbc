@@ -15,7 +15,7 @@ import java.util.Locale;
 import java.util.StringTokenizer;
 
 /**
- * This implements a class that handles the PostgreSQL interval type.
+ * Holds a PostgreSQL {@code interval} as its component fields, and parses and formats its literals.
  */
 public class PGInterval extends PGobject implements Serializable, Cloneable {
 
@@ -95,8 +95,7 @@ public class PGInterval extends PGobject implements Serializable, Cloneable {
     int pos = 1; // Skip over the P
     while (pos < value.length()) {
       if (value.charAt(pos) == 'T') {
-        // A T only switches M from months to minutes, so the server takes it anywhere and any number
-        // of times: "PT1HT2M" is 01:02:00 and a trailing "P1DT" is simply one day.
+        // The server takes a T anywhere and any number of times: "PT1HT2M" is 01:02:00.
         inTime = true;
         sawTimeSeparator = true;
         pos++;

@@ -22,12 +22,9 @@ import java.util.concurrent.ConcurrentHashMap;
 
 /**
  * Registry for Java ↔ PostgreSQL type mappings.
- * This class is responsible for:
- * <ul>
- *   <li>Mapping Java classes to PostgreSQL array OIDs (for setObject with arrays)</li>
- *   <li>Mapping PostgreSQL type names to custom PGobject subclasses</li>
- *   <li>Providing default Java class names for PostgreSQL types</li>
- * </ul>
+ *
+ * <p>It maps Java classes to PostgreSQL array OIDs (for setObject with arrays), PostgreSQL type
+ * names to custom {@link PGobject} subclasses, and PostgreSQL types to their default Java class.</p>
  *
  * <p>This class is connection-scoped and maintains per-connection type mappings.</p>
  *

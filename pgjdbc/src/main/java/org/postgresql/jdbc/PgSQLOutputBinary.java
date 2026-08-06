@@ -26,10 +26,10 @@ import java.sql.SQLException;
  * codec that implements {@link PrimitiveBinaryEncoder} receives the primitive unboxed; other values
  * go through the field's {@link StreamingBinaryCodec#encodeBinary(Object, TypeDescriptor, CodecContext,
  * BackpatchingByteArrayOutputStream)} when available, otherwise a plain {@link BinaryCodec#encodeBinary}. Because
- * the writer streams into the caller's sink, a nested
- * {@code SQLData} composite serializes directly into the enclosing array or composite buffer with no
- * intermediate copy. Codecs and field types are pre-cached at construction time; {@link #close()}
- * checks the arity.</p>
+ * the writer streams into the caller's sink, a nested {@code SQLData} composite serializes directly
+ * into the enclosing array or composite buffer with no intermediate copy. Construction writes the
+ * composite header (the field count) into the sink and pre-caches the codecs and field types;
+ * {@link #close()} checks the arity once {@code writeSQL} returns.</p>
  */
 public final class PgSQLOutputBinary extends PgSQLOutput {
 
@@ -60,8 +60,6 @@ public final class PgSQLOutputBinary extends PgSQLOutput {
     this.cachedCodecs = new BinaryCodec[fields.size()];
     this.cachedTypes = new TypeDescriptor[fields.size()];
     this.sink = sink;
-    // Binary composite header: the field count. Per-field oid/length/body follow as each writeXxx
-    // streams in; close() checks the arity once writeSQL returns.
     sink.writeInt32(fields.size());
     cacheCodecs();
   }

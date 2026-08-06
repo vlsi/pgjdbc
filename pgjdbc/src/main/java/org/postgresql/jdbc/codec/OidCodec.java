@@ -25,7 +25,10 @@ import java.sql.SQLException;
  * Codec for PostgreSQL oid type.
  *
  * <p>OID is an unsigned 32-bit integer, represented as Long in Java
- * to handle the full range without overflow.</p>
+ * to handle the full range without overflow. Decoding to {@code int} keeps the raw 32 bits and
+ * reinterprets them as signed, so an oid above {@link Integer#MAX_VALUE} comes back negative,
+ * matching the legacy driver; {@code long}, {@code String}, {@code double} and {@code BigDecimal}
+ * keep the unsigned form.</p>
  */
 public final class OidCodec implements StreamingBinaryCodec, PrimitiveBinaryDecoder,
     PrimitiveTextDecoder, ArrayElementCodec {
@@ -58,7 +61,6 @@ public final class OidCodec implements StreamingBinaryCodec, PrimitiveBinaryDeco
     if (length != 4) {
       throw Exceptions.invalidBinaryLength("oid", length);
     }
-    // Treat as unsigned 32-bit
     return ByteConverter.int4(data, offset) & 0xFFFFFFFFL;
   }
 
@@ -89,9 +91,8 @@ public final class OidCodec implements StreamingBinaryCodec, PrimitiveBinaryDeco
   @Override
   public int decodeAsInt(byte[] data, int offset, int length, TypeDescriptor type, CodecContext ctx)
       throws SQLException {
-    // oid is unsigned 32-bit. getInt returns the raw 32-bit value reinterpreted as a signed int
-    // (an oid above Integer.MAX_VALUE comes back negative), matching the legacy driver; callers that
-    // need the numeric value use getLong. The unsigned form is preserved by getString/getObject.
+    // The narrowing is deliberate (see the class comment); callers that need the numeric value of a
+    // large oid use getLong.
     return (int) decodeAsLong(data, offset, length, type, ctx);
   }
 
@@ -106,7 +107,6 @@ public final class OidCodec implements StreamingBinaryCodec, PrimitiveBinaryDeco
     if (length != 4) {
       throw Exceptions.invalidBinaryLength("oid", length);
     }
-    // Treat as unsigned 32-bit
     return ByteConverter.int4(data, offset) & 0xFFFFFFFFL;
   }
 
@@ -134,7 +134,7 @@ public final class OidCodec implements StreamingBinaryCodec, PrimitiveBinaryDeco
   @Override
   public long decodeTextBytesAsLong(byte[] data, TypeDescriptor type, CodecContext ctx) throws SQLException {
     // oid text is a signed-long-range decimal (see decodeAsLong), so the byte fast path uses long
-    // bounds; getInt narrows with a raw (int) cast, matching decodeAsInt.
+    // bounds.
     if (Encoding.hasAsciiNumbers(ctx.getCharset())) {
       try {
         return NumberParser.getFastLong(data, Long.MIN_VALUE, Long.MAX_VALUE);
@@ -187,12 +187,12 @@ public final class OidCodec implements StreamingBinaryCodec, PrimitiveBinaryDeco
       return (T) Long.valueOf(value);
     }
     if (targetClass == Integer.class) {
-      // oid is unsigned 32-bit: return the raw 32-bit value as a signed int (wrapping above
-      // Integer.MAX_VALUE), matching getInt and the legacy driver. String keeps the unsigned form.
+      // Same narrowing as decodeAsInt.
       return (T) Integer.valueOf((int) value);
     }
     if (targetClass == String.class) {
-      // value already holds the unsigned 32-bit oid (0..2^32-1), so this never renders a negative.
+      // A binary oid arrives here masked to 0..2^32-1, so it never renders as negative; a text oid
+      // renders whatever the wire said.
       return (T) String.valueOf(value);
     }
     if (targetClass == Double.class) {

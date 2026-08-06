@@ -35,9 +35,7 @@ import java.util.Set;
  * </ul>
  *
  * <p>The target class is the derivation of the two axes: {@code targetClass(BOXED, 2)} is
- * {@code Integer[][]} and {@code targetClass(PRIMITIVE, 2)} is {@code int[][]}. An array's fidelity is
- * {@link Fidelity#DEEP_EQUALS}, which unwraps every dimension and both leaf representations with one
- * comparison.
+ * {@code Integer[][]} and {@code targetClass(PRIMITIVE, 2)} is {@code int[][]}.
  *
  * <p>Arrays are not populated in the coercion dictionaries ({@link ReadCoercions} /
  * {@link WriteCoercions}), so the coercion guards G3 and G5 do not apply to them. The registry instead
@@ -127,6 +125,8 @@ public final class ArrayDescriptor extends PgTypeDescriptor {
    *
    * @param leafRepr the leaf representation
    * @return the leaf class ({@code Integer} or {@code int} for an {@code int4} element)
+   * @throws IllegalArgumentException if {@code leafRepr} is {@link LeafRepr#PRIMITIVE} and the
+   *     element's natural class has no primitive form
    */
   public Class<?> leafClass(LeafRepr leafRepr) {
     if (leafRepr == LeafRepr.PRIMITIVE) {
@@ -142,12 +142,14 @@ public final class ArrayDescriptor extends PgTypeDescriptor {
 
   /**
    * The target class for a leaf representation and dimension count: an {@code ndim}-dimensional array
-   * of the leaf class. {@code targetClass(BOXED, 2)} is {@code Integer[][]}; {@code targetClass(
-   * PRIMITIVE, 2)} is {@code int[][]}.
+   * of the leaf class. {@code targetClass(BOXED, 2)} is {@code Integer[][]};
+   * {@code targetClass(PRIMITIVE, 2)} is {@code int[][]}.
    *
    * @param leafRepr the leaf representation
    * @param ndim the number of dimensions
    * @return the array target class
+   * @throws IllegalArgumentException if {@code leafRepr} is {@link LeafRepr#PRIMITIVE} and the
+   *     element's natural class has no primitive form
    */
   public Class<?> targetClass(LeafRepr leafRepr, int ndim) {
     return Array.newInstance(leafClass(leafRepr), new int[ndim]).getClass();

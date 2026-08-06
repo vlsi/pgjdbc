@@ -45,7 +45,6 @@ public final class TimestamptzCodec implements StreamingBinaryCodec, TextCodec {
   @Override
   public @Nullable Object decodeBinary(byte[] data, int offset, int length, TypeDescriptor type,
       CodecContext ctx) throws SQLException {
-    // Check connection property for default type
     if (ctx.getJavaTimePreferences().prefersOffsetDateTime()) {
       return TemporalCodecs.decodeOffsetDateTimeBin(data, offset, length, ctx);
     }
@@ -66,7 +65,6 @@ public final class TimestamptzCodec implements StreamingBinaryCodec, TextCodec {
   @Override
   public @Nullable Object decodeText(CharSequence data, TypeDescriptor type, CodecContext ctx) throws SQLException {
     String text = data.toString();
-    // Check connection property for default type
     if (ctx.getJavaTimePreferences().prefersOffsetDateTime()) {
       return normalizeToUtc(TemporalCodecs.decodeOffsetDateTimeText(text, ctx));
     }
@@ -74,9 +72,12 @@ public final class TimestamptzCodec implements StreamingBinaryCodec, TextCodec {
   }
 
   /**
-   * Normalizes OffsetDateTime to UTC, matching the binary format behavior.
-   * Binary format always returns UTC (via toOffsetDateTimeBin), so text format
-   * should be consistent.
+   * Normalizes an {@link OffsetDateTime} to UTC, so the text path agrees with
+   * {@link TemporalCodecs#decodeOffsetDateTimeBin}, which always yields UTC.
+   *
+   * @param odt the value to normalize, or null
+   * @return the same instant at {@link ZoneOffset#UTC}; null and the
+   *     {@link OffsetDateTime#MIN}/{@link OffsetDateTime#MAX} sentinels come back unchanged
    */
   private static @Nullable OffsetDateTime normalizeToUtc(@Nullable OffsetDateTime odt) {
     if (odt == null || odt.equals(OffsetDateTime.MAX) || odt.equals(OffsetDateTime.MIN)) {

@@ -31,8 +31,8 @@ import java.util.Arrays;
 import java.util.Map;
 
 /**
- * This interface defines the public PostgreSQL extensions to java.sql.Connection. All Connections
- * returned by the PostgreSQL driver implement PGConnection.
+ * Adds the driver's public PostgreSQL-specific API to a {@link java.sql.Connection}. Every
+ * connection the PostgreSQL driver returns implements this interface.
  */
 public interface PGConnection {
 
@@ -405,9 +405,7 @@ public interface PGConnection {
   /**
    * Registers a custom codec for this connection.
    *
-   * <p>Custom codecs take precedence over built-in codecs for the same type name.
-   * This allows applications to customize how specific PostgreSQL types are
-   * encoded and decoded.</p>
+   * <p>Custom codecs take precedence over built-in codecs for the same type name.</p>
    *
    * <p>A codec is bound to a result column when the column's field is first initialized,
    * so registration affects only queries and result sets started afterwards. A
@@ -440,10 +438,10 @@ public interface PGConnection {
   void unregisterCodec(String typeName);
 
   /**
-   * Gets the codec registry for this connection.
+   * Returns the codec registry for this connection.
    *
-   * <p>The codec registry provides access to all registered codecs and can be
-   * used for manual type conversions.</p>
+   * <p>The registry resolves a type's codec by name or OID, user-layer registrations included, so a
+   * caller holding one can encode or decode a value directly.</p>
    *
    * @return the codec registry
    * @since 42.8.0

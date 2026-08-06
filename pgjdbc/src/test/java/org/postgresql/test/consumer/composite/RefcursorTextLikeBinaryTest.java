@@ -78,7 +78,8 @@ public class RefcursorTextLikeBinaryTest {
   /**
    * Top level over binary: with {@code refcursor} forced into the binary receive set, the value is
    * read from its binary wire (the charset text). {@code getString} is used rather than
-   * {@code getObject}, which dereferences the named cursor (legacy behaviour, covered below).
+   * {@code getObject}, which dereferences the named cursor (legacy behaviour, covered by
+   * {@link #cursorDereferenceStillWorksOverBinary()}).
    */
   @Test
   void refcursorReadOverBinaryYieldsTheName() throws SQLException {

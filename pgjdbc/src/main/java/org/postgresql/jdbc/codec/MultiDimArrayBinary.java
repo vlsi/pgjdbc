@@ -39,7 +39,6 @@ import java.sql.SQLException;
 public final class MultiDimArrayBinary {
 
   private MultiDimArrayBinary() {
-    // Utility class
   }
 
   /**
@@ -47,10 +46,7 @@ public final class MultiDimArrayBinary {
    * multi-dim Java array) as PostgreSQL array body bytes.
    *
    * <p>Single-abstract-method interface so callers can supply a static method
-   * reference. The return value reports whether the leaf contained any NULLs,
-   * which lets the array header be back-patched after a single encode pass.
-   * Implementations MUST return {@code true} if they encoded any {@code -1}
-   * element-length marker for a null element.</p>
+   * reference.</p>
    *
    * <p>The {@code out} parameter is a {@link BackpatchingByteArrayOutputStream} so leaf
    * writers that dispatch through a per-element
@@ -66,6 +62,9 @@ public final class MultiDimArrayBinary {
      *
      * @param leaf the leaf-level Java array (e.g. {@code int[]}, {@code Object[]})
      * @param out  the output sink
+     * @return {@code true} if any element was written as a {@code -1} null marker;
+     *     the array header's hasNulls flag is back-patched from this after a single
+     *     encode pass
      */
     boolean writeLeaf(Object leaf, BackpatchingByteArrayOutputStream out, CodecContext ctx)
         throws IOException, SQLException;

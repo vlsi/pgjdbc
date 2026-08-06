@@ -38,8 +38,8 @@ public final class NumericTypmod {
 
   /**
    * The scale a {@code numeric} value carries after this modifier is applied -- the scale the
-   * {@code NumericCodec} rescales to. Sign-extends the 11-bit scale field, so {@code of(2, -2)} yields
-   * {@code -2}.
+   * {@code NumericCodec} rescales to. Sign-extends the 11-bit scale field, so {@code scaleOf(of(2, -2))}
+   * is {@code -2}.
    *
    * @param typmod a packed {@code numeric} modifier, or {@code -1} for none
    * @return the applied scale, or {@code -1} when no modifier applies

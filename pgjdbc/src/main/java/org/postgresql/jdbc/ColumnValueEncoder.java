@@ -21,13 +21,11 @@ import java.sql.SQLException;
  *
  * <p>This is the runtime embodiment of the driver's write-coercion model: the outcome depends only
  * on the target OID and the value's Java class, not on which JDBC surface presents it, because every
- * write funnels through the same codec {@code encodeText} / {@code encodeBinary}. The updatable
- * {@code ResultSet} row-buffer refresh uses this entry point; the {@code setObject} bind path and
- * {@code SQLOutput} can adopt it.
+ * write funnels through the same codec {@code encodeText} / {@code encodeBinary}.
  *
  * <p>The resolved codec is never {@code null} in normal operation: {@link CodecRegistry} falls back
- * to {@link org.postgresql.jdbc.codec.FallbackCodec}, which is both a {@code BinaryCodec} and a
- * {@code TextCodec}. The {@code null} guards are defensive -- fabricating bytes in the wrong wire
+ * to {@link org.postgresql.jdbc.codec.FallbackCodec}, which is both a {@link BinaryCodec} and a
+ * {@link TextCodec}. The {@code null} guards are defensive -- fabricating bytes in the wrong wire
  * format would corrupt the value, so a missing codec refuses with {@link PSQLState#CANNOT_COERCE}.
  */
 final class ColumnValueEncoder {

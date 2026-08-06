@@ -10,10 +10,12 @@ import java.util.Collections;
 import java.util.List;
 
 /**
- * Edge-case {@code float8} (double precision) values: the specials ({@code NaN}, {@code Infinity}, {@code
- * -Infinity}), signed zero, {@code x.5} rounding points, values around the {@code int} and {@code long}
- * boundaries (to probe {@code getInt}/{@code getLong} coercion), finite values outside the {@code float4}
- * range (to probe {@code getFloat} overflow/underflow refusal), and the magnitude extremes of the type.
+ * Edge-case {@code float8} (double precision) values.
+ *
+ * <p>Covers the specials ({@code NaN}, {@code Infinity}, {@code -Infinity}), signed zero,
+ * {@code x.5} rounding points, and the magnitude extremes of the type. Values around the
+ * {@code int} and {@code long} boundaries probe {@code getInt}/{@code getLong} coercion; finite
+ * values outside the {@code float4} range probe {@code getFloat} overflow/underflow refusal.
  */
 public final class Float8EdgeCases {
   /** Every case, in a stable order. */

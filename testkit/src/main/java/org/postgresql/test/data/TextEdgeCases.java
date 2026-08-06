@@ -10,9 +10,10 @@ import java.util.Collections;
 import java.util.List;
 
 /**
- * Edge-case {@code text} values: the empty string, multi-byte characters (accented, CJK, a supplementary-
- * plane emoji), significant whitespace, embedded newline/tab/backslash, and a long value. These stress the
- * string encoding path; none contains a single quote, so each drops into a {@code '...'::text} cast.
+ * Edge-case {@code text} values: the empty string, multi-byte characters (accented, CJK, a
+ * supplementary-plane emoji), significant whitespace, embedded newline/tab/backslash/comma, and a long
+ * value. These stress
+ * the string encoding path; none contains a single quote, so each drops into a {@code '...'::text} cast.
  *
  * <p>The value carries the same {@link String} for the bind side.
  */

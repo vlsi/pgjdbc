@@ -22,8 +22,8 @@ import org.postgresql.core.Oid;
  *
  * <p>The generator ({@code org.postgresql.jdbc.TypeInfoCacheTest.generateBaseTypes}) emits this whole
  * file; overwrite it rather than editing {@link #BASE_TYPES} in place. {@link TypeInfoCache} seeds its
- * offline catalog from that array, and that test also documents the {@code pg_type} column list the
- * type name set is drawn from.</p>
+ * offline catalog from that array. The test's query holds the type-name list the array covers, and
+ * reads the {@code pg_type} columns for each name.</p>
  */
 final class BaseTypes {
 

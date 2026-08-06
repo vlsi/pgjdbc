@@ -17,10 +17,11 @@ import java.io.IOException;
  *
  * <p>{@code array_out} escapes both characters with a leading backslash
  * ({@code "} → {@code \"}, {@code \\} → {@code \\\\}); {@code record_out} doubles
- * them instead ({@code "} → {@code ""}, {@code \\} → {@code \\\\}). The default
- * constructor keeps {@link EscapeStyle#ARRAY}; pass {@link EscapeStyle#RECORD} for
- * composite fields. {@link LiteralCursor} accepts both on decode, so this only
- * matters when the produced text must match the server byte-for-byte.</p>
+ * them instead ({@code "} → {@code ""}, {@code \\} → {@code \\\\}). The style is
+ * fixed at construction: {@link EscapeStyle#ARRAY} for array elements,
+ * {@link EscapeStyle#RECORD} for composite fields. {@link LiteralCursor} accepts
+ * both on decode, so this only matters when the produced text must match the
+ * server byte-for-byte.</p>
  *
  * <p>This wrapper does not add the surrounding quotes for an array element or
  * composite field; callers are responsible for writing those quotes. The
@@ -52,8 +53,8 @@ public final class ContainerTextEscaper implements PrimitiveTextSink {
     RECORD;
 
     /**
-     * The character to emit before {@code c}, which the caller has already established is one of
-     * the two escapable characters.
+     * Returns the character to emit before {@code c}, which the caller has already established is
+     * one of the two escapable characters.
      */
     char escapePrefixFor(char c) {
       return this == RECORD ? c : '\\';

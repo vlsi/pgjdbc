@@ -47,7 +47,10 @@ public final class SqlStateGroup {
   private SqlStateGroup() {
   }
 
-  /** Returns the group for a SQLState: an explicit bucket, or the two-character class as a fallback. */
+  /**
+   * Returns the group for a SQLState: an explicit bucket, or the two-character class as a fallback.
+   * A null or empty state groups as {@code no-state}.
+   */
   public static String of(@Nullable String sqlState) {
     if (sqlState == null || sqlState.isEmpty()) {
       return "no-state";

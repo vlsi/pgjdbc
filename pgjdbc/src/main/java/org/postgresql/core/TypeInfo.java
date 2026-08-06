@@ -29,8 +29,9 @@ import java.util.Set;
  *   <li>{@link #getFields(int)} - get composite type fields</li>
  * </ul>
  *
- * <p>Many methods in this interface are deprecated and will be removed in a future version.
- * They delegate to the new API methods above.</p>
+ * <p>Many methods in this interface are deprecated and will be removed in a future version. Each
+ * {@code @deprecated} tag names a replacement, says the driver does the job internally, or says the
+ * method goes away without one.</p>
  */
 public interface TypeInfo {
 
@@ -466,9 +467,9 @@ public interface TypeInfo {
   /**
    * Converts a long OID value to int.
    *
-   * @param oid the oid as a long
-   * @return the oid as an int
-   * @throws SQLException if the value is out of range
+   * @param oid the oid as a long, in the unsigned 32-bit range {@code [0, 2^32)}
+   * @return the oid as an int, negative for oids at or above {@code 2^31}
+   * @throws SQLException if the value is outside the unsigned 32-bit range
    * @deprecated OID conversion is handled internally.
    */
   @Deprecated
@@ -484,8 +485,8 @@ public interface TypeInfo {
   /**
    * Converts an int OID value to long.
    *
-   * @param oid the oid as an int
-   * @return the oid as a long (unsigned)
+   * @param oid the oid as an int, negative for oids at or above {@code 2^31}
+   * @return the oid as a non-negative long in {@code [0, 2^32)}
    * @deprecated OID conversion is handled internally.
    */
   @Deprecated

@@ -169,6 +169,8 @@ final class MultiDimArraySupport {
    * Computes lengths for each dimension by following the {@code [0]} sub-array
    * at each level, then verifies every sub-array has the same rectangular
    * shape.
+   *
+   * @throws SQLException if a sub-array is {@code null} or the array is not rectangular
    */
   static int[] computeDimensionLengths(Object array, int dimensions) throws SQLException {
     int[] lengths = new int[dimensions];

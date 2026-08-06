@@ -114,7 +114,7 @@ public abstract class CodecContext {
    * <p>A connection-bound context reports the backend's setting (a GUC_REPORT parameter). Offline
    * there is no server to ask, so it reports whatever
    * {@link CodecContextBuilder#intervalStyle(IntervalStyle)} was given. Either way the fallback is
-   * {@link IntervalStyle#POSTGRES}, the server default, when nothing else is known.
+   * {@link IntervalStyle#POSTGRES}, the server default, when nothing else is known.</p>
    *
    * @return the current interval style, never null
    */

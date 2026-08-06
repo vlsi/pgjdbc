@@ -1051,8 +1051,9 @@ public class Parser {
 
   /**
    * Converts JDBC-specific callable statement escapes {@code { [? =] call <some_function> [(?,
-   * [?,..])] }} into the PostgreSQL format which is {@code select <some_function> (?, [?, ...]) as
-   * result} or {@code select * from <some_function> (?, [?, ...]) as result} (7.3)
+   * [?,..])] }} into the PostgreSQL format, which is {@code select <some_function> (?, [?, ...]) as
+   * result} when the escape declares an out parameter and {@code select * from <some_function> (?,
+   * [?, ...]) as result} when it does not (7.3)
    *
    * @param jdbcSql              sql text with JDBC escapes
    * @param stdStrings           if backslash in single quotes should be regular character or escape one

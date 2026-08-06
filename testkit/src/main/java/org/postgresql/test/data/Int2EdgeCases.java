@@ -11,7 +11,9 @@ import java.util.List;
 
 /**
  * Edge-case {@code int2} values: the type's own min/max plus the {@code byte} boundaries (and one past
- * them) that make {@code getByte} overflow. The value carries an {@link Integer}, since {@code int2} fits.
+ * them) that make {@code getByte} overflow. Every entry in {@link #ALL} carries an {@link Integer}, since
+ * {@code int2} fits; the {@link #MALFORMED} literals have no Java value, so {@link EdgeCase#value()} is
+ * {@code null} there.
  */
 public final class Int2EdgeCases {
   /**
@@ -23,7 +25,7 @@ public final class Int2EdgeCases {
    */
   public static final List<EdgeCase> MALFORMED = Collections.unmodifiableList(malformed());
 
-  /** Every case, in a stable order. */
+  /** Every well-formed case, in a stable order. */
   public static final List<EdgeCase> ALL = Collections.unmodifiableList(all());
 
   private Int2EdgeCases() {

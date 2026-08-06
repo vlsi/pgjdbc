@@ -34,9 +34,8 @@ public class Encoding {
   private static final Encoding UTF8_ENCODING = new Encoding(StandardCharsets.UTF_8, true);
 
   /*
-   * Memoizes the ASCII-number compatibility of a charset so callers that only hold a Charset (such
-   * as the int4/int8 text-byte fast paths, which see a Charset through CodecContext rather than an
-   * Encoding) can query it without re-running the encode probe in testAsciiNumbers on every value.
+   * Memoizes the ASCII-number compatibility of a charset so callers that only hold a Charset can
+   * query it without re-running the encode probe in testAsciiNumbers on every value.
    */
   private static final Map<Charset, Boolean> ASCII_NUMBER_COMPATIBLE = new ConcurrentHashMap<>();
 

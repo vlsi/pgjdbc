@@ -74,7 +74,13 @@ public class Oid {
   public static final int XML_ARRAY = 143;
   public static final int POINT = 600;
   public static final int POINT_ARRAY = 1017;
+  /**
+   * OID of the {@code hstore} extension type. An extension type is assigned its OID when the
+   * extension is installed, so this value matches only some installations: resolve {@code hstore}
+   * by name rather than by comparing OIDs.
+   */
   public static final int HSTORE = 16388;
+  /** OID of the {@code hstore} array type, under the same caveat as {@link #HSTORE}. */
   public static final int HSTORE_ARRAY = 16393;
   public static final int BOX = 603;
   public static final int BOX_ARRAY = 1020;

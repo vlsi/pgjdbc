@@ -145,7 +145,8 @@ class PgCallableStatement extends PgPreparedStatement implements CallableStateme
       int[] parameterColumn = new int[callResult.length];
       this.parameterColumn = parameterColumn;
 
-      // move them into the result set
+      // Copy each result column into callResult at its OUT-parameter index, rejecting a column
+      // whose type does not match what registerOutParameter declared.
       for (int i = 0, j = 0; i < cols; i++, j++) {
         // find the next out parameter, the assumption is that the functionReturnType
         // array will be initialized with 0 and only out parameters will have values
@@ -790,14 +791,11 @@ class PgCallableStatement extends PgPreparedStatement implements CallableStateme
     }
 
     if (typeName == null) {
-      // No type name available, fall back to default
       return result;
     }
 
-    // Look up in the map
     Class<?> targetClass = map.get(typeName);
     if (targetClass == null) {
-      // Type not in map, return as-is
       return result;
     }
 
@@ -809,12 +807,12 @@ class PgCallableStatement extends PgPreparedStatement implements CallableStateme
       return requireOutParameterRow().decodeSqlData(columnForParameter(i), sqlDataClass, typeName, map);
     }
 
-    // For non-SQLData targets, check if result is already the right type
+    // A non-SQLData mapping performs no conversion: the value comes back in whatever form the OUT
+    // parameter already decoded to, whether or not it matches the mapped class.
     if (targetClass.isInstance(result)) {
       return result;
     }
 
-    // Return as-is if we can't convert
     return result;
   }
 
@@ -859,10 +857,10 @@ class PgCallableStatement extends PgPreparedStatement implements CallableStateme
   @Override
   public void registerOutParameter(@Positive int parameterIndex, int sqlType, String typeName)
       throws SQLException {
-    // Register the OUT parameter with the given SQL type
     registerOutParameter(parameterIndex, sqlType);
 
-    // Store the type name for STRUCT/DISTINCT types
+    // Only a STRUCT or DISTINCT registration retains the type name; registeredTypeName hands it
+    // back when the OUT parameter is decoded, and any other sqlType drops it here.
     if (sqlType == Types.STRUCT || sqlType == Types.DISTINCT) {
       @Nullable String[] typeNames = this.outParameterTypeNames;
       if (typeNames != null && parameterIndex <= typeNames.length) {
@@ -1126,7 +1124,6 @@ class PgCallableStatement extends PgPreparedStatement implements CallableStateme
       return null;
     }
 
-    // If result is already the requested type, return it
     if (type.isInstance(result)) {
       return type.cast(result);
     }

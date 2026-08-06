@@ -38,12 +38,14 @@ import java.util.List;
 /**
  * Codec for PostgreSQL composite (record) types.
  *
- * <p>This codec handles encoding and decoding of PostgreSQL composite types,
- * including SQLData implementations.</p>
+ * <p>A value decodes to a {@code PgStruct}, which is both a {@link java.sql.Struct} and a
+ * {@link org.postgresql.util.PGobject}, unless the caller asks for a {@link java.sql.SQLData} class,
+ * which is populated field by field instead. Each attribute is encoded and decoded by the codec
+ * registered for its own OID, so a nested composite, array or range recurses.</p>
  *
- * <p>Note: Composite type handling requires type metadata which is typically
- * retrieved from TypeInfoCache. Full composite support is handled via
- * PgStruct and SQLInput/SQLOutput implementations.</p>
+ * <p>Attribute types come from the descriptor, and the context resolves them when the descriptor
+ * does not carry them. The anonymous {@code record} pseudo-type has no catalog attributes, so a
+ * binary value synthesizes them from its self-describing wire.</p>
  */
 public final class CompositeCodec implements StreamingBinaryCodec, StreamingTextCodec {
 

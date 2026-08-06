@@ -117,7 +117,7 @@ public final class ScalarDecodeRobustnessModel {
     }
   }
 
-  /** The generated targets, in OID order, then binary, binary-offset, text within each OID. */
+  /** The generated targets, in OID order, then binary before text within each OID. */
   public static List<Target> targets() {
     List<Target> targets = new ArrayList<>();
     // TreeMap copy pins OID order so the generated file and seed corpus are byte-for-byte reproducible.

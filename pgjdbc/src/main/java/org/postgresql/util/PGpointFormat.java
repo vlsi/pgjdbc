@@ -41,7 +41,9 @@ public final class PGpointFormat {
   }
 
   /**
-   * Appends a point in {@code (x,y)} form.
+   * Appends a point in {@code (x,y)} form, each coordinate in Java's {@link Double#toString} form.
+   * Use {@link #appendServerText(StringBuilder, double, double)} when the coordinates have to render
+   * the way the server's {@code point_out} renders them.
    *
    * @param sb the buffer to append to
    * @param x the point's x coordinate

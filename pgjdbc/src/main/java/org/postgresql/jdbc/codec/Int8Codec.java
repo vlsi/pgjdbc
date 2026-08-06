@@ -139,10 +139,10 @@ public final class Int8Codec implements PrimitiveBinaryEncoder, PrimitiveBinaryD
     try {
       return NumberParser.getFastLong(data, 0, data.length(), Long.MIN_VALUE, Long.MAX_VALUE);
     } catch (NumberFormatException fast) {
-      // The fast path rejects a leading '+', whitespace, or an out-of-range value; fall back to the
-      // String parser, which owns the parse and the error message. It also rejects a non-ASCII digit,
-      // which Long.parseLong would otherwise accept, so screen for that here rather than on the fast
-      // path, where a well-formed value would pay for the scan.
+      // The fast path rejects a leading '+', whitespace, a non-ASCII digit, or an out-of-range
+      // value; fall back to the String parser, which owns the parse and the error message.
+      // Long.parseLong would accept a non-ASCII digit, so requireAsciiLiteral screens for one here
+      // rather than on the fast path, where a well-formed value would pay for the scan.
       String text = data.toString();
       try {
         NumberDecoders.requireAsciiLiteral(text);
@@ -159,7 +159,7 @@ public final class Int8Codec implements PrimitiveBinaryEncoder, PrimitiveBinaryD
       try {
         return NumberParser.getFastLong(data, Long.MIN_VALUE, Long.MAX_VALUE);
       } catch (NumberFormatException ignored) {
-        // Fall through to string parsing
+        // The String parser re-reports a malformed or out-of-range literal, with its own message.
       }
     }
     return decodeAsLong(new String(data, ctx.getCharset()), type, ctx);
@@ -214,6 +214,14 @@ public final class Int8Codec implements PrimitiveBinaryEncoder, PrimitiveBinaryD
     return NumberDecoders.decodeIntegralAs(value, targetClass, "int8");
   }
 
+  /**
+   * Converts a bind value to the {@code long} an {@code int8} encoder writes.
+   *
+   * @param value a {@link Number}, narrowed through {@link Number#longValue()} with no range or
+   *     fraction check; a {@code String} decimal literal, trimmed and required to be ASCII; or a
+   *     {@link Boolean}, mapped to 1 or 0
+   * @throws SQLException if {@code value} is of any other class, or the string is not a {@code long}
+   */
   static long toLong(Object value) throws SQLException {
     if (value instanceof Number) {
       return ((Number) value).longValue();

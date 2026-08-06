@@ -10,13 +10,13 @@ import java.nio.file.Path;
 import java.nio.file.Paths;
 
 /**
- * The single generator entry point for this module's {@code @FuzzTest} source: it runs each
- * {@code *FuzzTestGenerator} in turn, so the Gradle {@code generateJqfFuzzTargets} task points at this one
- * {@code main} and never has to change as more generators are added.
+ * Runs each {@code *FuzzTestGenerator} that emits this module's {@code @FuzzTest} source, in turn.
  *
- * <p>Each generator is named after the {@code Generated*FuzzTest} class it emits, so a target class is easy
- * to trace back to its generator. Add a new family by writing a {@code <Name>FuzzTestGenerator} with a
- * {@code generate(Path)} method and calling it below.
+ * <p>The Gradle {@code generateJqfFuzzTargets} task points at this one {@code main}, so it never has to
+ * change as more generators are added. Each generator is named after the {@code Generated*FuzzTest} class
+ * it emits, so a target class is easy to trace back to its generator. Add a new family by writing a
+ * {@code <Name>FuzzTestGenerator} with a {@code generate(Path)} method and calling it from
+ * {@link #main(String[])}.
  *
  * <p>Invoked from Gradle as a {@code JavaExec}; the single argument is the generated-sources root to write
  * into. It needs no database connection: every generator builds from the offline codec registry.

@@ -36,7 +36,8 @@ import java.util.ArrayList;
 import java.util.Collection;
 
 /**
- * TestCase to test handling of binary types for custom objects.
+ * Covers binary transfer of a custom {@link PGobject} subclass registered with
+ * {@link PGConnection#addDataType(String, Class)}.
  */
 @ParameterizedClass
 @MethodSource("data")
@@ -58,7 +59,7 @@ public class CustomTypeWithBinaryTransferTest extends BaseTest4 {
   }
 
   /**
-   * Set up the fixture for this testcase: the tables for this test.
+   * Creates the {@code test_binary_pgobject} table the tests share.
    *
    * @throws SQLException if a database error occurs
    */

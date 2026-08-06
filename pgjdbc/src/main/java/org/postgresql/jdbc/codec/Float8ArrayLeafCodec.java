@@ -18,10 +18,11 @@ import java.sql.SQLException;
 /**
  * Leaf-level codec for {@code float8[]} arrays.
  *
- * <p>Keeps the per-element loops typed for {@code double[]} and {@code Double[]}
- * while {@link MultiDimArrayBinary} / {@link MultiDimArrayText} own the array
- * header and dimensional walking. The text form mirrors {@link Float8Codec}:
- * {@link Double#toString} / {@link Double#parseDouble}, whose {@code NaN},
+ * <p>Reads fill a {@code double[]} or a {@code Double[]}, and a NULL element is an error for the
+ * primitive form; writes take a {@code double[]}, or any {@code Object[]} whose elements are null
+ * or convertible by {@link Float8Codec#toDouble}. {@link MultiDimArrayBinary} /
+ * {@link MultiDimArrayText} own the array header and dimensional walking. The text form mirrors
+ * {@link Float8Codec}: {@link Double#toString} / {@link Double#parseDouble}, whose {@code NaN},
  * {@code Infinity} and {@code -Infinity} spellings match PostgreSQL's.</p>
  */
 final class Float8ArrayLeafCodec implements ArrayLeafCodec {

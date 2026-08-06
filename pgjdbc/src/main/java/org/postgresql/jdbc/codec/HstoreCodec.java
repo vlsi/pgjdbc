@@ -21,8 +21,10 @@ import java.util.Map;
 /**
  * Codec for PostgreSQL hstore type.
  *
- * <p>hstore is a key/value store within a single PostgreSQL value. It stores
- * sets of key/value pairs, where both keys and values are text strings.</p>
+ * <p>hstore holds a set of key/value pairs inside a single PostgreSQL value. A key is text and
+ * a value is either text or NULL, so this codec decodes to a {@link Map} from {@code String} to
+ * nullable {@code String}; encoding accepts a {@code Map} of any key and value types and
+ * stringifies both.</p>
  *
  * <p>Text format: "key1"=>"value1", "key2"=>"value2", "nullkey"=>NULL</p>
  *

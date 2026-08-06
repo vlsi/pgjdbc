@@ -13,9 +13,9 @@ import java.util.List;
  * Edge-case {@code timestamp} (without time zone) values. PostgreSQL keeps microsecond resolution over a
  * 4713 BC .. 294276 AD range and has the special {@code infinity}/{@code -infinity} values, so this
  * catalogue covers the range ends, the infinities, the epoch, and the sub-second boundary: one
- * microsecond, a half-microsecond, and nanosecond precision, to probe how the driver rounds or truncates
- * below the microsecond the server keeps (java.sql.Timestamp carries nanoseconds, so the two disagree
- * exactly here).
+ * microsecond, a half-microsecond, and nanosecond precision. Those probe how the driver rounds or
+ * truncates below the microsecond the server keeps, where {@code java.sql.Timestamp} disagrees with the
+ * server because it carries nanoseconds.
  *
  * <p>Read-only ({@link EdgeCase#value()} is {@code null}).
  */

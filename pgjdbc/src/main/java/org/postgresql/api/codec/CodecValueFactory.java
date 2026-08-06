@@ -23,11 +23,6 @@ import java.sql.Struct;
  * <p>Implemented by the driver; applications receive instances but must not implement this type.
  * Obtain one from {@link CodecContext#getValueFactory()}.</p>
  *
- * <p>These live apart from {@link CodecContext} because they are a different kind of thing and are
- * used at a different rate: a context is read many times while decoding one value (its charset and
- * time zone on every field), whereas a factory is called once per composite or array. Keeping them
- * separate leaves the context narrow.</p>
- *
  * <p>Constructing these objects is the driver's job, not a codec's: it is what lets a codec stay
  * free of the driver's concrete {@code PgStruct}/{@code PgArray}/{@code PgSQLInput} classes and
  * work against this contract alone.</p>
@@ -118,9 +113,8 @@ public interface CodecValueFactory {
    * Writes {@code value} into {@code sink} as {@code type}'s binary composite form, by driving
    * {@link SQLData#writeSQL} against an {@link java.sql.SQLOutput}.
    *
-   * <p>The whole write is one call rather than a handed-out {@code SQLOutput} because the composite
-   * framing has to be finished after the last attribute — a length back-patch in binary, a closing
-   * parenthesis in text. Owning both ends here keeps that off the caller.</p>
+   * <p>{@code sink} receives the complete composite, framing included, so the caller has nothing
+   * left to finish after this returns.</p>
    *
    * @param type the composite type
    * @param value the value to write

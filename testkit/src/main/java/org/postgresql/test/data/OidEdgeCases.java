@@ -26,7 +26,7 @@ public final class OidEdgeCases {
    */
   public static final List<EdgeCase> MALFORMED = Collections.unmodifiableList(malformed());
 
-  /** Every case, in a stable order. */
+  /** Every well-formed case, in a stable order. */
   public static final List<EdgeCase> ALL = Collections.unmodifiableList(all());
 
   private OidEdgeCases() {

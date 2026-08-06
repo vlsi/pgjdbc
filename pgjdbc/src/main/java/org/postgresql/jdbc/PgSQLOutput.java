@@ -34,7 +34,8 @@ import java.sql.Timestamp;
 import java.util.List;
 
 /**
- * Base class for SQLOutput implementations.
+ * Implements the {@link SQLOutput} attribute plumbing shared by the text and binary composite
+ * writers.
  *
  * <p>Each JDBC {@code writeXxx} call advances to the next composite field and streams that field
  * straight into the caller-provided sink — the primitive writers ({@code writeInt},

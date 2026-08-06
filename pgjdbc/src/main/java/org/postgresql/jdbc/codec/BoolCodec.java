@@ -164,8 +164,10 @@ public final class BoolCodec implements PrimitiveBinaryEncoder, PrimitiveBinaryD
   /**
    * Throws if the {@code convertBooleanToNumeric} connection property is disabled.
    *
-   * <p>Without the property, numeric getters on a BOOL column are an unsupported
-   * conversion (matches the historical PgResultSet behavior).</p>
+   * <p>Without the property, the {@code decodeAs*} numeric decoders refuse a BOOL column
+   * (matches the historical PgResultSet behavior). {@link #decodeBinaryAs} and
+   * {@link #decodeTextAs} are not gated: they map bool onto a numeric box regardless of the
+   * property.</p>
    */
   private static void requireBooleanToNumeric(CodecContext ctx, String targetType)
       throws SQLException {

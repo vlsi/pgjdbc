@@ -16,10 +16,9 @@ import java.sql.SQLException;
  * Optional capability a {@link BinaryCodec} implements to decode its binary wire form to a Java
  * primitive without boxing it first.
  *
- * <p>The primitive accessors used to live as boxing {@code default} methods on {@link BinaryCodec}
- * itself, which meant every codec — a range, a composite, a geometry — advertised a
- * {@code decodeAsInt} it could not honour. They now live here, so only a codec that can actually
- * produce the primitive opts in. A caller with a base-typed reference goes through
+ * <p>A codec implements this only when it can produce the primitive without going through
+ * {@link BinaryCodec#decodeBinary}; a range, a composite or a geometry does not. A caller with a
+ * base-typed reference goes through
  * {@link PrimitiveDecoders#asInt(BinaryCodec, byte[], int, int, TypeDescriptor, CodecContext)} and
  * friends, which fall back to boxing through {@link BinaryCodec#decodeBinary} when the codec
  * does not implement this interface.</p>

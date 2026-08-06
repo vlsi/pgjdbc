@@ -18,11 +18,11 @@ import java.sql.SQLException;
 /**
  * Leaf-level codec for {@code oid8[]} arrays.
  *
- * <p>Keeps the per-element loops typed for {@code long[]} and {@code Long[]} while
- * {@link MultiDimArrayBinary} / {@link MultiDimArrayText} own the array header and dimensional
- * walking. Each element is the raw 8-byte {@code oid8} bit pattern (see {@link Oid8Codec}); text
- * elements are formatted and parsed as unsigned decimal via {@link Long#toUnsignedString(long)}
- * and {@link Long#parseUnsignedLong(String)}.</p>
+ * <p>Reads fill a {@code long[]} or a {@code Long[]}; writes take a {@code long[]} or any
+ * {@code Object[]} whose elements {@link Oid8Codec} can convert. {@link MultiDimArrayBinary} /
+ * {@link MultiDimArrayText} own the array header and dimensional walking. Each element is the raw
+ * 8-byte {@code oid8} bit pattern; text elements are formatted and parsed as unsigned decimal via
+ * {@link Long#toUnsignedString(long)} and {@link Long#parseUnsignedLong(String)}.</p>
  */
 final class Oid8ArrayLeafCodec implements ArrayLeafCodec {
 

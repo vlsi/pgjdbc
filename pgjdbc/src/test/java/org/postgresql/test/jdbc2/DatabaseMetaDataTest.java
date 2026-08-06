@@ -48,7 +48,7 @@ import java.util.Properties;
 import java.util.Set;
 
 /**
- * TestCase to test the internal functionality of org.postgresql.jdbc2.DatabaseMetaData
+ * Tests the internal functionality of {@link org.postgresql.jdbc.PgDatabaseMetaData}.
  */
 @ParameterizedClass
 @MethodSource("data")

@@ -14,11 +14,10 @@ import org.checkerframework.checker.nullness.qual.Nullable;
 import java.sql.SQLException;
 
 /**
- * Factory for the errors thrown by the SQLData/SQLInput/SQLOutput adapters, the codec-context
- * glue, and the setObject/array coercion helpers in this package.
+ * Factory for the errors raised on the codec path in this package.
  *
- * <p>Every {@code new PSQLException}/{@code new SQLException}/{@code GT.tr} call in this package
- * lives here so message text and {@link PSQLState} choices stay in one place.</p>
+ * <p>Its callers construct no exception of their own, so message text and {@link PSQLState}
+ * choices stay in one place.</p>
  */
 class Exceptions {
   private Exceptions() {

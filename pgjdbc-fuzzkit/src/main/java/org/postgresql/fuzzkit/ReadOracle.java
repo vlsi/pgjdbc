@@ -49,17 +49,13 @@ public final class ReadOracle {
    * Candidate target classes for {@code readObject(Class)} -- the target-class axis. Derived: the union
    * of every read-populated type's {@code readObject(Class)} targets
    * ({@link ReadCoercions#allObjectTargets}) plus the {@link #OUT_OF_DICTIONARY_CONTROLS}. The union is
-   * ordered by class name so the axis index is
-   * stable across runs. This is wider than the hand-written list it replaced -- it picks up every class a
-   * type produces, including {@code Byte}, {@code BigInteger}, {@code java.util.Date}, {@code InputStream},
-   * {@code PGobject}, {@code ZonedDateTime}, {@code Instant}, {@code PGInterval} and the geometric types.
+   * ordered by class name so the axis index is stable across runs.
    */
   public static final Class<?>[] TARGET_CLASSES = deriveTargetClasses();
 
   private static Class<?>[] deriveTargetClasses() {
-    // Sort the dictionary union by class name so the axis index is stable across runs, then append the
-    // controls in order. A LinkedHashSet keeps that order and drops any control a type happens to
-    // produce (none today), so the axis has no duplicates.
+    // The controls go after the name-sorted dictionary union: a LinkedHashSet keeps that order and
+    // drops any control a type happens to produce (none today), so the axis has no duplicates.
     Set<Class<?>> ordered = new TreeSet<>(Comparator.comparing(Class::getName));
     ordered.addAll(ReadCoercions.allObjectTargets());
     Set<Class<?>> withControls = new LinkedHashSet<>(ordered);
@@ -105,10 +101,10 @@ public final class ReadOracle {
 
   /**
    * The Java class {@code readObject(Object.class)} returns for a type under the default config -- the
-   * type's own natural class. Used by the round-trip to tell whether {@code readObject(Object)} round-
-   * trips (it does when the default matches the written value's class, but not for {@code timetz}/
-   * {@code timestamptz}, whose default is {@code java.sql.Time}/{@code Timestamp} rather than an
-   * {@code Offset} type).
+   * type's own natural class. Used by the round-trip to tell whether {@code readObject(Object)}
+   * round-trips (it does when the default matches the written value's class, but not for
+   * {@code timetz}/{@code timestamptz}, whose default is {@code java.sql.Time}/{@code Timestamp}
+   * rather than an {@code Offset} type).
    */
   static @Nullable Class<?> defaultObjectClass(int oid) {
     return ReadCoercions.defaultObjectClass(oid);
@@ -116,8 +112,8 @@ public final class ReadOracle {
 
   /**
    * Invokes the reader over the input, asserts the outcome against {@code expected}, and returns the
-   * value read -- or a non-returned result for a refusal or a tolerated {@code valueOf} deviation.
-   * Throws an {@link AssertionError} on any unchecked leak the registry does not model.
+   * value read -- or a non-returned result when the read refuses with a {@code SQLState} the registry
+   * allows. Throws an {@link AssertionError} on any unchecked leak.
    */
   static ReadResult verify(SQLInput in, SqlInputReader reader, Class<?> target,
       @Nullable CoercionOutcome expected, Format format, Object caseLabel) {
@@ -157,7 +153,7 @@ public final class ReadOracle {
     }
   }
 
-  /** The result of a read: the value returned, or a marker that the read refused or deviated. */
+  /** The result of a read: the value returned, or a marker that the read refused. */
   static final class ReadResult {
     static final ReadResult NOT_RETURNED = new ReadResult(false, null);
 

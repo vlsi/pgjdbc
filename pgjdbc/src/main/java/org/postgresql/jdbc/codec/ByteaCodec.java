@@ -88,7 +88,6 @@ public final class ByteaCodec implements BinaryCodec, TextCodec, ArrayElementCod
       return (T) decodeAsString(data, offset, length, type, ctx);
     }
     if (targetClass == InputStream.class) {
-      // Return InputStream wrapping the raw bytes of this value's slice.
       return (T) new ByteArrayInputStream(data, offset, length);
     }
     throw Exceptions.cannotDecode("bytea", targetClass.getName());
@@ -106,7 +105,6 @@ public final class ByteaCodec implements BinaryCodec, TextCodec, ArrayElementCod
       return (T) text;
     }
     if (targetClass == InputStream.class) {
-      // Decode text to bytes first, then wrap in InputStream
       byte[] bytes = PGbytea.toBytes(text.getBytes(ctx.getCharset()));
       return (T) new ByteArrayInputStream(bytes);
     }

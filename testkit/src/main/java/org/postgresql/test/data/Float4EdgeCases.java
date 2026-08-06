@@ -10,9 +10,12 @@ import java.util.Collections;
 import java.util.List;
 
 /**
- * Edge-case {@code float4} (real) values: the specials ({@code NaN}, {@code Infinity}, {@code -Infinity}),
- * signed zero, {@code x.5} rounding points, values around the {@code int} boundary (to probe {@code
- * getInt}/{@code getLong} coercion), and the magnitude extremes of the type.
+ * Edge-case {@code float4} (real) values: the specials ({@code NaN}, {@code Infinity},
+ * {@code -Infinity}), signed zero, {@code x.5} rounding points, values around the {@code int}
+ * boundary (to probe {@code getInt}/{@code getLong} coercion), and the magnitude extremes of the
+ * type.
+ *
+ * <p>Read and bind ({@link EdgeCase#value()} is the literal parsed as a {@code Float}).
  */
 public final class Float4EdgeCases {
   /** Every case, in a stable order. */

@@ -39,8 +39,9 @@ import java.util.Set;
  * {@link TypeDescriptor#isComposite()} and friends read {@code typtype} — which the wrapper
  * correctly leaves alone. A mock answering every method with its own stub value would report a
  * different {@code isComposite()} than the wrapper computes, failing for no reason; a real type
- * computes them identically on both sides. Every slot below holds a distinctive value, so a wrapper
- * that answered from a hardcoded constant or an interface default would not match.</p>
+ * computes them identically on both sides. Every slot of {@link #distinctiveDelegate()} holds a
+ * distinctive value, so a wrapper that answered from a hardcoded constant or an interface default
+ * would not match.</p>
  */
 class TypmodTypeDescriptorDelegationTest {
 
@@ -48,9 +49,9 @@ class TypmodTypeDescriptorDelegationTest {
   private static final int STAMPED_TYPMOD = 786_436;
 
   /**
-   * Methods whose whole purpose is to differ from the delegate. Each is asserted on its own below,
-   * so removing a name from this set without adding an assertion loses coverage rather than
-   * silently passing.
+   * Methods whose whole purpose is to differ from the delegate. Each carries its own assertion in
+   * this class, so removing a name from this set without adding an assertion loses coverage rather
+   * than silently passing.
    */
   private static final Set<String> INTENTIONALLY_NOT_DELEGATED =
       Collections.unmodifiableSet(new HashSet<>(Arrays.asList(

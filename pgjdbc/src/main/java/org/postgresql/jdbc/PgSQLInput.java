@@ -34,7 +34,7 @@ import java.sql.Timestamp;
 import java.util.List;
 
 /**
- * Base class for SQLInput implementations.
+ * Reads a composite (row) value field by field through the JDBC {@link SQLInput} API.
  *
  * <p>Each JDBC {@code readXxx} call advances to the next composite field and pulls that field
  * straight out of the subclass-owned source — the primitive readers ({@code readInt},
@@ -63,10 +63,12 @@ public abstract class PgSQLInput implements SQLInput {
   private @Nullable TypeDescriptor currentType;
 
   /**
-   * Creates a new PgSQLInput.
+   * Creates a reader over the fields of {@code type}, resolving the field list right away.
    *
    * @param type the composite type
    * @param ctx the codec context
+   * @throws SQLException if {@code type} has no attributes loaded and {@code ctx} is not
+   *     connection-bound, leaving nowhere to take the field list from
    */
   protected PgSQLInput(PgType type, PgCodecContext ctx) throws SQLException {
     this.compositeType = type;

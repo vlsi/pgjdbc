@@ -13,15 +13,15 @@ import java.io.IOException;
 import java.sql.SQLException;
 
 /**
- * Shared multi-dimensional text array encoder.
+ * Shared multi-dimensional text array encoder and decoder.
  *
  * <p>Owns the PostgreSQL text array literal format ({@code {a,b,{c,d}}}).
  * Outer dimensions are walked via {@link java.lang.reflect.Array}; the leaf
- * level is delegated to a caller-provided {@link LeafTextWriter} that
- * appends one 1-D slice's elements (without surrounding braces). Leaf writers
- * are responsible for array-element escaping when element text can contain
- * array syntax characters; this helper only owns dimensional braces and
- * delimiters.</p>
+ * level is delegated to a caller-provided {@link LeafTextWriter} or
+ * {@link LeafTextReader}, which handles one 1-D slice's elements (without
+ * surrounding braces). Leaf writers are responsible for array-element escaping
+ * when element text can contain array syntax characters; this helper only owns
+ * dimensional braces and delimiters.</p>
  */
 public final class MultiDimArrayText {
 
@@ -59,6 +59,7 @@ public final class MultiDimArrayText {
         throws SQLException;
   }
 
+  /** Encodes {@code javaArray} as a PostgreSQL array text literal. */
   public static String encode(Object javaArray, char delim, CodecContext ctx, LeafTextWriter leaf)
       throws SQLException {
     StringBuilder sb = new StringBuilder(128);
@@ -71,7 +72,8 @@ public final class MultiDimArrayText {
   }
 
   /**
-   * Streaming variant: writes the array literal directly into {@code out}.
+   * Writes the array literal for {@code javaArray} into {@code out} as it is built, with no
+   * intermediate {@code String}. An array with no elements at any depth renders as {@code {}}.
    */
   public static void encode(Object javaArray, char delim, Appendable out, CodecContext ctx, LeafTextWriter leaf) throws SQLException, IOException {
     int dimensions = MultiDimArraySupport.computeDimensions(javaArray, leafElementClassOf(leaf));
@@ -121,9 +123,9 @@ public final class MultiDimArrayText {
 
   /**
    * Decodes a PostgreSQL array text literal into a typed Java array whose leaf
-   * component type is {@code leafComponentType} (e.g. {@code int.class},
-   * {@code Integer.class}). The element loop is delegated to {@code leaf}, which
-   * pulls one value per element from the shared {@link LiteralCursor}.
+   * component type is {@code leafComponentType}. The element loop is delegated
+   * to {@code leaf}, which pulls one value per element from the shared
+   * {@link LiteralCursor}.
    *
    * <p>The shape is discovered in a cheap structural pass before allocation:
    * the dimensionality from the leading braces and each dimension's length by
@@ -134,7 +136,8 @@ public final class MultiDimArrayText {
    * composite or another array. This decodes eagerly and retains nothing.</p>
    *
    * @param data the array text literal
-   * @param leafComponentType the Java class of one leaf element
+   * @param leafComponentType the Java class of one leaf element, primitive or boxed
+   *     ({@code int.class}, {@code Integer.class})
    * @param delim the element delimiter
    * @param ctx the codec context
    * @param leaf the leaf codec pulling one value per element

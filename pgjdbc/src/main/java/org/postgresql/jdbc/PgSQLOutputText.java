@@ -16,7 +16,7 @@ import java.io.IOException;
 import java.sql.SQLException;
 
 /**
- * Text format SQLOutput implementation.
+ * Text-format {@link java.sql.SQLOutput} that writes a composite value as a PostgreSQL text literal.
  *
  * <p>Each {@code writeXxx} call appends its field to the composite text literal {@code (f0,f1,...)} in
  * the caller-provided {@link Appendable} as it arrives. A field codec that implements
@@ -29,14 +29,8 @@ import java.sql.SQLException;
  */
 public final class PgSQLOutputText extends PgSQLOutput {
 
-  /**
-   * Pre-cached codecs for each field.
-   */
   private final TextCodec[] cachedCodecs;
 
-  /**
-   * Pre-cached field types.
-   */
   private final TypeDescriptor[] cachedTypes;
 
   /**

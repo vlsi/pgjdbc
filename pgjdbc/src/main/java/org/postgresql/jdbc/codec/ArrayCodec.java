@@ -105,7 +105,6 @@ public final class ArrayCodec implements StreamingBinaryCodec, StreamingTextCode
         }
       }
     }
-    // Reuse streaming encoder
     BackpatchingByteArrayOutputStream out = new BackpatchingByteArrayOutputStream();
     try {
       encodeBinary(value, type, ctx, out);
@@ -356,7 +355,6 @@ public final class ArrayCodec implements StreamingBinaryCodec, StreamingTextCode
       return;
     }
     if (value instanceof Array) {
-      // Generic JDBC Array - get the underlying array and stream it.
       Object javaArray = ((Array) value).getArray();
       if (javaArray != null) {
         encodeBinaryJavaArray(javaArray, type, ctx, out);

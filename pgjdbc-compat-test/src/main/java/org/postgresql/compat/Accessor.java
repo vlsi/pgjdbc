@@ -197,9 +197,9 @@ public enum Accessor {
   };
 
   /**
-   * A calendar in a fixed non-UTC, non-JVM-default zone. The temporal-with-calendar getters must honour
-   * it, so a fresh instance is handed out per call: the JDBC drivers may mutate a calendar passed to a
-   * getter, and the current and baseline drivers must not share one.
+   * Returns a calendar in a fixed non-UTC, non-JVM-default zone. The temporal-with-calendar getters
+   * must honour it, so a fresh instance is handed out per call: the JDBC drivers may mutate a calendar
+   * passed to a getter, and the current and baseline drivers must not share one.
    */
   private static GregorianCalendar calendar() {
     return new GregorianCalendar(TimeZone.getTimeZone("GMT+05:00"));

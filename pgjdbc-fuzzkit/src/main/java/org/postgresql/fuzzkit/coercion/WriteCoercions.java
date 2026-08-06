@@ -54,11 +54,11 @@ import java.util.function.Consumer;
  * {@code UPDATABLE_RESULT_SET} surface is pinned against this table on a live server by
  * {@code UpdatableResultSetWriteCoercionTest} (pgjdbc-jqf-test): the updatable ResultSet stages
  * its row buffer and binds its UPDATE/INSERT parameters through the same column codec, so it
- * conforms to the table exactly. Two write
- * concerns are <em>not</em> in this table: the {@code NOT_IMPLEMENTED} writers ({@code writeRef} and
- * friends), which the driver rejects before reaching a codec and so are keyed by method, not class;
- * and the {@code setObject(x, SQLType)} conversion legality, which is a separate {@code (class, SQLType)}
- * axis (the JDBC setObject table) and belongs in its own registry.
+ * conforms to the table exactly. Two write concerns are <em>not</em> in this table: the
+ * {@code NOT_IMPLEMENTED} writers ({@code writeRef} and friends), which the driver rejects before
+ * reaching a codec and so are keyed by method, not class; and the {@code setObject(x, SQLType)}
+ * conversion legality, which is a separate {@code (class, SQLType)} axis (the JDBC setObject table)
+ * and belongs in its own registry.
  */
 public final class WriteCoercions {
 
@@ -130,10 +130,9 @@ public final class WriteCoercions {
     /**
      * The Java class this method accepts at its {@code SQLOutput}/{@code PreparedStatement} entry
      * point -- what a value generator must produce to drive it. Differs from
-     * {@link #presentedClass(Object)} for the widening and reducing methods ({@code writeByte} accepts
-     * {@code Byte} but presents {@code Integer}; {@code writeURL} accepts {@code URL} but presents
-     * {@code String}). {@code null} for {@link #WRITE_OBJECT_AS}, whose input class is the value's own,
-     * and for the {@code NOT_IMPLEMENTED} methods, which read no value.
+     * {@link #presentedClass(Object)} for the widening and reducing methods. {@code null} for
+     * {@link #WRITE_OBJECT_AS}, whose input class is the value's own, and for the
+     * {@code NOT_IMPLEMENTED} methods, which read no value.
      */
     public @Nullable Class<?> inputClass() {
       return inputClass;
@@ -177,7 +176,7 @@ public final class WriteCoercions {
    * type. Returns the listed cell, {@code INVALID_PARAMETER_TYPE} by default-deny for an unlisted class
    * once the type is populated, and {@code null} for an unpopulated type.
    *
-   * @param surface the writing API
+   * @param surface the writing API; this lookup ignores it
    * @param oid the target PostgreSQL type OID
    * @param sourceClass the runtime class of the value handed to the codec
    * @param config the connection properties (unused today; carried for parity with the read side)
@@ -255,8 +254,9 @@ public final class WriteCoercions {
 
   // ---------------------------------------------------------------------------------------------
   // Numeric family: int4, int8, numeric. Sourced from Int4Codec.toInt / Int8Codec.toLong /
-  // NumericCodec.toBigDecimal. Integer/Long/Short/Byte and Boolean map cleanly; the wider numbers and
-  // String are range- or parse-checked (NUMERIC_VALUE_OUT_OF_RANGE); temporal, byte[] and UUID refuse.
+  // NumericCodec.toBigDecimal. The integral boxes that always fit and Boolean map cleanly; the wider
+  // numbers and String are range- or parse-checked (NUMERIC_VALUE_OUT_OF_RANGE); temporal, byte[] and
+  // UUID refuse.
   // ---------------------------------------------------------------------------------------------
 
   private static void defineNumericFamily() {
@@ -285,9 +285,9 @@ public final class WriteCoercions {
   // parses a String, and refuses everything else.
   //
   // int2 (Int2Codec.toShort): Short and Byte always fit the int2 range; Boolean maps to 0/1 (in range).
-  // Integer and the wider numbers go through longValue() and are range-checked (NUMERIC_VALUE_OUT_OF_
-  // RANGE), so they are value-dependent, as is String (Short.parseShort). Everything else refuses with
-  // INVALID_PARAMETER_TYPE.
+  // Integer and the wider numbers go through longValue() and are range-checked
+  // (NUMERIC_VALUE_OUT_OF_RANGE), so they are value-dependent, as is String (Short.parseShort).
+  // Everything else refuses with INVALID_PARAMETER_TYPE.
   //
   // oid (OidCodec.toLong): every Number widens through longValue(), which never overflows (it truncates
   // a floating or big value rather than raising), so all the boxed numbers are OK. String parses through
@@ -386,8 +386,7 @@ public final class WriteCoercions {
   // both the valid and the malformed literal. A clean per-value refusal is the modelled outcome: a bad
   // escape/octal literal raises INVALID_TEXT_REPRESENTATION (22P02) and a bad hex literal raises
   // INVALID_PARAMETER_VALUE (22023), both in OutcomeContract.WRITE_VALUE_LEVEL_STATES. These match the
-  // server; the driver's PGbytea.toBytes was hardened to raise them instead of leaking an
-  // ArrayIndexOutOfBoundsException on a malformed literal.
+  // server, and PGbytea.toBytes raises them rather than an ArrayIndexOutOfBoundsException.
   // ---------------------------------------------------------------------------------------------
 
   private static void defineBytea() {

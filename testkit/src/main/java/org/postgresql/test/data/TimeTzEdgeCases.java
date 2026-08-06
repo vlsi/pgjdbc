@@ -11,7 +11,7 @@ import java.util.List;
 
 /**
  * Edge-case {@code timetz} (time with time zone) values. On top of the {@code time} sub-second boundary,
- * this catalogue covers the UTC-offset extremes PostgreSQL accepts (+14:00 .. -12:00), a half-hour
+ * this catalogue covers the real-world UTC-offset extremes (+14:00 .. -12:00), a half-hour
  * offset, and the {@code 24:00:00} upper bound, since the offset is carried through decode.
  *
  * <p>Read-only ({@link EdgeCase#value()} is {@code null}).

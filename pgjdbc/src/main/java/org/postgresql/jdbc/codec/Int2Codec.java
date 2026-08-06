@@ -26,8 +26,8 @@ import java.sql.SQLException;
 /**
  * Codec for PostgreSQL int2 (SMALLINT) type.
  *
- * <p>Note: getObject() returns Integer for backward compatibility,
- * not Short as might be expected.</p>
+ * <p>{@code getObject} returns {@code Integer}, not {@code Short}, for backward compatibility;
+ * {@link #getDefaultJavaType()} reports that same class.</p>
  */
 public final class Int2Codec implements PrimitiveBinaryEncoder, PrimitiveBinaryDecoder,
     PrimitiveTextEncoder, PrimitiveTextDecoder, ArrayElementCodec {
@@ -35,7 +35,6 @@ public final class Int2Codec implements PrimitiveBinaryEncoder, PrimitiveBinaryD
   public static final Int2Codec INSTANCE = new Int2Codec();
 
   private Int2Codec() {
-    // Singleton
   }
 
   @Override
@@ -46,7 +45,6 @@ public final class Int2Codec implements PrimitiveBinaryEncoder, PrimitiveBinaryD
 
   @Override
   public Class<?> getDefaultJavaType() {
-    // Returns Integer for backward compatibility
     return Integer.class;
   }
 
@@ -111,7 +109,7 @@ public final class Int2Codec implements PrimitiveBinaryEncoder, PrimitiveBinaryD
   @Override
   public void encodeLong(long value, TypeDescriptor type, CodecContext ctx, Appendable out)
       throws SQLException, IOException {
-    // writeShort/writeByte always fit; writeInt into an int2 field is range-checked like toShort.
+    // writeLong into an int2 field is range-checked like toShort.
     PrimitiveTextSink.appendInt(out, toShort(value));
   }
 

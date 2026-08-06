@@ -76,7 +76,7 @@ public final class CharCodec extends AbstractTextCodec {
     return new byte[]{charByte(toString(value), ctx.getCharset())};
   }
 
-  /** {@code charout} for a high byte: a backslash followed by its three octal digits, e.g. {@code "\200"}. */
+  /** {@code charout} for a high byte: a backslash followed by its three octal digits, {@code 0x80 -> "\200"}. */
   private static String octalEscape(int b) {
     return new String(new char[]{'\\',
         (char) ('0' + ((b >> 6) & 7)), (char) ('0' + ((b >> 3) & 7)), (char) ('0' + (b & 7))});

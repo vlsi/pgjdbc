@@ -30,11 +30,9 @@ public final class OfflineCodecContexts {
   }
 
   /**
-   * An offline-context builder that reuses the shared built-in {@link CodecLookup} instead of
-   * building a fresh one. A drop-in replacement for {@link OfflineCodecs#builder()} on the
+   * Returns an offline-context builder that reuses the shared built-in {@link CodecLookup} instead
+   * of building a fresh one. A drop-in replacement for {@link OfflineCodecs#builder()} on the
    * fuzz targets' hot path.
-   *
-   * @return a builder pre-configured with the shared built-in registry
    */
   public static CodecContextBuilder offlineBuilder() {
     return OfflineCodecs.builder().codecLookup(SHARED_BUILTINS);

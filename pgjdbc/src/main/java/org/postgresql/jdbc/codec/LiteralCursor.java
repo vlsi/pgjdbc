@@ -260,8 +260,8 @@ final class LiteralCursor {
   }
 
   /**
-   * Reads one composite field up to (but not consuming) the next {@code delim} or
-   * {@code close}, with the whitespace rule of {@code record_in} and
+   * Reads one composite field or range bound up to (but not consuming) the next
+   * {@code delim} or {@code close}, with the whitespace rule of {@code record_in} and
    * {@code range_parse_bound}: whitespace belongs to the value wherever it appears, so
    * {@code ( x,y)} has a first field of {@code " x"}. Those parsers strip whitespace only
    * around the literal as a whole, which the container driver does through
@@ -279,9 +279,9 @@ final class LiteralCursor {
   }
 
   /**
-   * Variant accepting two acceptable closing brackets, for a range upper bound
-   * that may be followed by either {@code ']'} (inclusive) or {@code ')'}
-   * (exclusive).
+   * Reads one value the way {@link #readVerbatim(char, char)} does, but accepting either of
+   * two closing brackets: a range upper bound may be followed by {@code ']'} (inclusive) or
+   * {@code ')'} (exclusive).
    *
    * @param delim the element delimiter
    * @param close1 one acceptable closing bracket

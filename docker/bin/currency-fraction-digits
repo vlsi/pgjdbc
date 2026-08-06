@@ -83,7 +83,7 @@ print(" * edit by hand. Re-run it when the server images move to a new glibc.</p
 print(" */")
 print("final class MoneyFractionDigits {")
 print()
-print("  /** Symbols whose locale prints three fraction digits, longest first so a prefix cannot shadow. */")
+print("  /** Symbols whose locale prints three fraction digits, longest first for a stable order. */")
 print("  private static final List<String> THREE = Collections.unmodifiableList(Arrays.asList(")
 items = sorted(by, key=lambda s: (-len(s), s))
 for i, symbol in enumerate(items):

@@ -19,28 +19,12 @@ import java.util.function.Predicate;
  * scalars ({@code int2}, {@code float4}, {@code float8}, {@code bytea}) that the codec round-trip
  * fuzzers exercise but the coercion dictionaries do not write-populate.
  *
- * <p>The scalar <b>stores</b>, beyond the {@code oid} on the base:
- *
- * <ul>
- *   <li>{@code pgTypeName} / {@code typcategory} -- the offline {@link PgType} identity ({@link #pgType()}
- *       builds it), previously the hand-written {@code scalar(...)} constants in the codec fuzz support.</li>
- *   <li>{@code jdbcType} -- the {@link JDBCType} the generic {@code writeObject(Object, SQLType)} /
- *       {@code setObject} paths use.</li>
- *   <li>{@code naturalClass} -- the Java class of an identity round-trip. It is not derivable: for
- *       {@code timetz}/{@code timestamptz} it is {@code OffsetTime}/{@code OffsetDateTime}, which differ
- *       from {@link #defaultObjectClass()} (java.sql.Time / java.sql.Timestamp); for {@code int2} it is
- *       {@code Short} (its typed {@code WRITE_SHORT}/{@code READ_SHORT} identity), while its default
- *       {@code getObject} class stays {@code Integer} (pgjdbc's documented smallint backward-compat),
- *       delegated to the dictionary.</li>
- *   <li>{@code typedWriter} / {@code typedReader} -- the diagonal write method and read accessor, or
- *       {@code null} for a type reached only through the object axis ({@code timetz}/{@code timestamptz}
- *       have no typed {@code Offset} writer or reader).</li>
- *   <li>{@code fidelity} -- how a written value is compared with the value read back.</li>
- *   <li>{@code poison} -- a predicate marking values that encode legally but need not read back (a
- *       non-finite {@code Float}/{@code Double} into {@code numeric}); every other type poisons
- *       nothing. This generalises the {@code nonFiniteNumeric} special case the round-trip support
- *       hard-codes.</li>
- * </ul>
+ * <p>{@link #naturalClass()} -- the Java class of an identity round-trip -- is not derivable, which is
+ * why the scalar stores it: for {@code timetz}/{@code timestamptz} it is
+ * {@code OffsetTime}/{@code OffsetDateTime}, which differ from {@link #defaultObjectClass()}
+ * (java.sql.Time / java.sql.Timestamp); for {@code int2} it is {@code Short} (its typed
+ * {@code WRITE_SHORT}/{@code READ_SHORT} identity), while its default {@code getObject} class stays
+ * {@code Integer} (pgjdbc's documented smallint backward-compat), delegated to the dictionary.</p>
  */
 public final class ScalarDescriptor extends PgTypeDescriptor {
 

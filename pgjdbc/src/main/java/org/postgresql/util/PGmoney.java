@@ -11,7 +11,7 @@ import java.io.Serializable;
 import java.sql.SQLException;
 
 /**
- * This implements a class that handles the PostgreSQL money and cash types.
+ * Handles the PostgreSQL {@code money} and {@code cash} types.
  */
 public class PGmoney extends PGobject implements Serializable, Cloneable {
   /*
@@ -45,6 +45,13 @@ public class PGmoney extends PGobject implements Serializable, Cloneable {
     type = "money";
   }
 
+  /**
+   * Parses a monetary amount, ignoring the currency symbol and the grouping separators.
+   *
+   * @param s amount to parse, negative either as {@code -$1.00} or as {@code ($1.00)};
+   *     {@code null} marks this object SQL {@code null} and leaves {@link #val} unchanged
+   * @throws SQLException if the remaining digits do not parse as a number
+   */
   @Override
   public void setValue(@Nullable String s) throws SQLException {
     isNull = s == null;
@@ -62,7 +69,7 @@ public class PGmoney extends PGobject implements Serializable, Cloneable {
       }
 
       // Keep only the digits and decimal point; drop the currency symbol, grouping separators and a
-      // leading sign. This handles the "-$1.00" form that the previous single-character strip missed.
+      // leading sign.
       StringBuilder digits = new StringBuilder(t.length());
       for (int i = 0; i < t.length(); i++) {
         char c = t.charAt(i);

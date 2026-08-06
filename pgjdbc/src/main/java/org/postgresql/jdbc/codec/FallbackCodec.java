@@ -22,10 +22,12 @@ import java.sql.Timestamp;
 import java.util.Arrays;
 
 /**
- * Fallback codec for unknown/unmapped PostgreSQL types.
+ * Decodes a PostgreSQL type that has no codec of its own, preserving the value rather than
+ * interpreting it.
  *
- * <p>Returns values as {@link PGobject} for text format.
- * For binary format, stores raw bytes in PGobject.</p>
+ * <p>A text value becomes a {@link PGobject} tagged with the type's local name. Binary reaches
+ * this codec only when the driver could not ask for text, and becomes a {@link PGUnknownBinary}
+ * holding the raw bytes; that is also the only value this codec encodes back as binary.</p>
  */
 public final class FallbackCodec implements PrimitiveBinaryDecoder, PrimitiveTextDecoder {
 
@@ -118,7 +120,8 @@ public final class FallbackCodec implements PrimitiveBinaryDecoder, PrimitiveTex
       return (T) decodeBinary(data, offset, length, type, ctx);
     }
     if (targetClass == PGobject.class) {
-      // Return text-based PGobject for compatibility
+      // A PGobject carries a String, so the bytes are rendered through the connection charset
+      // rather than kept raw; PGUnknownBinary and byte[] are the targets that keep them raw.
       PGobject obj = new PGobject();
       obj.setType(type.getName().getLocalName());
       obj.setValue(decodeAsString(data, offset, length, type, ctx));
@@ -237,7 +240,10 @@ public final class FallbackCodec implements PrimitiveBinaryDecoder, PrimitiveTex
     return d;
   }
 
-  /** The spellings {@link Double#parseDouble} accepts as an infinity, with an optional sign. */
+  /**
+   * Reports whether {@code trimmed} is one of the spellings {@link Double#parseDouble} accepts as
+   * an infinity, with an optional sign.
+   */
   private static boolean isInfinityLiteral(String trimmed) {
     return "Infinity".equalsIgnoreCase(trimmed)
         || "+Infinity".equalsIgnoreCase(trimmed)

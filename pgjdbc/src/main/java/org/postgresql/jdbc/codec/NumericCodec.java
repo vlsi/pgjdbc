@@ -202,8 +202,8 @@ public final class NumericCodec implements PrimitiveBinaryDecoder, PrimitiveText
       throw Exceptions.badValueForType("BigDecimal", trimmed);
     }
     // Unlike the integer codecs there is no ASCII fast parser to fall out of, so the screen sits on
-    // the main path. It is a single character range test over a literal BigDecimal is about to scan
-    // several times while allocating, so it does not move the needle.
+    // the main path. It is a single character-range test over a literal that BigDecimal is about to
+    // scan several times while allocating, so it does not move the needle.
     try {
       NumberDecoders.requireAsciiLiteral(trimmed);
       return applyTypmodScale(new BigDecimal(trimmed), type.getAppliedTypmod());
@@ -438,10 +438,8 @@ public final class NumericCodec implements PrimitiveBinaryDecoder, PrimitiveText
   @SuppressWarnings("unchecked")
   public <T> @Nullable T decodeTextAs(CharSequence data, TypeDescriptor type, Class<T> targetClass, CodecContext ctx)
       throws SQLException {
-    // Decode straight from the text form. This previously round-tripped through
-    // ByteConverter.numeric and decodeBinaryAs; the binary re-encode then re-decode was pure
-    // overhead, and forcing a BigDecimal up front also rejected NaN / ±Infinity for Double/Float,
-    // which the binary path accepts.
+    // Double and Float read the literal directly rather than through decodeAsBigDecimal, which
+    // rejects the NaN / ±Infinity spellings that both targets accept.
     if (targetClass == Double.class) {
       return (T) Double.valueOf(decodeAsDouble(data, type, ctx));
     }

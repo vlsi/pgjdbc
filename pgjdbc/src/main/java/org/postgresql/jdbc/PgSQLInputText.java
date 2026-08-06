@@ -23,11 +23,11 @@ import java.sql.Time;
 import java.sql.Timestamp;
 
 /**
- * Text format SQLInput implementation.
+ * Reads the fields of a text-encoded composite value through {@link java.sql.SQLInput}.
  *
- * <p>Reads text-encoded composite data. Unlike {@link PgSQLInputBinary}, this reader parses the whole
- * {@code (a,b,"c,d")} literal into its attributes up front and serves each {@code readXxx} from that
- * array. It does not stream field by field, and deliberately so: the binary wire is self-describing
+ * <p>This reader parses the whole {@code (a,b,"c,d")} literal into its attributes up front and serves
+ * each {@code readXxx} from that array. It does not stream field by field, unlike
+ * {@link PgSQLInputBinary}, and deliberately so: the binary wire is self-describing
  * (a fixed {@code oid}/{@code length} header per field lets a cursor jump to the next field), whereas
  * the text form has no length prefix — finding a field boundary means scanning for the next
  * comma while tracking quoting and backslash escapes, so the parser has to walk the literal
@@ -36,13 +36,14 @@ import java.sql.Timestamp;
  * slice in place. The parse-then-serve model therefore costs little more than an on-demand one here.
  * For an allocation-sensitive composite read path, prefer the binary format.</p>
  *
- * <p>A field's codec is resolved once, in {@link #advanceIsNull()}, the moment the reader reaches it -
+ * <p>A field's codec is resolved once, in {@link #advanceIsNull()}, the moment the reader reaches it —
  * and only if it turns out non-null, since a null field is never decoded.</p>
  */
 public final class PgSQLInputText extends PgSQLInput {
 
   /**
-   * The parsed attribute values, one per field (null for SQL NULL).
+   * The parsed attribute values, in field order ({@code null} for SQL NULL). May be shorter than the
+   * type's attribute list.
    */
   private final @Nullable String[] values;
 
@@ -81,7 +82,7 @@ public final class PgSQLInputText extends PgSQLInput {
   protected boolean advanceIsNull() throws SQLException {
     int i = fieldIndex - 1;
     // A composite value with fewer attributes than the type declares reads the trailing fields back as
-    // NULL, matching the previous behaviour.
+    // NULL.
     if (i >= values.length || values[i] == null) {
       return true;
     }

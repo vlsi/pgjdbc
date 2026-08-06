@@ -24,11 +24,9 @@ class Exceptions {
   }
 
   /**
-   * Creates an error indicating that no codec is registered for a specific format and type.
+   * Creates the error for a type that has no registered codec in the requested wire format.
    *
-   * @param type the type descriptor for which no codec is registered
-   * @param format the format name for which no codec is available
-   * @return an {@link SQLException} indicating the absence of a codec for the given format and type
+   * @param format the format name interpolated into the message, {@code "binary"} or {@code "text"}
    */
   static SQLException noCodecForFormat(TypeDescriptor type, String format) {
     return new PSQLException(
@@ -37,14 +35,14 @@ class Exceptions {
   }
 
   /**
-   * Creates the error the default primitive-read paths raise when a decoded value cannot be represented
-   * in the requested numeric target -- it overflows the target's range, or it is a non-finite
-   * {@code NaN}/{@code Infinity} that {@code int}/{@code long}/{@code BigDecimal} cannot hold. Carries
-   * {@link PSQLState#NUMERIC_VALUE_OUT_OF_RANGE}, matching the built-in codecs' own range checks.
+   * Creates the error the default primitive-read paths raise for a decoded value the requested
+   * numeric target cannot represent.
    *
-   * @param value the value that does not fit
+   * <p>The value either overflows the target's range or is a non-finite {@code NaN}/{@code Infinity}
+   * that {@code int}/{@code long}/{@code BigDecimal} cannot hold. The error carries
+   * {@link PSQLState#NUMERIC_VALUE_OUT_OF_RANGE}, matching the built-in codecs' own range checks.</p>
+   *
    * @param targetType the target type name (for example {@code "int"})
-   * @return the out-of-range {@link SQLException}
    */
   static SQLException valueOutOfRange(Object value, String targetType) {
     return new PSQLException(

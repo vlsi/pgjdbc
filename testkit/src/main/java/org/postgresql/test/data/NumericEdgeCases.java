@@ -15,16 +15,9 @@ import java.util.Map;
 /**
  * A shared catalogue of {@code numeric} edge-case values for driver tests.
  *
- * <p>It gathers the values that stress {@code numeric} decode, encode and coercion: the special values
- * ({@code NaN}, {@code Infinity}, {@code -Infinity}), precision and scale extremes, binary-format group
- * boundaries, and -- for probing rounding and overflow in {@code getByte}/{@code getShort}/{@code
- * getInt}/{@code getLong} -- values sitting exactly on and just around each integer type's minimum and
- * maximum (including the {@code x.5} half-way points that decide whether a coercion rounds past the
- * boundary). {@link #LEXICAL} covers the spellings a text literal can take for a value the driver has
- * seen before, and {@link #MALFORMED} the literals a text parser must refuse.
- *
- * <p>Meant to be reused across modules -- the differential backward-compat oracle, fuzzers, and ordinary
- * coercion tests -- so the same edge cases are exercised everywhere.
+ * <p>Each list gathers the values that stress one part of {@code numeric} decode, encode and
+ * coercion. Meant to be reused across modules -- the differential backward-compat oracle, fuzzers,
+ * and ordinary coercion tests -- so the same edge cases are exercised everywhere.
  */
 public final class NumericEdgeCases {
   private static final BigDecimal ONE = BigDecimal.ONE;
@@ -43,7 +36,11 @@ public final class NumericEdgeCases {
    */
   public static final List<EdgeCase> PRECISION = Collections.unmodifiableList(precision());
 
-  /** Values on and around each integer type's min/max, including {@code x.5} rounding points. */
+  /**
+   * Values on and around each integer type's min/max, including the {@code x.5} rounding points:
+   * these probe rounding and overflow in {@code getByte}, {@code getShort}, {@code getInt} and
+   * {@code getLong}.
+   */
   public static final List<EdgeCase> INTEGER_BOUNDARIES =
       Collections.unmodifiableList(integerBoundaries());
 

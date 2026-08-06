@@ -19,9 +19,9 @@ import java.sql.SQLException;
 /**
  * Leaf-level codec for {@code int4[]} arrays.
  *
- * <p>This keeps the per-element binary loops typed for {@code int[]} and
- * {@code Integer[]} while {@link MultiDimArrayBinary} owns the array header and
- * dimensional walking.</p>
+ * <p>Keeps the per-element loops typed for {@code int[]} and {@code Integer[]}
+ * while {@link MultiDimArrayBinary} / {@link MultiDimArrayText} own the array
+ * header and dimensional walking.</p>
  */
 final class Int4ArrayLeafCodec implements ArrayLeafCodec {
 

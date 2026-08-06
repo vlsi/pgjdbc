@@ -8,7 +8,7 @@ package org.postgresql.util;
 import org.checkerframework.checker.nullness.qual.Nullable;
 
 /**
- * This class is used for holding SQLState codes.
+ * Holds the SQLState codes the driver reports.
  */
 public enum PSQLState {
 

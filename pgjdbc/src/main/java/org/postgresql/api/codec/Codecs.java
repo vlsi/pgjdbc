@@ -20,9 +20,9 @@ import java.sql.SQLException;
  *
  * <p>Both calls resolve the codec from {@code ctx} by the descriptor's OID
  * ({@link CodecContext#resolveCodec(int)}), so they work with any {@link CodecContext}, including
- * the connectionless one built offline. Scalar and temporal types round-trip offline; container
- * types (array, composite, range, domain) still need a live connection and report that with a clear
- * error rather than a silent failure.</p>
+ * the connectionless one built offline. A container round-trips offline as a plain Java value; only
+ * a target that is itself connection-bound, such as {@link java.sql.Array}, needs a live connection,
+ * and it reports that with a clear error rather than a silent failure.</p>
  *
  * <p>Both directions enforce the codec's format capability. {@link #encode} to a {@link Format} the
  * codec cannot produce for the value, or {@link #decode} of a value whose format the codec cannot

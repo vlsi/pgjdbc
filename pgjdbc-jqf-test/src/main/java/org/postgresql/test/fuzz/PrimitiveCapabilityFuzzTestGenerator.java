@@ -26,7 +26,7 @@ import java.util.List;
  * through the ServiceLoader; they need no {@code arguments = ...} factory.
  *
  * <p>Driven by {@link FuzzTargetGenerator}, the module's single generator entry point, which passes the
- * generated-sources root. It needs no database connection: the model is a fixed hand-authored family.
+ * generated-sources root. It needs no database connection: the model is built from the offline codec registry.
  */
 public final class PrimitiveCapabilityFuzzTestGenerator {
 

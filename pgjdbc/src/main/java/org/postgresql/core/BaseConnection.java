@@ -256,10 +256,7 @@ public interface BaseConnection extends PGConnection, Connection {
   boolean getConvertBooleanToNumeric();
 
   /**
-   * Returns a PgCodecContext for this connection.
-   *
-   * <p>The PgCodecContext provides access to codecs and type information
-   * needed for encoding and decoding values.</p>
+   * Returns the {@link PgCodecContext} this connection encodes and decodes values with.
    *
    * @return the codec context
    * @throws SQLException if the context cannot be created
@@ -267,12 +264,13 @@ public interface BaseConnection extends PGConnection, Connection {
   PgCodecContext getCodecContext() throws SQLException;
 
   /**
-   * Returns whether PostgreSQL boolean should map to JDBC BOOLEAN type.
+   * Returns whether a column the driver types as JDBC {@code BIT} is reported as {@code BOOLEAN}.
    *
-   * <p>When true, ResultSetMetaData.getColumnType() returns Types.BOOLEAN for
-   * boolean columns instead of the default Types.BIT.</p>
+   * <p>{@link java.sql.ResultSetMetaData#getColumnType(int)} reports {@code Types.BOOLEAN} for such
+   * a column when this is true, and {@code Types.BIT}, the default, when it is false. A PostgreSQL
+   * {@code bit} column types as {@code BIT} as well, so the substitution reaches it too.</p>
    *
-   * @return true if boolean should map to BOOLEAN, false for BIT (default)
+   * @return true if a {@code BIT} column reports {@code BOOLEAN}, false for {@code BIT}
    */
   boolean getMapBooleanToBoolean();
 }

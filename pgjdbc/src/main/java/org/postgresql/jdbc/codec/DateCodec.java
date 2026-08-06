@@ -21,7 +21,12 @@ import java.sql.Timestamp;
 import java.time.LocalDate;
 
 /**
- * Codec for PostgreSQL date type.
+ * Encodes and decodes the PostgreSQL {@code date} type.
+ *
+ * <p>{@link #decodeBinary} and {@link #decodeText} return a {@link LocalDate} when
+ * {@link CodecContext#getJavaTimePreferences()} prefers one for dates, and a {@link Date}
+ * otherwise. {@link #decodeBinaryAs} and {@link #decodeTextAs} ignore that preference and return
+ * the class the caller asked for.</p>
  */
 public final class DateCodec implements StreamingBinaryCodec, TextCodec {
 
@@ -39,7 +44,6 @@ public final class DateCodec implements StreamingBinaryCodec, TextCodec {
   @Override
   public @Nullable Object decodeBinary(byte[] data, int offset, int length, TypeDescriptor type,
       CodecContext ctx) throws SQLException {
-    // Check connection property for default type
     if (ctx.getJavaTimePreferences().prefersLocalDate()) {
       return TemporalCodecs.decodeLocalDateBin(data, offset, length, ctx);
     }
@@ -59,7 +63,7 @@ public final class DateCodec implements StreamingBinaryCodec, TextCodec {
     TemporalCodecs.writeDateBin(toDate(value, ctx), out, ctx);
   }
 
-  /** Coerces a supported date-like value to {@link Date}, shared by both encode paths. */
+  /** Coerces a supported date-like value to {@link Date}, shared by both binary encode paths. */
   private static Date toDate(Object value, CodecContext ctx) throws SQLException {
     if (value instanceof Date) {
       return (Date) value;
@@ -73,8 +77,8 @@ public final class DateCodec implements StreamingBinaryCodec, TextCodec {
       return new Date(time);
     }
     if (value instanceof String) {
-      // decodeDateText already rejects a malformed literal with a clean SQLException (the parser no
-      // longer leaks an ArrayIndexOutOfBoundsException), so the binary path needs no extra wrapping.
+      // decodeDateText rejects a malformed literal with a clean SQLException, so the binary path
+      // needs no extra wrapping.
       return TemporalCodecs.decodeDateText((String) value, ctx);
     }
     throw Exceptions.cannotEncode(value, "date");
@@ -83,7 +87,6 @@ public final class DateCodec implements StreamingBinaryCodec, TextCodec {
   @Override
   public @Nullable Object decodeText(CharSequence data, TypeDescriptor type, CodecContext ctx) throws SQLException {
     String text = data.toString();
-    // Check connection property for default type
     if (ctx.getJavaTimePreferences().prefersLocalDate()) {
       return TemporalCodecs.decodeLocalDateText(text, ctx);
     }

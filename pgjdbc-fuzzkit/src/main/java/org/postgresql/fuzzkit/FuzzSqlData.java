@@ -108,7 +108,6 @@ public final class FuzzSqlData implements SQLData {
   // harmless 1.0 vs 1.00 as a mismatch.
   private static boolean numericEquals(@Nullable BigDecimal a, @Nullable BigDecimal b) {
     if (a == null || b == null) {
-      // In this branch at least one side is null, so both-null is the only match.
       return a == null && b == null;
     }
     return a.compareTo(b) == 0;

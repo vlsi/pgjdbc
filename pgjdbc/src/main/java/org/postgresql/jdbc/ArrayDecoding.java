@@ -42,10 +42,10 @@ import java.util.List;
 import java.util.Map;
 
 /**
- * Utility for decoding arrays.
+ * Decodes a PostgreSQL array wire value into a Java array.
  *
  * <p>
- * See {@code ArrayEncoding} for description of the binary format of arrays.
+ * See {@link ArrayEncoding} for description of the binary format of arrays.
  * </p>
  *
  * @author Brett Okken

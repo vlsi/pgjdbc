@@ -45,6 +45,7 @@ public final class CodecRegistration {
    * @param codec the codec handling that type
    * @param aliases further names resolving to the same codec (for example {@code "integer"})
    * @return the registration
+   * @throws IllegalArgumentException if {@code typeName} is empty
    */
   public static CodecRegistration of(String typeName, Codec codec, String... aliases) {
     List<String> copy = aliases.length == 0

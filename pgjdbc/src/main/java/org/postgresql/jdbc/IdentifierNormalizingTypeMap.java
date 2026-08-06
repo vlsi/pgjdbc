@@ -15,22 +15,20 @@ import java.util.Map;
 import java.util.Set;
 
 /**
- * A {@link Map} view that delegates to a user-supplied JDBC type map and
- * additionally resolves lookup keys through
- * {@link TypeInfo#getPgTypeByPgName(String)} so that spec-allowed identifier
- * forms — bare, schema-qualified, fully quoted, partial-quoted, mixed-case,
- * aliases — all match the same map entry as long as both keys refer to the
- * same PostgreSQL type OID.
+ * A {@link Map} view over a user-supplied JDBC type map, where a lookup key
+ * matches any entry that names the same PostgreSQL type.
  *
- * <p>Mutating methods delegate to the underlying user map. Lookup ({@link #get}
- * / {@link #containsKey}) first tries the literal key; on a miss it resolves
- * both the lookup key and each user-supplied key to a PostgreSQL OID via
- * {@code regtype} cast (cached by the connection's {@link TypeInfo}) and
- * matches on OID.</p>
+ * <p>{@link #get} and {@link #containsKey} try the literal key first; on a
+ * miss they resolve the lookup key and each key of the user map to a type OID
+ * through {@link TypeInfo#getPgTypeByPgName(String)} (a {@code regtype} cast,
+ * cached by the connection) and match on OID. Any two spec-allowed identifier
+ * forms of one type therefore reach the same entry: bare, schema-qualified,
+ * fully quoted, partial-quoted, mixed-case, or an alias. Mutating methods
+ * delegate to the user map.</p>
  *
- * <p>The slow-path iteration is bounded by the size of the user map (typically
- * a handful of entries) and amortized by {@code TypeInfo}'s per-connection
- * cache, so a missed direct lookup costs at most a few cache hits.</p>
+ * <p>The slow path iterates the user map, typically a handful of entries, and
+ * {@code TypeInfo} amortizes each resolution in a per-connection cache, so a
+ * missed direct lookup costs at most a few cache hits.</p>
  */
 // KeyFor relations bind to the delegate map; the wrapper deliberately accepts
 // lookup keys outside that domain (any equivalent identifier form) and forwards
@@ -46,11 +44,13 @@ final class IdentifierNormalizingTypeMap implements Map<String, Class<?>> {
   }
 
   /**
-   * Returns {@code map} wrapped in an {@code IdentifierNormalizingTypeMap},
-   * or {@code map} unchanged when it is empty or already a wrapper. Use at
-   * JDBC-API entry points (e.g. {@code ResultSet.getObject(int, Map)}) and at
-   * the {@code PgCodecContext} boundary to route the user-supplied map through
-   * identifier-form normalization without ever double-wrapping.
+   * Wraps {@code map} so a lookup matches on type identity, or returns
+   * {@code map} itself when it is empty or already wrapped.
+   *
+   * <p>Call this on any type map that arrives from application code: at the
+   * JDBC entry point that receives it, and at any driver boundary that passes
+   * it on. Wrapping is idempotent, so a second call returns the map unchanged
+   * rather than nesting a second wrapper.</p>
    */
   static Map<String, Class<?>> of(Map<String, Class<?>> map, TypeInfo typeInfo) {
     if (map.isEmpty() || map instanceof IdentifierNormalizingTypeMap) {

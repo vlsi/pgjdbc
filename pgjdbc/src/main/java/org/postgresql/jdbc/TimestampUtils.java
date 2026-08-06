@@ -47,7 +47,7 @@ import java.util.SimpleTimeZone;
 import java.util.TimeZone;
 
 /**
- * Misc utils for handling time and date values.
+ * Converts date and time values between their PostgreSQL wire form and Java date/time types.
  *
  * <p>This class is both the date/time engine and a stateful adapter over it. The {@code toXxx}
  * instance methods own the reusable buffers ({@link #sbuf}, {@link #calendarWithUserTz}), the
@@ -167,7 +167,7 @@ public class TimestampUtils {
 
   /**
    * Whether the backend uses doubles (rather than longs) for time values. Read by
-   * {@link PgCodecContext#usesIntegerDateTimes()} for connectionless test contexts.
+   * {@link PgCodecContext#usesIntegerDateTimes()}, which reports its negation.
    *
    * @return true if the backend uses doubles for time values
    */
@@ -215,7 +215,7 @@ public class TimestampUtils {
   }
 
   /**
-   * Load date/time information into the provided calendar returning the fractional seconds.
+   * Parses a whole backend date/time literal into its component fields.
    */
   private static ParsedTimestamp parseBackendTimestamp(byte[] s) throws SQLException {
     return parseBackendTimestamp(s, 0, s.length);
@@ -1459,7 +1459,7 @@ public class TimestampUtils {
   }
 
   /**
-   * Formats {@link LocalDateTime} to be sent to the backend, thus it adds time zone.
+   * Formats {@link LocalDateTime} to be sent to the backend.
    * Do not use this method in {@link java.sql.ResultSet#getString(int)}
    * @param localDateTime The local date to format as a String
    * @return The formatted local date
@@ -2168,9 +2168,8 @@ public class TimestampUtils {
    * Converts the SQL Date to binary representation for {@link Oid#DATE}.
    *
    * @param tz The timezone used.
-   * @param bytes The binary encoded date value.
-   * @param value value
-   * @throws PSQLException If binary format could not be parsed.
+   * @param bytes destination buffer; the four-byte {@code date} value is written at offset 0
+   * @param value the date to encode
    */
   public void toBinDate(@Nullable TimeZone tz, byte[] bytes, Date value) throws PSQLException {
     writeBinDate(tz != null ? tz : getDefaultTz(), bytes, value);

@@ -16,7 +16,7 @@ import java.sql.SQLException;
  * first.
  *
  * <p>The {@code SQLOutput} composite writer calls {@code writeInt}, {@code
- * writeLong}, {@code writeFloat8}, and friends with primitives. Routed through
+ * writeLong}, {@code writeDouble}, and friends with primitives. Routed through
  * the {@code Object}-typed {@link BinaryCodec#encodeBinary(Object,
  * TypeDescriptor, CodecContext)} the primitive would be boxed only to be
  * unboxed again inside the codec. A codec that opts into this interface exposes

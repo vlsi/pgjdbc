@@ -20,24 +20,26 @@ import java.sql.SQLException;
  * Leaf-level codec for {@code money[]} arrays.
  *
  * <p>{@code getArray().getArray()} on a money array returns {@code Double[]}, matching the legacy
- * decoder's component type (the legacy element parse was itself broken — it ran {@code "$1.50"}
- * through {@code Double.parseDouble} and read the binary {@code int8} as an IEEE double — so this
- * leaf simply produces correct values). Text elements parse through {@link PGmoney} (handling the
- * currency symbol, parentheses and grouping separators); binary elements are the {@code int8}
- * smallest-unit value, decoded as {@code value / 100.0}.</p>
+ * decoder's component type. Only the component type carries over: the legacy element parse ran
+ * {@code "$1.50"} through {@code Double.parseDouble} and read the binary {@code int8} as an IEEE
+ * double. Text elements parse through {@link PGmoney}, which handles the currency symbol,
+ * parentheses and grouping separators; binary elements are the {@code int8} smallest-unit value,
+ * decoded as {@code value / 100.0}.</p>
  */
 final class MoneyArrayLeafCodec implements ArrayLeafCodec {
 
   static final MoneyArrayLeafCodec INSTANCE = new MoneyArrayLeafCodec();
 
   /**
-   * PostgreSQL {@code cash} stores the amount as an {@code int8} scaled by the locale's fraction
-   * digits ({@code lc_monetary}; 2 for most locales). The binary scale therefore depends on the
-   * server locale, which is <em>not</em> a {@code GUC_REPORT} parameter (and {@code frac_digits} is a
-   * C-locale property, not even a GUC), so the driver cannot reliably learn it from the protocol —
-   * {@code money}/{@code money[]} are kept text-only on receive ({@link MoneyCodec#decodesBinary()}
-   * is {@code false}). These binary methods assume the default scale of {@code 2} and exist only for
-   * the rare case where a caller has explicitly opted {@code money} into binary transfer.
+   * Smallest units per currency unit on binary transfer, at the default scale of {@code 2}.
+   *
+   * <p>PostgreSQL {@code cash} stores the amount as an {@code int8} scaled by the locale's fraction
+   * digits, which the protocol does not carry; {@link MoneyCodec} states why, and why
+   * {@code money}/{@code money[]} are kept text-only on receive
+   * ({@link MoneyCodec#decodesBinary()} is {@code false}). The binary methods in this class exist
+   * for the two cases that still reach them: a {@code money[]} field of a binary composite, whose
+   * fields are decoded in binary without consulting that flag, and a caller that has explicitly
+   * opted {@code money} into binary transfer.</p>
    */
   private static final double SCALE = 100.0;
 

@@ -8,7 +8,7 @@ package org.postgresql.api.codec;
 import org.postgresql.api.Experimental;
 
 /**
- * Base marker interface for PostgreSQL type codecs.
+ * Base interface for PostgreSQL type codecs.
  *
  * <p>Codecs handle conversion between Java objects and PostgreSQL wire format
  * (text or binary). Implementations should be stateless and thread-safe.</p>

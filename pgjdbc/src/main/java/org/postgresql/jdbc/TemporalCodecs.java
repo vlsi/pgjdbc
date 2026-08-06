@@ -35,7 +35,7 @@ import java.util.TimeZone;
  *
  * <p>The codecs depend on this class instead of {@code TimestampUtils} so the public codec API never
  * hands out the connection's temporal engine. Each method is keyed off a {@link CodecContext}: the
- * {@code usesDouble} flag, the decode timezone (the per-call {@link Calendar}'s zone set by
+ * {@code integer_datetimes} flag, the decode timezone (the per-call {@link Calendar}'s zone set by
  * {@code getDate/getTime/getTimestamp(col, Calendar)}, else the JVM default) and the client timezone
  * all come from the context. The bodies forward to the stateless {@code static} conversions in
  * {@link TimestampUtils}, reusing a thread-confined scratch {@link Calendar} (see
@@ -84,7 +84,7 @@ public final class TemporalCodecs {
     // Static utility
   }
 
-  /** The timezone to decode in: the caller-supplied zone, else the context default. */
+  /** The timezone to decode in: the caller-supplied zone, else the JVM default. */
   private static TimeZone decodeTz(CodecContext ctx) {
     TimeZone tz = ctx.getCallerTimeZone();
     return tz != null ? tz : ctx.getJvmDefaultTimeZone();
@@ -215,9 +215,9 @@ public final class TemporalCodecs {
   // ----------------------------- text encode -----------------------------
 
   public static String formatDate(Date value, CodecContext ctx) {
-    // A date has no time zone: the calendar uses the context zone to pick the day, but the text must
-    // not carry a "+hh" suffix (PostgreSQL outputs a bare yyyy-mm-dd). A trailing offset is invalid
-    // date syntax and breaks the decode round-trip.
+    // A date has no time zone: the calendar uses the JVM default zone to pick the day, but the
+    // text must not carry a "+hh" suffix (PostgreSQL outputs a bare yyyy-mm-dd). A trailing offset
+    // is invalid date syntax and breaks the decode round-trip.
     return TimestampUtils.toStringDate(ctx.getJvmDefaultTimeZone(), value, false, null, null);
   }
 
@@ -231,7 +231,7 @@ public final class TemporalCodecs {
     return TimestampUtils.toStringTime(ctx.getJvmDefaultTimeZone(), value, false, null, null);
   }
 
-  /** Formats a {@link Time} as a {@code timetz}, assigning it the context zone offset. */
+  /** Formats a {@link Time} as a {@code timetz}, assigning it the JVM default zone's offset. */
   public static String formatTimetz(Time value, CodecContext ctx) {
     return TimestampUtils.toStringTime(ctx.getJvmDefaultTimeZone(), value, true, null, null);
   }
@@ -411,7 +411,7 @@ public final class TemporalCodecs {
       return ((LocalTime) value).atOffset(rawOffset(ctx.getClientTimeZone()));
     }
     if (value instanceof java.util.Date) {
-      // The text path renders a java.util.Date time-of-day with the default-zone offset.
+      // The text path renders a java.util.Date time-of-day with the JVM default zone's offset.
       java.util.Date d = (java.util.Date) value;
       TimeZone tz = ctx.getJvmDefaultTimeZone();
       LocalTime lt = TimestampUtils.localTimeOf(d.getTime(), tz, null);

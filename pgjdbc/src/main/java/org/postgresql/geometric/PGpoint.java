@@ -67,7 +67,7 @@ public class PGpoint extends PGobject implements PGBinaryObject, Serializable, C
   }
 
   /**
-   * @param s Definition of this point in PostgreSQL's syntax
+   * @param s Definition of this point in PostgreSQL's syntax, or null for {@code null::point}
    * @throws SQLException on conversion failure
    */
   @Override
@@ -121,7 +121,7 @@ public class PGpoint extends PGobject implements PGBinaryObject, Serializable, C
   }
 
   /**
-   * @return the PGpoint in the syntax expected by org.postgresql
+   * @return the PGpoint in the syntax expected by org.postgresql, or null when {@link #isNull}
    */
   @Override
   public @Nullable String getValue() {
@@ -134,7 +134,8 @@ public class PGpoint extends PGobject implements PGBinaryObject, Serializable, C
   }
 
   /**
-   * Populate the byte array with PGpoint in the binary syntax expected by org.postgresql.
+   * Populate the byte array with PGpoint in the binary syntax expected by org.postgresql. A point
+   * that {@link #isNull} writes nothing, matching its {@link #lengthInBytes()} of zero.
    */
   @Override
   public void toBytes(byte[] b, int offset) {

@@ -11,9 +11,9 @@ import java.util.List;
 
 /**
  * Edge-case {@code time} (without time zone) values. PostgreSQL keeps microsecond resolution over
- * 00:00:00 .. 24:00:00 (it accepts the {@code 24:00:00} upper bound), so this catalogue covers the two
- * bounds and the sub-second boundary: one microsecond, a half-microsecond, and nanosecond precision, to
- * probe how the driver rounds or truncates below the microsecond the server keeps.
+ * 00:00:00 .. 24:00:00, and it accepts {@code 24:00:00} as the upper bound. The catalogue covers both
+ * bounds and the sub-second boundary: one microsecond, a half-microsecond, and nanosecond precision.
+ * The fractional cases probe how the driver rounds or truncates below that resolution.
  *
  * <p>Read-only ({@link EdgeCase#value()} is {@code null}).
  */

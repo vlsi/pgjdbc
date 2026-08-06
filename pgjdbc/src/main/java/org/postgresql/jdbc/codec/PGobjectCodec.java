@@ -174,8 +174,8 @@ public final class PGobjectCodec implements StreamingBinaryCodec, StreamingTextC
 
   @Override
   public boolean encodesBinary() {
-    // A PGBinaryObject subclass writes the binary wire itself (ownBinary), the encode-side mirror of
-    // decodesBinary above; any other subclass emits binary only through the delegate.
+    // A PGBinaryObject subclass writes the binary wire itself (ownBinary), the encode-side mirror
+    // of decodesBinary(); any other subclass emits binary only through the delegate.
     return binaryObject || (delegate instanceof BinaryCodec && ((BinaryCodec) delegate).encodesBinary());
   }
 

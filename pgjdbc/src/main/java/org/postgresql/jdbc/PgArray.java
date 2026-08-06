@@ -248,7 +248,6 @@ public class PgArray implements Array {
     // GenericArrayLeafCodec, DomainCodec, ...). A nested array field decodes to a lazy PgArray in a
     // connection-bound context, so a single getArrayImpl only unwraps one array level; deeper
     // recursion runs through those guarded codecs.
-    // array index is out of range
     if (index < 1) {
       throw new PSQLException(GT.tr("The array index is out of range: {0}", index),
           PSQLState.DATA_ERROR);
@@ -352,7 +351,6 @@ public class PgArray implements Array {
           }
         }
       } else if (element instanceof Object[]) {
-        // Recursively apply to nested arrays
         applyTypeMapping((Object[]) element, map);
       }
     }
@@ -532,7 +530,6 @@ public class PgArray implements Array {
       map = IdentifierNormalizingTypeMap.of(map, codecContext.getTypeInfo());
     }
 
-    // array index is out of range
     if (index < 1) {
       throw new PSQLException(GT.tr("The array index is out of range: {0}", index),
           PSQLState.DATA_ERROR);

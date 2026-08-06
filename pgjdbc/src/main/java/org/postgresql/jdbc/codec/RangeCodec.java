@@ -26,15 +26,13 @@ import java.sql.SQLException;
 import java.util.Arrays;
 
 /**
- * Codec for PostgreSQL range types.
+ * Codec for PostgreSQL range types such as {@code int4range}, {@code int8range}, {@code numrange},
+ * {@code tsrange}, {@code tstzrange}, and {@code daterange}.
  *
- * <p>This codec handles encoding and decoding of PostgreSQL range types such as
- * int4range, int8range, numrange, tsrange, tstzrange, and daterange.</p>
- *
- * <p>Range types have a text format like: [lower,upper), (lower,upper], [,upper), etc.
- * The first character is '[' (inclusive) or '(' (exclusive) for the lower bound,
- * followed by the lower value (or empty for unbounded), a comma, the upper value
- * (or empty for unbounded), and finally ']' (inclusive) or ')' (exclusive).</p>
+ * <p>A range literal opens with {@code [} (inclusive) or {@code (} (exclusive), then carries the
+ * lower value, a comma, the upper value, and finally {@code ]} (inclusive) or {@code )}
+ * (exclusive), as in {@code [lower,upper)}. An omitted value is an unbounded bound, as in
+ * {@code [,upper)}. The empty range is written {@code empty}, with no brackets at all.</p>
  *
  * <p>Binary format consists of:</p>
  * <ul>
@@ -56,7 +54,6 @@ public final class RangeCodec implements StreamingBinaryCodec, TextCodec {
   private static final byte FLAG_UPPER_INFINITE = 0x10;
 
   private RangeCodec() {
-    // Singleton
   }
 
   @Override
@@ -134,7 +131,6 @@ public final class RangeCodec implements StreamingBinaryCodec, TextCodec {
     try {
       byte flags = data[0];
 
-      // Check for empty range
       if ((flags & FLAG_EMPTY) != 0) {
         if (data.length != 1) {
           // range_send writes an empty range as its lone flags byte; anything after it is leftover
@@ -172,7 +168,6 @@ public final class RangeCodec implements StreamingBinaryCodec, TextCodec {
       @Nullable String lowerText = null;
       @Nullable String upperText = null;
 
-      // Read lower bound if not infinite
       if (!lowerInfinite) {
         if (offset + 4 > data.length) {
           throw Exceptions.invalidRangeMissingLowerBoundLength();
@@ -189,7 +184,6 @@ public final class RangeCodec implements StreamingBinaryCodec, TextCodec {
         offset += lowerLen;
       }
 
-      // Read upper bound if not infinite
       if (!upperInfinite) {
         if (offset + 4 > data.length) {
           throw Exceptions.invalidRangeMissingUpperBoundLength();
@@ -260,7 +254,6 @@ public final class RangeCodec implements StreamingBinaryCodec, TextCodec {
         throw Exceptions.rangeSubtypeCodecMissingForEncode(type.getFormattedName(), subtypeOid);
       }
 
-      // Calculate flags
       byte flags = 0;
       if (range.isLowerInclusive()) {
         flags |= FLAG_LOWER_INCLUSIVE;
@@ -276,13 +269,11 @@ public final class RangeCodec implements StreamingBinaryCodec, TextCodec {
       }
       out.writeByte(flags);
 
-      // Write lower bound if not infinite
       if (range.hasLowerBound()) {
         Object bound = castNonNull(range.getLower());
         CodecFormatSupport.writeBinaryElement(out, bound, subtypeCodec, subtypeType, ctx);
       }
 
-      // Write upper bound if not infinite
       if (range.hasUpperBound()) {
         Object bound = castNonNull(range.getUpper());
         CodecFormatSupport.writeBinaryElement(out, bound, subtypeCodec, subtypeType, ctx);
@@ -394,13 +385,6 @@ public final class RangeCodec implements StreamingBinaryCodec, TextCodec {
   }
 
   /**
-   * Decodes the cursor's current token as a range bound. An unquoted empty token
-   * is an infinite/unbounded bound ({@code null}); otherwise the bound slice is
-   * decoded by the subtype text codec when known, or kept as its raw string.
-   * Whitespace is part of the bound, as it is for {@code range_parse_bound}, so
-   * {@code [ ,b)} has a lower bound of one space rather than an infinite one.
-   */
-  /**
    * Materializes the cursor's current bound token as its literal text, or {@code null} for an
    * unbounded bound (the same empty-and-unquoted test {@link #decodeBound} uses). Read before
    * {@code decodeBound} decodes the token, while the borrowed view still points at it; the string is
@@ -413,6 +397,13 @@ public final class RangeCodec implements StreamingBinaryCodec, TextCodec {
     return cur.getToken().toString();
   }
 
+  /**
+   * Decodes the cursor's current token as a range bound. An unquoted empty token
+   * is an infinite/unbounded bound ({@code null}); otherwise the bound slice is
+   * decoded by the subtype text codec when known, or kept as its raw string.
+   * Whitespace is part of the bound, as it is for {@code range_parse_bound}, so
+   * {@code [ ,b)} has a lower bound of one space rather than an infinite one.
+   */
   private static @Nullable Object decodeBound(LiteralCursor cur, @Nullable TextCodec boundCodec,
       @Nullable TypeDescriptor subtypeType, CodecContext ctx) throws SQLException {
     if (!cur.tokenWasQuoted() && cur.tokenLength() == 0) {

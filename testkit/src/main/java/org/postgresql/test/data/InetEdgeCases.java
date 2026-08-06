@@ -10,8 +10,8 @@ import java.util.Collections;
 import java.util.List;
 
 /**
- * Edge-case {@code inet} values: the IPv4 and IPv6 range ends, addresses with and without a netmask, and
- * the all-zero and all-ones hosts.
+ * Edge-case {@code inet} values: for IPv4 and for IPv6 alike, the all-zero and all-ones ends of the
+ * address range, an ordinary host, and a host carrying a netmask. IPv6 adds the loopback {@code ::1}.
  *
  * <p>Read-only ({@link EdgeCase#value()} is {@code null}).
  */

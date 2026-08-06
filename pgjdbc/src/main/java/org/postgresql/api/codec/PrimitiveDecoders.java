@@ -44,17 +44,9 @@ public final class PrimitiveDecoders {
   // ---------------------------------------------------------------------------
 
   /**
-   * Decodes binary data as an integer. If the provided codec implements {@code PrimitiveBinaryDecoder},
-   * it uses its native path for decoding. Otherwise, it converts the decoded binary result into an integer.
-   *
-   * @param codec the binary codec to be used for decoding
-   * @param data the binary data to decode
-   * @param offset the starting position in the data array
-   * @param length the number of bytes to decode
-   * @param type the type descriptor providing contextual information about the target type
-   * @param ctx the codec context containing additional decoding configurations
-   * @return the decoded integer value
-   * @throws SQLException if an error occurs during decoding
+   * Decodes {@code data[offset, offset + length)} as an int through {@code codec}'s native path when
+   * it implements {@link PrimitiveBinaryDecoder}, otherwise by boxing through
+   * {@link BinaryCodec#decodeBinary}.
    */
   public static int asInt(BinaryCodec codec, byte[] data, int offset, int length, TypeDescriptor type,
       CodecContext ctx) throws SQLException {
@@ -65,17 +57,8 @@ public final class PrimitiveDecoders {
   }
 
   /**
-   * Decodes binary data as a long. If the provided codec implements {@code PrimitiveBinaryDecoder},
-   * it uses its native path for decoding. Otherwise, it converts the decoded binary result into a long.
-   *
-   * @param codec the binary codec to be used for decoding
-   * @param data the binary data to decode
-   * @param offset the starting position in the data array
-   * @param length the number of bytes to decode
-   * @param type the type descriptor providing contextual information about the target type
-   * @param ctx the codec context containing additional decoding configurations
-   * @return the decoded long value
-   * @throws SQLException if an error occurs during decoding
+   * Decodes {@code data[offset, offset + length)} as a long; see
+   * {@link #asInt(BinaryCodec, byte[], int, int, TypeDescriptor, CodecContext)}.
    */
   public static long asLong(BinaryCodec codec, byte[] data, int offset, int length, TypeDescriptor type,
       CodecContext ctx) throws SQLException {
@@ -86,17 +69,8 @@ public final class PrimitiveDecoders {
   }
 
   /**
-   * Decodes binary data as a float. If the provided codec implements {@code PrimitiveBinaryDecoder},
-   * it uses its native decoding path. Otherwise, it converts the decoded binary result into a float.
-   *
-   * @param codec the binary codec to be used for decoding
-   * @param data the binary data to decode
-   * @param offset the starting position in the data array
-   * @param length the number of bytes to decode
-   * @param type the type descriptor providing contextual information about the target type
-   * @param ctx the codec context containing additional decoding configurations
-   * @return the decoded float value
-   * @throws SQLException if an error occurs during decoding
+   * Decodes {@code data[offset, offset + length)} as a float; see
+   * {@link #asInt(BinaryCodec, byte[], int, int, TypeDescriptor, CodecContext)}.
    */
   public static float asFloat(BinaryCodec codec, byte[] data, int offset, int length, TypeDescriptor type,
       CodecContext ctx) throws SQLException {
@@ -107,17 +81,8 @@ public final class PrimitiveDecoders {
   }
 
   /**
-   * Decodes binary data as a double. If the provided codec implements {@code PrimitiveBinaryDecoder},
-   * it uses its native decoding path. Otherwise, it converts the decoded binary result into a double.
-   *
-   * @param codec the binary codec to be used for decoding
-   * @param data the binary data to decode
-   * @param offset the starting position in the data array
-   * @param length the number of bytes to decode
-   * @param type the type descriptor providing contextual information about the target type
-   * @param ctx the codec context containing additional decoding configurations
-   * @return the decoded double value
-   * @throws SQLException if an error occurs during decoding
+   * Decodes {@code data[offset, offset + length)} as a double; see
+   * {@link #asInt(BinaryCodec, byte[], int, int, TypeDescriptor, CodecContext)}.
    */
   public static double asDouble(BinaryCodec codec, byte[] data, int offset, int length, TypeDescriptor type,
       CodecContext ctx) throws SQLException {
@@ -128,17 +93,9 @@ public final class PrimitiveDecoders {
   }
 
   /**
-   * Decodes binary data as a boolean. If the provided codec implements {@code PrimitiveBinaryDecoder},
-   * it uses its native decoding path. Otherwise, it converts the decoded binary result into a boolean.
-   *
-   * @param codec the binary codec to be used for decoding
-   * @param data the binary data to decode
-   * @param offset the starting position in the data array
-   * @param length the number of bytes to decode
-   * @param type the type descriptor providing contextual information about the target type
-   * @param ctx the codec context containing additional decoding configurations
-   * @return the decoded boolean value
-   * @throws SQLException if an error occurs during decoding
+   * Decodes {@code data[offset, offset + length)} as a boolean through {@code codec}'s native path
+   * when it implements {@link PrimitiveBinaryDecoder}, otherwise by coercing the boxed value. A
+   * value that is not boolean-like is named in the error by its decoded text.
    */
   public static boolean asBoolean(BinaryCodec codec, byte[] data, int offset, int length,
       TypeDescriptor type, CodecContext ctx) throws SQLException {

@@ -80,9 +80,9 @@ public final class CoercionCase {
   }
 
   /**
-   * The packed-{@code javaTimePreferences} constructor with an applied field modifier ({@code atttypmod}),
-   * so a generated {@code @FuzzTest} can draw the whole config axis as one byte and stamp a modifier
-   * on the field. Pass {@code -1} for no modifier.
+   * Builds a packed-flags case with an applied field modifier ({@code atttypmod}), so a generated
+   * {@code @FuzzTest} can draw the whole config axis as one byte and still stamp a modifier on the
+   * field {@code f}. Pass {@code -1} for no modifier.
    *
    * @param kind the field type descriptor
    * @param value a value of the field type on the canonical wire

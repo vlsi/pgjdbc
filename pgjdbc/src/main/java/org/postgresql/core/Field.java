@@ -40,8 +40,7 @@ public class Field {
   private @Nullable FieldMetadata metadata;
 
   private @Nullable PgType pgType;
-  // pgType stamped with this column's mod (getMod), so a codec can decode a modifier-sensitive type
-  // such as numeric(10,2); equals pgType itself when mod is -1. Lazily built, mirroring pgType.
+  // Cache for getTypeDescriptor(); built lazily on first read, like pgType.
   private @Nullable PgType typeDescriptor;
 
   /**
@@ -195,6 +194,13 @@ public class Field {
     return getPgType().getFormattedName();
   }
 
+  /**
+   * Resolves this field's type from {@code typeInfo}. {@link #getPgType()} and the accessors
+   * built on it require this call to have run; a second call does nothing.
+   *
+   * @param typeInfo the type cache to resolve this field's OID against
+   * @throws SQLException if the type or its structure cannot be loaded
+   */
   public void initializePgType(TypeInfo typeInfo) throws SQLException {
     if (pgType != null) {
       return;

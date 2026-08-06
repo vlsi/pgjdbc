@@ -84,7 +84,8 @@ public class PGmultirange<T> extends PGobject implements Serializable, Cloneable
   /**
    * Replaces the ranges in this multirange.
    *
-   * @param ranges the new ranges
+   * @param ranges the new ranges; copied, so later changes to the list do not affect this
+   *     multirange
    */
   public void setRanges(List<PGRange<T>> ranges) {
     this.ranges = new ArrayList<>(ranges);
@@ -95,11 +96,19 @@ public class PGmultirange<T> extends PGobject implements Serializable, Cloneable
     return toString();
   }
 
+  /**
+   * Clears the ranges, accepting only the empty forms of a multirange literal: {@code null}, an
+   * empty string, or {@code {}}.
+   *
+   * <p>Like {@link PGRange}, this class has no parser for the subtype bounds and so cannot read a
+   * populated literal; decode one through the codec API, which resolves the subtype. The empty
+   * forms are recognised so that a round trip through {@link PGobject} keeps working.</p>
+   *
+   * @param value the multirange literal
+   * @throws SQLException if {@code value} holds any range
+   */
   @Override
   public void setValue(@Nullable String value) throws SQLException {
-    // Like PGRange, this does not parse the bounds: it has no subtype parser. Empty forms are
-    // recognised so a round trip through PGobject keeps working; a populated literal must go
-    // through the codec API, which resolves the subtype.
     if (value == null) {
       this.ranges = new ArrayList<>();
       return;

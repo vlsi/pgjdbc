@@ -16,9 +16,8 @@ import java.sql.SQLException;
  * Optional capability a {@link TextCodec} implements to decode its text wire form to a Java primitive
  * without boxing it first. The text counterpart of {@link PrimitiveBinaryDecoder}.
  *
- * <p>The primitive accessors used to live as boxing {@code default} methods on {@link TextCodec}
- * itself; they now live here, so only a codec that can produce the primitive opts in. A caller with a
- * base-typed reference goes through
+ * <p>Only a codec that can produce the primitive implements this interface. A caller with a
+ * base-typed {@link TextCodec} reference goes through
  * {@link PrimitiveDecoders#asInt(TextCodec, CharSequence, TypeDescriptor, CodecContext)} and friends,
  * which fall back to boxing through {@link TextCodec#decodeText}.</p>
  *

@@ -25,11 +25,11 @@ import java.sql.Struct;
 import java.util.List;
 
 /**
- * Integration tests for TypeInfoCache invalidation on DDL commands.
+ * Fails when a CREATE, DROP, or ALTER of a type leaves {@link TypeInfoCache} serving the metadata
+ * that DDL replaced.
  *
- * <p>These tests verify that the type cache is properly invalidated when
- * types are created, dropped, or altered, ensuring that subsequent queries
- * see the updated type metadata.</p>
+ * <p>DDL in this session bumps the connection's type-cache epoch, and the next lookup must reload
+ * instead of answering from the cache, so a query issued after the DDL sees the new type.</p>
  */
 public class CacheInvalidationTest {
 
@@ -62,7 +62,6 @@ public class CacheInvalidationTest {
   @Test
   void createType_newTypeIsImmediatelyUsable() throws SQLException {
     try (Statement stmt = conn.createStatement()) {
-      // Create a new type
       stmt.execute("CREATE TYPE cache_test_type AS (id int, name text)");
 
       // Use it immediately in same connection
@@ -115,7 +114,6 @@ public class CacheInvalidationTest {
   @Test
   void dropType_cacheInvalidated() throws SQLException {
     try (Statement stmt = conn.createStatement()) {
-      // Create and use a type
       stmt.execute("CREATE TYPE cache_test_type AS (id int, name text)");
 
       try (ResultSet rs = stmt.executeQuery(
@@ -124,7 +122,6 @@ public class CacheInvalidationTest {
         rs.getObject(1);
       }
 
-      // Drop the type
       stmt.execute("DROP TYPE cache_test_type");
 
       // Attempt to use dropped type should fail
@@ -143,7 +140,6 @@ public class CacheInvalidationTest {
   @Test
   void dropAndRecreate_newStructureUsed() throws SQLException {
     try (Statement stmt = conn.createStatement()) {
-      // Create original type with 2 fields
       stmt.execute("CREATE TYPE cache_test_type AS (id int, name text)");
 
       // Use it and populate cache
@@ -157,7 +153,6 @@ public class CacheInvalidationTest {
         assertEquals("original", attrs[1]);
       }
 
-      // Drop and recreate with different structure (3 fields)
       stmt.execute("DROP TYPE cache_test_type");
       stmt.execute("CREATE TYPE cache_test_type AS (id int, name text, extra boolean)");
 
@@ -182,7 +177,6 @@ public class CacheInvalidationTest {
   @Test
   void dropAndRecreate_differentFieldTypes() throws SQLException {
     try (Statement stmt = conn.createStatement()) {
-      // Create type with int field
       stmt.execute("CREATE TYPE cache_test_type AS (value int)");
 
       try (ResultSet rs = stmt.executeQuery(
@@ -193,7 +187,6 @@ public class CacheInvalidationTest {
         assertEquals(42, attrs[0]);
       }
 
-      // Recreate with text field instead
       stmt.execute("DROP TYPE cache_test_type");
       stmt.execute("CREATE TYPE cache_test_type AS (value text)");
 
@@ -216,7 +209,6 @@ public class CacheInvalidationTest {
   @Test
   void tableWithCompositeColumn_cacheHandlesCorrectly() throws SQLException {
     try (Statement stmt = conn.createStatement()) {
-      // Create type and table
       stmt.execute("CREATE TYPE cache_test_type AS (id int, name text)");
       stmt.execute("CREATE TABLE cache_test_table (pk int, data cache_test_type)");
       stmt.execute("INSERT INTO cache_test_table VALUES (1, ROW(10, 'row1'))");
@@ -258,11 +250,9 @@ public class CacheInvalidationTest {
     try (Statement stmt = conn.createStatement()) {
       stmt.execute("CREATE TYPE cache_test_type AS (id int, name text)");
 
-      // Create struct programmatically
       Struct struct = conn.createStruct("cache_test_type", new Object[]{99, "created"});
       assertNotNull(struct);
 
-      // Use it in a query
       try (PreparedStatement ps = conn.prepareStatement(
           "SELECT (?::cache_test_type).id, (?::cache_test_type).name")) {
         ps.setObject(1, struct);
@@ -283,18 +273,14 @@ public class CacheInvalidationTest {
   @Test
   void createStruct_afterRecreate_usesNewStructure() throws SQLException {
     try (Statement stmt = conn.createStatement()) {
-      // Create original type
       stmt.execute("CREATE TYPE cache_test_type AS (id int)");
 
-      // Create struct with original type
       Struct struct1 = conn.createStruct("cache_test_type", new Object[]{1});
       assertEquals("cache_test_type", struct1.getSQLTypeName());
 
-      // Drop and recreate with different structure
       stmt.execute("DROP TYPE cache_test_type");
       stmt.execute("CREATE TYPE cache_test_type AS (id int, name text)");
 
-      // Create struct with new type structure
       Struct struct2 = conn.createStruct("cache_test_type", new Object[]{2, "new"});
       Object[] attrs = struct2.getAttributes();
       assertEquals(2, attrs.length, "New struct should have 2 fields");
@@ -364,7 +350,6 @@ public class CacheInvalidationTest {
   @Test
   void alterTable_rowTypeFieldsRefreshed() throws SQLException {
     try (Statement stmt = conn.createStatement()) {
-      // Initial schema: (id int, name varchar)
       stmt.execute("CREATE TABLE cache_test_table (id int, name varchar)");
       stmt.execute("INSERT INTO cache_test_table VALUES (1, 'hello')");
 
@@ -380,9 +365,6 @@ public class CacheInvalidationTest {
         assertEquals("hello", attrs[1]);
       }
 
-      // Replace the second column with a different-typed column of the
-      // same name. The implicit row type changes; pgjdbc's prior cache
-      // must not be reused.
       stmt.execute("ALTER TABLE cache_test_table DROP COLUMN name");
       stmt.execute("ALTER TABLE cache_test_table ADD COLUMN name int4");
       stmt.execute("UPDATE cache_test_table SET name = 42 WHERE id = 1");

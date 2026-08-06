@@ -17,11 +17,12 @@ import java.util.Arrays;
 import java.util.Map;
 
 /**
- * Implementation of {@link Struct} for PostgreSQL composite types.
+ * Carries a PostgreSQL composite value as an attribute array, and rebuilds its text literal on
+ * demand.
  *
- * <p>This class represents a PostgreSQL composite type (struct) value.
- * It can be created via {@link java.sql.Connection#createStruct(String, Object[])}
- * or returned from ResultSet when reading composite type columns.</p>
+ * <p>Instances of this {@link Struct} come from
+ * {@link java.sql.Connection#createStruct(String, Object[])}, or from
+ * {@link java.sql.ResultSet#getObject(int)} on a composite column.</p>
  */
 public class PgStruct extends org.postgresql.util.PGobject implements Struct {
 
@@ -239,14 +240,12 @@ public class PgStruct extends org.postgresql.util.PGobject implements Struct {
         if (ctx == null || !ctx.isConnectionBound()) {
           throw Exceptions.cannotConvertNestedStructWithoutConnection();
         }
-        // Convert nested struct to SQLData using CompositeCodec.
         PgType pgType = ctx.getTypeInfo().getPgTypeByPgName(nestedTypeName);
         Object[] nestedAttrs = nestedStruct.getAttributes();
         String textValue = CompositeCodec.encodeAttributesAsText(nestedAttrs, pgType, ctx);
         return CompositeCodec.INSTANCE.decodeTextAs(
             textValue, pgType, (Class<? extends SQLData>) nestedClass, ctx);
       }
-      // If no mapping, recursively convert nested struct's attributes
       if (nestedStruct instanceof PgStruct) {
         // The nested struct will handle its own attribute conversion. Pass the context down so it
         // can rebuild its own literal; an offline struct with no context falls back to the plain

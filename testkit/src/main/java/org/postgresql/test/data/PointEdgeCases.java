@@ -11,8 +11,7 @@ import java.util.List;
 
 /**
  * Edge-case {@code point} values: the origin, signed and fractional coordinates, and a very large
- * magnitude. The geometric codecs were rewritten, so these exercise the point decode's coordinate
- * handling.
+ * magnitude.
  *
  * <p>Read-only ({@link EdgeCase#value()} is {@code null}).
  */

@@ -17,19 +17,20 @@ import java.sql.SQLException;
 /**
  * Codec for PostgreSQL enum types.
  *
- * <p>Enum types are decoded as String only. PostgreSQL enum → String conversion.
- * For setObject with Java enum, application should convert to String first.
- * No automatic Java Enum ↔ PostgreSQL enum mapping.</p>
+ * <p>Decoding yields the label as a {@code String}; a target class other than {@code String} or
+ * {@code Object} is refused. Encoding takes a Java enum as well as a {@code String}, but
+ * {@code setObject} cannot infer an SQL type for a Java enum, so a JDBC caller converts to the
+ * label {@code String} first. Neither direction maps a PostgreSQL enum onto a particular Java enum
+ * type.</p>
  *
- * <p>This is a singleton codec used for all enum types - the codec resolution
- * happens via typtype='e' check in the codec registry.</p>
+ * <p>One instance serves every enum type; the codec registry resolves it from
+ * {@code typtype='e'}.</p>
  */
 public final class EnumCodec implements BinaryCodec, TextCodec {
 
   public static final EnumCodec INSTANCE = new EnumCodec();
 
   private EnumCodec() {
-    // Singleton
   }
 
   @Override
@@ -94,21 +95,17 @@ public final class EnumCodec implements BinaryCodec, TextCodec {
   }
 
   /**
-   * Converts a Java value to its enum string representation.
-   *
-   * @param value the Java value (String or Enum)
-   * @return the string representation
-   * @throws SQLException if the value cannot be converted
+   * Returns the label to send for a bound value: a {@code String} as itself, a Java enum as
+   * {@link Enum#name()}, and any other object as its {@code toString()}.
    */
   private static String toEnumString(Object value) throws SQLException {
     if (value instanceof String) {
       return (String) value;
     }
     if (value instanceof Enum) {
-      // For Java enums, use name() to get the exact enum constant name
+      // name() is the declared constant; toString() is overridable and need not match a label.
       return ((Enum<?>) value).name();
     }
-    // Allow any object via toString() for flexibility
     return value.toString();
   }
 }

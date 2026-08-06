@@ -14,11 +14,11 @@ import java.util.Calendar;
 import java.util.TimeZone;
 
 /**
- * Shared helper for lazy TimestampUtils creation and default Calendar management.
+ * Creates a {@link TimestampUtils} lazily and caches the default time zone for the result set or
+ * statement that owns it.
  *
- * <p>Both {@code PgResultSet} and {@code PgStatement} need per-instance
- * {@link TimestampUtils} (not thread-safe) and cached default timezone logic.
- * This class eliminates that duplication.</p>
+ * <p>{@code PgResultSet} and {@code PgStatement} each hold their own, because
+ * {@link TimestampUtils} is not thread-safe.</p>
  */
 final class DateTimeHelper {
 
@@ -31,8 +31,7 @@ final class DateTimeHelper {
   }
 
   /**
-   * Returns the TimestampUtils instance, creating it lazily.
-   * Each helper instance has its own TimestampUtils since it is not thread-safe.
+   * Returns the {@link TimestampUtils} instance, creating it on first use.
    */
   TimestampUtils getTimestampUtils() {
     if (timestampUtils == null) {

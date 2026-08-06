@@ -19,18 +19,20 @@ import java.sql.SQLException;
 /**
  * Codec for PostgreSQL jsonb type.
  *
- * <p>Returns {@link PGobject} for getObject() (consistent with the legacy
+ * <p>Returns {@link PGobject} for {@code getObject()} (consistent with the legacy
  * driver and with master fix #3926); applications can extract the JSON text
- * via {@link PGobject#getValue()} or request String/byte[] explicitly through
- * {@code getObject(i, String.class)} / {@code getString(i)}.</p>
+ * via {@link PGobject#getValue()} or request it as a String through
+ * {@code getObject(i, String.class)} / {@code getString(i)}. {@code String},
+ * {@code PGobject} and {@code Object} are the only classes this codec decodes
+ * to; any other request is refused.</p>
  *
- * <p>Binary format includes a version byte prefix (currently always 1).</p>
+ * <p>Binary format prefixes the JSON text with a version byte. Encoding writes 1;
+ * decoding skips that byte without checking it.</p>
  */
 public final class JsonbCodec implements BinaryCodec, TextCodec {
 
   public static final JsonbCodec INSTANCE = new JsonbCodec();
 
-  /** JSONB binary format version (currently 1) */
   private static final byte JSONB_VERSION = 1;
 
   private JsonbCodec() {
@@ -62,7 +64,6 @@ public final class JsonbCodec implements BinaryCodec, TextCodec {
   public byte[] encodeBinary(Object value, TypeDescriptor type, CodecContext ctx) throws SQLException {
     String str = value.toString();
     byte[] jsonBytes = str.getBytes(StandardCharsets.UTF_8);
-    // Add version byte prefix
     byte[] result = new byte[jsonBytes.length + 1];
     result[0] = JSONB_VERSION;
     System.arraycopy(jsonBytes, 0, result, 1, jsonBytes.length);

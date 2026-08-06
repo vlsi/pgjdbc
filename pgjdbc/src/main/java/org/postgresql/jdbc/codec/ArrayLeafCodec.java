@@ -17,8 +17,8 @@ import java.util.Locale;
 /**
  * Leaf-level strategy for PostgreSQL array codecs.
  *
- * <p>The shared multi-dimensional array helpers own PostgreSQL array shape,
- * headers, rectangular validation, and target-array allocation. Implementations
+ * <p>{@link MultiDimArrayBinary} and {@link MultiDimArrayText} own PostgreSQL array
+ * shape, headers, rectangular validation, and target-array allocation. Implementations
  * own the hot leaf loops for a concrete element type, including primitive-array
  * support.</p>
  */
@@ -46,8 +46,8 @@ interface ArrayLeafCodec extends MultiDimArrayBinary.LeafBinaryWriter,
       TypeDescriptor elementType = ctx.resolveType(getElementOid());
       return elementType.getFormattedName() + "[]";
     } catch (RuntimeException | SQLException e) {
-      // Fall through to built-in Oid names when the context has no type cache,
-      // for instance in unit tests that pass a connectionless CodecContext.
+      // This name only goes into an error message, so a context that cannot resolve the
+      // element OID must not replace that error: fall back to the built-in Oid names.
     }
     String elementName = Oid.toString(getElementOid());
     if (elementName.startsWith("<unknown:")) {

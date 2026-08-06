@@ -14,9 +14,11 @@ import java.sql.Timestamp;
 import java.sql.Types;
 
 /**
- * The write-half axis: one {@link PreparedStatement} setter each, with a fixed representative value. The
- * differential oracle binds the value through both drivers, sends it to the server, and reads it back
- * canonically, so an encoding change on the send path surfaces as a differing round-trip value.
+ * Binds a fixed representative value through one {@link PreparedStatement} setter per constant.
+ *
+ * <p>This is the write-half axis: the differential oracle binds the value through both drivers, sends it to
+ * the server, and reads it back canonically, so an encoding change on the send path surfaces as a differing
+ * round-trip value.
  *
  * <p>Inputs are JDK types only ({@code Integer}, {@code String}, {@code byte[]}, ...): they share the
  * bootstrap class loader, so the same instance feeds both drivers. Binding a driver-specific type (for

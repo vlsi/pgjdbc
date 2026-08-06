@@ -10,9 +10,9 @@ import java.util.Collections;
 import java.util.List;
 
 /**
- * Edge-case {@code numrange} values. A continuous range (no canonicalisation), so the inclusive/exclusive
- * bounds are kept as given; this catalogue covers the empty range, both-unbounded, a one-sided unbounded
- * bound, an exclusive open range, and a single-point range.
+ * Edge-case {@code numrange} values. A continuous range (no canonicalisation), so the
+ * inclusive/exclusive bounds are kept as given; this catalogue covers the empty range, both-unbounded,
+ * a one-sided unbounded bound, an exclusive open range, and a single-point range.
  *
  * <p>Read-only ({@link EdgeCase#value()} is {@code null}).
  */

@@ -10,8 +10,8 @@ import java.util.Collections;
 import java.util.List;
 
 /**
- * Edge-case {@code polygon} values: a square, a triangle, a single-vertex polygon, and large coordinates.
- * Read-only ({@link EdgeCase#value()} is {@code null}).
+ * Edge-case {@code polygon} values: a square, a triangle, a single-vertex polygon, and negative or large
+ * coordinates. Read-only ({@link EdgeCase#value()} is {@code null}).
  */
 public final class PolygonEdgeCases {
   /** Every case, in a stable order. */

@@ -19,9 +19,6 @@ import java.lang.annotation.Target;
  * as stable APIs. They may be modified, deprecated, or removed in any future
  * release.</p>
  *
- * <p>Users are encouraged to provide feedback on experimental APIs to help
- * shape their final form.</p>
- *
  * @since 42.8.0
  */
 @Documented
@@ -35,10 +32,10 @@ import java.lang.annotation.Target;
 })
 public @interface Experimental {
   /**
-   * Optional description of what aspects of the API are experimental
-   * or what changes might be expected.
+   * Describes which aspects of the annotated element are experimental,
+   * or what changes to expect.
    *
-   * @return description of the experimental nature
+   * @return the description, or an empty string when the annotation carries none
    */
   String value() default "";
 }

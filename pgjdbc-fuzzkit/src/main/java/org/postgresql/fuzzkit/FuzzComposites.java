@@ -23,7 +23,10 @@ public final class FuzzComposites {
   private FuzzComposites() {
   }
 
-  /** A single-field composite {@code public.ct} whose one attribute {@code f} has the given OID. */
+  /**
+   * A single-field composite {@code public.ct} whose one attribute {@code f} has the given OID and no
+   * type modifier.
+   */
   static PgType singleField(int fieldOid) {
     return singleField(fieldOid, -1);
   }

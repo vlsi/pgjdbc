@@ -23,9 +23,8 @@ import java.util.Set;
  * <p>The rules are the same on both directions: {@link CoercionOutcome#OK} and
  * {@link CoercionOutcome#OK_OR_COERCE} may return; each exact refusal outcome maps to its own
  * {@code SQLState}; a {@code null} cell keeps the weak invariant, so any clean refusal is accepted.
- * Only the {@code OK_OR_COERCE} value-level set differs -- the write direction adds
- * {@link PSQLState#DATETIME_OVERFLOW} and {@link PSQLState#INVALID_PARAMETER_TYPE}, because a
- * write-time overflow and an accepted class that fails to convert both surface there.
+ * Only the {@code OK_OR_COERCE} value-level set differs: {@link #WRITE_VALUE_LEVEL_STATES} extends
+ * {@link #READ_VALUE_LEVEL_STATES} with the states only an encode can raise.
  */
 public final class OutcomeContract {
 

@@ -23,13 +23,17 @@ import java.time.OffsetTime;
 
 /**
  * Codec for PostgreSQL time (without time zone) type.
+ *
+ * <p>{@link #decodeBinary} and {@link #decodeText} return {@link LocalTime} when
+ * {@link CodecContext#getJavaTimePreferences()} prefers one for {@code time}, and {@link Time}
+ * otherwise. {@link #decodeBinaryAs} and {@link #decodeTextAs} ignore that preference and decode to
+ * the class the caller asked for.</p>
  */
 public final class TimeCodec implements StreamingBinaryCodec, TextCodec {
 
   public static final TimeCodec INSTANCE = new TimeCodec();
 
   private TimeCodec() {
-    // Singleton
   }
 
   @Override

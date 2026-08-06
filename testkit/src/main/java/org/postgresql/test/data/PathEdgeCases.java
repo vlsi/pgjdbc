@@ -10,9 +10,9 @@ import java.util.Collections;
 import java.util.List;
 
 /**
- * Edge-case {@code path} values: open ({@code [...]}) and closed ({@code (...)}) paths, a single-point
- * path, and large coordinates. The open/closed flag rides in the wire form, so both are worth checking.
- * Read-only ({@link EdgeCase#value()} is {@code null}).
+ * Edge-case {@code path} values: open ({@code [...]}) and closed ({@code (...)}) paths, vertex counts
+ * from one upward, and large coordinates. The open/closed flag rides in the wire form, so both are
+ * worth checking. Read-only ({@link EdgeCase#value()} is {@code null}).
  */
 public final class PathEdgeCases {
   /** Every case, in a stable order. */

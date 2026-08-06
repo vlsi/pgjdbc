@@ -1447,7 +1447,6 @@ class PgPreparedStatement extends PgStatement implements PreparedStatement {
       return;
     }
 
-    // Delegate to int-based setObject
     setObject(parameterIndex, x, sqlTypeCode, scaleOrLength);
   }
 

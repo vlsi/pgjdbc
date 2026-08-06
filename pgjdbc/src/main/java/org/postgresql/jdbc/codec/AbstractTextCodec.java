@@ -23,10 +23,10 @@ import java.sql.Timestamp;
 
 /**
  * Shared decode/encode logic for the {@code String}-natural built-in types: {@code text}, {@code varchar},
- * {@code bpchar}, {@code name}, and {@code "char"}. Their {@code typsend}/{@code typreceive} pair leaves the
- * value as its charset text, so the wire is just the string in the connection charset in both formats.
- * A subclass adds nothing but its identity: the type names these codecs answer to live in the registry
- * that binds them.
+ * {@code bpchar}, {@code name}, and {@code "char"}. The base takes the wire to be the value's text in the
+ * connection charset in both formats, which is what {@code typsend}/{@code typreceive} give for all but
+ * {@code "char"}; {@link CharCodec} overrides the binary side for its one-byte wire. A subclass otherwise
+ * adds only its identity: the type names these codecs answer to live in the registry that binds them.
  *
  * <p>This base advertises only {@link PrimitiveBinaryDecoder} and {@link PrimitiveTextDecoder}. None of
  * these codecs stream: a {@code String} must be materialized into charset bytes before it is written

@@ -35,10 +35,11 @@ public interface TextCodec extends Codec {
    * quotes and unescaped the content, so an implementation only parses the value itself and never
    * deals with array or composite syntax.</p>
    *
-   * <p><strong>Buffer ownership.</strong> {@code data} may be a mutable view borrowed from a larger buffer, valid only for the
-   * duration of this call. An implementation must not retain the reference after it returns, and
-   * must not hand it to anything that outlives the call. To keep the text, call
-   * {@link CharSequence#toString()} before returning and keep the resulting {@code String}.</p>
+   * <p><strong>Buffer ownership.</strong> {@code data} may be a mutable view borrowed from a larger
+   * buffer, valid only for the duration of this call. An implementation must not retain the
+   * reference after it returns, and must not hand it to anything that outlives the call. To keep
+   * the text, call {@link CharSequence#toString()} before returning and keep the resulting
+   * {@code String}.</p>
    *
    * <p>A {@code String} is an ordinary input here and needs no copy: {@code toString()} on it
    * returns the same instance, so a codec that materializes the text pays nothing extra for a
@@ -66,11 +67,11 @@ public interface TextCodec extends Codec {
 
   /**
    * Whether this codec's {@link #encodeText} output for {@code type} can contain characters that
-   * require quoting when embedded in a composite or array literal (a comma, parenthesis, brace,
-   * double quote, backslash, leading/trailing whitespace, or the empty string). Numeric and boolean
-   * codecs emit only quote-safe characters (digits, sign, dot, {@code e}, {@code t}/{@code f},
-   * {@code NaN}, {@code Infinity}) and return {@code false}, letting a container stream such a field
-   * straight into the literal without quoting.
+   * require quoting when embedded in a composite or array literal. Those are a comma, parenthesis,
+   * brace, double quote, backslash, leading/trailing whitespace, or the empty string. Numeric and
+   * boolean codecs emit only quote-safe characters (digits, sign, dot, {@code e},
+   * {@code t}/{@code f}, {@code NaN}, {@code Infinity}) and return {@code false}, letting a
+   * container stream such a field straight into the literal without quoting.
    *
    * <p>The {@code type} argument matters for a delegating codec whose output depends on the concrete
    * type it wraps: a domain has no text of its own and renders as its base type, so a domain over

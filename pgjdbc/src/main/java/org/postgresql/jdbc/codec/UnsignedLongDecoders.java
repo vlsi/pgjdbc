@@ -23,7 +23,7 @@ final class UnsignedLongDecoders {
   /**
    * Narrows an unsigned 64-bit bit pattern to an {@code int}, refusing rather than silently
    * truncating a value outside the unsigned 32-bit range. A value that passes returns the low 32
-   * bits as an {@code int} bit pattern -- negative for a value in [2<sup>31</sup>, 2<sup>32</sup>-1),
+   * bits as an {@code int} bit pattern -- negative for a value in [2<sup>31</sup>, 2<sup>32</sup>),
    * matching {@link OidCodec}'s own {@code decodeAsInt} convention for the (always in-range) 32-bit
    * {@code oid}.
    */
@@ -37,7 +37,7 @@ final class UnsignedLongDecoders {
   /**
    * Narrows an unsigned 64-bit bit pattern to a {@code short}, refusing rather than silently
    * truncating a value outside the unsigned 16-bit range. A value that passes returns the low 16
-   * bits as a {@code short} bit pattern -- negative for a value in [2<sup>15</sup>, 2<sup>16</sup>-1).
+   * bits as a {@code short} bit pattern -- negative for a value in [2<sup>15</sup>, 2<sup>16</sup>).
    */
   static short toUnsignedShort(long value) throws SQLException {
     if (value < 0 || value > 0xFFFFL) {

@@ -261,18 +261,18 @@ public class PGRange<T> extends PGobject implements Serializable, Cloneable {
   }
 
   /**
-   * Returns whether the lower bound is unbounded (infinite).
+   * Returns whether the range has a finite lower bound.
    *
-   * @return true if lower bound is unbounded
+   * @return true if the lower bound is present rather than infinite
    */
   public boolean hasLowerBound() {
     return lower != null;
   }
 
   /**
-   * Returns whether the upper bound is unbounded (infinite).
+   * Returns whether the range has a finite upper bound.
    *
-   * @return true if upper bound is unbounded
+   * @return true if the upper bound is present rather than infinite
    */
   public boolean hasUpperBound() {
     return upper != null;
@@ -290,15 +290,13 @@ public class PGRange<T> extends PGobject implements Serializable, Cloneable {
       return;
     }
 
-    // This method sets the string value but doesn't parse the bounds
-    // as we don't know the type parser. Use parse() instead for typed parsing.
     if ("empty".equalsIgnoreCase(value)) {
       setEmpty(true);
       return;
     }
 
-    // Store the raw value for later parsing if needed
-    // Subclasses should override this to parse the value
+    // A typed subclass is expected to override setValue and parse the bounds. The base class has no
+    // bound parser, so it refuses rather than keeping a value whose bounds it cannot read.
     throw new PSQLException(GT.tr("Cannot parse range value without a type parser. Use PGRange.parse() instead."),
         PSQLState.DATA_TYPE_MISMATCH);
   }

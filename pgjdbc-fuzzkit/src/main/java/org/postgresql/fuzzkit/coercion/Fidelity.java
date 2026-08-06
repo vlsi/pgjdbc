@@ -14,39 +14,29 @@ import java.util.Arrays;
 import java.util.Objects;
 
 /**
- * How a written value is compared with the value read back on an identity round-trip. This is the
- * canonical set a {@link ScalarDescriptor} carries, mirroring the comparisons the round-trip fuzzer
- * support inlines today:
+ * How a written value is compared with the value read back on an identity round-trip. A
+ * {@link ScalarDescriptor} carries the fidelity its type round-trips under; {@link #DEEP_EQUALS} is
+ * the {@link ArrayDescriptor} fidelity.
  *
- * <ul>
- *   <li>{@link #EQUALS} -- exact equality, for a type whose value survives byte-for-byte.</li>
- *   <li>{@link #NUMERIC_EQUAL} -- numeric equality ignoring scale, because a {@code numeric} decode may
- *       drop trailing zeros ({@code 1.50} reads back as {@code 1.5}).</li>
- *   <li>{@link #SAME_INSTANT} -- the same moment regardless of the read-back offset, because
- *       {@code timestamptz} is an instant and the driver reads it back in the session zone rather than
- *       the written one.</li>
- *   <li>{@link #BYTES_EQUAL} -- element-wise {@code byte[]} equality, because {@code bytea} decodes to a
- *       fresh array whose reference-based {@code equals} would never match, mirroring the
- *       {@code assertArrayEquals} the bytea codec round-trip uses.</li>
- *   <li>{@link #DEEP_EQUALS} -- recursive array equality ({@link Arrays#deepEquals}), because a
- *       (possibly multi-dimensional) array decodes to a fresh nested array whose reference-based
- *       {@code equals} would never match. This is the {@link ArrayDescriptor} fidelity: it covers every
- *       {@code ndim} and both leaf representations ({@code Integer[][]} and {@code int[][]}) with a
- *       single comparison, since {@code deepEquals} unwraps primitive leaves too. An empty array is a
- *       special case: PostgreSQL normalises every empty array to the canonical zero-dimension form, so
- *       an empty array of any rank reads back as a one-dimensional empty array, and two empty arrays
- *       compare equal regardless of their declared rank.</li>
- * </ul>
+ * <p>Every constant other than {@link #EQUALS} exists because the decode is allowed to hand back a
+ * value that is {@code equals}-different but semantically the same: a fresh array, a {@code numeric}
+ * at another scale, or the same instant at another offset.</p>
  */
 public enum Fidelity {
-  /** The value read back must equal the value written. */
+  /**
+   * The value read back must equal the value written, for a type whose value survives byte for
+   * byte.
+   */
   EQUALS {
     @Override
     public boolean equal(@Nullable Object written, @Nullable Object read) {
       return Objects.equals(written, read);
     }
   },
-  /** The two {@link BigDecimal} values must be numerically equal, ignoring scale. */
+  /**
+   * The two {@link BigDecimal} values must be numerically equal, ignoring scale: a {@code numeric}
+   * decode may drop trailing zeros, so {@code 1.50} reads back as {@code 1.5}.
+   */
   NUMERIC_EQUAL {
     @Override
     public boolean equal(@Nullable Object written, @Nullable Object read) {
@@ -56,7 +46,11 @@ public enum Fidelity {
       return ((BigDecimal) written).compareTo((BigDecimal) read) == 0;
     }
   },
-  /** The two {@link OffsetDateTime} values must denote the same instant, whatever their offsets. */
+  /**
+   * The two {@link OffsetDateTime} values must denote the same instant, whatever their offsets:
+   * {@code timestamptz} is an instant, and the driver reads it back in the session zone rather than
+   * the zone it was written in.
+   */
   SAME_INSTANT {
     @Override
     public boolean equal(@Nullable Object written, @Nullable Object read) {
@@ -66,7 +60,10 @@ public enum Fidelity {
       return ((OffsetDateTime) written).isEqual((OffsetDateTime) read);
     }
   },
-  /** The two {@code byte[]} values must be element-wise equal. */
+  /**
+   * The two {@code byte[]} values must be element-wise equal: {@code bytea} decodes to a fresh
+   * array, whose reference-based {@code equals} would never match.
+   */
   BYTES_EQUAL {
     @Override
     public boolean equal(@Nullable Object written, @Nullable Object read) {
@@ -76,7 +73,14 @@ public enum Fidelity {
       return Arrays.equals((byte[]) written, (byte[]) read);
     }
   },
-  /** The two arrays must be recursively equal, unwrapping every dimension and primitive leaf. */
+  /**
+   * The two arrays must be recursively equal, unwrapping every dimension and primitive leaf: a
+   * (possibly multi-dimensional) array decodes to a fresh nested array, whose reference-based
+   * {@code equals} would never match. {@link Arrays#deepEquals} covers every {@code ndim} and both
+   * leaf representations ({@code Integer[][]} and {@code int[][]}) in one comparison, since it
+   * unwraps primitive leaves too. Two empty arrays compare equal whatever rank each was declared
+   * with.
+   */
   DEEP_EQUALS {
     @Override
     public boolean equal(@Nullable Object written, @Nullable Object read) {

@@ -19,10 +19,8 @@ import java.util.Set;
 /**
  * One {@link SQLInput} reader the coercion fuzzer drives, binding a {@code ReadCoercions} outcome to
  * the actual {@code SQLInput} call. Each constant carries the {@link Accessor} whose outcome cell the
- * oracle checks against, the invocation itself, and a label for assertion messages. Replaces the
- * former {@code R_*} ordinals and their {@code accessorFor}/{@code invoke}/{@code readerName} switches
- * with one table, keeping {@code ReadCoercions.Accessor} the single source of truth for the reader
- * set.
+ * oracle checks against, the invocation itself, and a label for assertion messages.
+ * {@code ReadCoercions.Accessor} stays the single source of truth for the reader set.
  *
  * <p>The static initialiser guards completeness: every {@code Accessor} must be bound here, so adding
  * one to {@code ReadCoercions} without wiring up its {@code SQLInput} call fails fast rather than
@@ -100,12 +98,13 @@ public enum SqlInputReader {
   }
 
   /**
-   * The reader for an accessor -- used to reach a descriptor's diagonal typed reader. Guard G1
-   * guarantees every {@link Accessor} is bound, so a registered accessor always resolves;
+   * Returns the reader for {@code accessor} -- used to reach a descriptor's diagonal typed reader.
+   * The completeness guard binds every {@link Accessor}, so a registered accessor always resolves;
    * {@code readObject(Class)} has no accessor and is not reachable here.
    *
    * @param accessor the canonical read accessor
    * @return the reader that invokes it
+   * @throws IllegalArgumentException if no reader is bound to {@code accessor}
    */
   static SqlInputReader of(Accessor accessor) {
     SqlInputReader reader = BY_ACCESSOR.get(accessor);
@@ -129,14 +128,14 @@ public enum SqlInputReader {
   }
 
   /**
-   * The registry outcome cell this reader checks against, or {@code null} for {@code readObject(Class)}
-   * (its outcome comes from {@code ReadCoercions.readObjectAs}).
+   * Returns the registry outcome cell this reader checks against, or {@code null} for
+   * {@code readObject(Class)} (its outcome comes from {@code ReadCoercions.readObjectAs}).
    */
   @Nullable Accessor accessor() {
     return accessor;
   }
 
-  /** A human-readable name for assertion messages. */
+  /** Returns the reader's name as it appears in assertion messages. */
   String label() {
     return label;
   }

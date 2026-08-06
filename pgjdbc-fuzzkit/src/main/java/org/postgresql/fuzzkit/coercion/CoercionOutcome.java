@@ -13,9 +13,8 @@ package org.postgresql.fuzzkit.coercion;
  * {@link #OK} must return, a refusal must throw with the matching {@code SQLState}, and
  * {@link #OK_OR_COERCE} accepts either because the split depends on the concrete value.
  *
- * <p>Refusals are not one {@code SQLState}. The three refusal outcomes below map to the three states
- * the driver actually raises, so an oracle can assert the exact state rather than "some
- * {@code SQLException}".
+ * <p>Refusals are not one {@code SQLState}. Each refusal outcome names the state the driver actually
+ * raises, so an oracle can assert the exact state rather than "some {@code SQLException}".
  */
 public enum CoercionOutcome {
 
@@ -39,7 +38,7 @@ public enum CoercionOutcome {
   CANNOT_COERCE,
 
   /**
-   * The general decode-failure state: the reader cannot convert this type. {@code Codec.cannotDecode}
+   * The general decode-failure state: the reader cannot convert this type. {@code Codecs.cannotDecode}
    * -- the shared path behind every unsupported numeric reader, {@code readObject(Class)} target and
    * {@code byte[]} read -- throws {@code SQLState} {@code 42821} ({@code PSQLState.DATA_TYPE_MISMATCH}).
    * It is the default refusal for a populated type; only {@code readBoolean} deviates to

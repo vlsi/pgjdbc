@@ -11,7 +11,7 @@ import java.util.List;
 
 /**
  * Edge-case {@code json}/{@code jsonb} documents (the same literals serve both types): empty containers,
- * the scalar forms, nesting, a unicode escape, and the whitespace/duplicate-key/key-order shapes where
+ * the scalar forms, nesting, a unicode escape, and the whitespace/duplicate-key shapes where
  * {@code jsonb} normalises but {@code json} keeps the text verbatim.
  *
  * <p>Read-only ({@link EdgeCase#value()} is {@code null}). None of the literals contain a single quote, so

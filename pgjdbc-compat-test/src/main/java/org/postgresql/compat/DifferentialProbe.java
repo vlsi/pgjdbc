@@ -92,6 +92,7 @@ public final class DifferentialProbe {
    * CallableStatement read half: read a fixed server value back through a function's out parameter
    * ({@code { ? = call pg_temp.echo(<argExpr>) }}) and one CallableStatement getter. Isolates {@code
    * PgCallableStatement.getX}, a separate coercion surface from {@code ResultSet}.
+   * {@link #createEchoFunction} must already have run on {@code connection}.
    */
   public static ObservableOutcome readCallable(Connection connection, String argExpr,
       int registerType, CsAccessor accessor) {

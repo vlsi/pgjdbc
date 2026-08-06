@@ -62,8 +62,9 @@ public class CachedQuery implements CanEstimateSize {
    * Map of (folded) CallableStatement parameter name to 1-based JDBC index for this call, cached
    * so that repeated executions of the same callable SQL do not re-query the catalog for the
    * routine's argument names. The mapping is derived from the catalog, so it is tied to the
-   * connection's type-cache epoch and is treated as absent once a DDL statement bumps the epoch
-   * (the routine's signature may have changed).
+   * connection's type-cache epoch and is treated as absent once that epoch moves: DDL or a
+   * {@code search_path} change may have altered the routine's signature, or which routine the
+   * call resolves to.
    *
    * @param typeCacheEpoch the connection's current type-cache epoch
    * @return the cached parameter-name map, or {@code null} if not resolved yet or stale

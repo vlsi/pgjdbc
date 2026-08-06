@@ -206,8 +206,7 @@ public class PgResultSet implements ResultSet, PGRefCursorResultSet {
    * Gets the binary codec for the specified column.
    *
    * @param columnIndex the 1-based column index
-   * @return the binary codec, or null if not available
-   * @throws SQLException if an error occurs
+   * @return the column's codec, or {@code null} when it cannot read the binary wire format
    */
   protected @Nullable BinaryCodec getBinaryCodec(int columnIndex) throws SQLException {
     Codec codec = codecFor(columnIndex);
@@ -218,8 +217,7 @@ public class PgResultSet implements ResultSet, PGRefCursorResultSet {
    * Gets the text codec for the specified column.
    *
    * @param columnIndex the 1-based column index
-   * @return the text codec, or null if not available
-   * @throws SQLException if an error occurs
+   * @return the column's codec, or {@code null} when it cannot read the text wire format
    */
   protected @Nullable TextCodec getTextCodec(int columnIndex) throws SQLException {
     Codec codec = codecFor(columnIndex);
@@ -227,11 +225,9 @@ public class PgResultSet implements ResultSet, PGRefCursorResultSet {
   }
 
   /**
-   * Gets the PgType for the specified column.
+   * Gets the PostgreSQL type of the specified column, without its column modifier.
    *
    * @param columnIndex the 1-based column index
-   * @return the PgType
-   * @throws SQLException if an error occurs
    */
   protected PgType getPgType(int columnIndex) throws SQLException {
     int oid = fields[columnIndex - 1].getOID();
@@ -795,11 +791,9 @@ public class PgResultSet implements ResultSet, PGRefCursorResultSet {
       return null;
     }
 
-    // Look up the PostgreSQL type name and check if it's in the map
     String pgTypeName = getPGType(i);
     Class<?> targetClass = map.get(pgTypeName);
     if (targetClass == null) {
-      // Type not in map, fall back to default getObject
       return getObject(i);
     }
 
@@ -831,7 +825,6 @@ public class PgResultSet implements ResultSet, PGRefCursorResultSet {
       // No codec is registered for the column type; fall through to the generic mapping below.
     }
 
-    // For other mapped types, delegate to getObject(int, Class)
     return getObject(i, targetClass);
   }
 
@@ -1239,7 +1232,6 @@ public class PgResultSet implements ResultSet, PGRefCursorResultSet {
           setRowBufferColumn(staged, findColumn("oid") - 1, insertedOID);
         }
 
-        // fold the server-generated key columns into the staged row
         refreshGeneratedKeys(insertStatement, staged);
       } finally {
         JdbcBlackHole.close(insertStatement);
@@ -2991,11 +2983,8 @@ public class PgResultSet implements ResultSet, PGRefCursorResultSet {
   /**
    * {@inheritDoc}
    *
-   * <p>In normal use, the bytes represent the raw values returned by the backend. However, if the
-   * column is an OID, then it is assumed to refer to a Large Object, and that object is returned as
-   * a byte array.</p>
-   *
-   * <p><b>Be warned</b> If the large object is huge, then you may run out of memory.</p>
+   * <p>The bytes are the raw value the backend returned, except that a {@code bytea} column arriving
+   * in text format is decoded from its escape form first. {@code maxFieldSize} still applies.</p>
    */
   @Pure
   @Override
@@ -3428,8 +3417,7 @@ public class PgResultSet implements ResultSet, PGRefCursorResultSet {
    * <p>It converts ($##.##) to -##.## and $##.## to ##.##</p>
    *
    * <p>This handles only the {@code en_US}-style leading {@code $}; {@code money} columns route their
-   * numeric getters through the money codec, which parses every locale rendering. This helper is kept
-   * for its published signature and any external caller.</p>
+   * numeric getters through the money codec, which parses every locale rendering.</p>
    *
    * @param col column position (1-based)
    * @return numeric-parsable representation of money string literal
@@ -4071,7 +4059,6 @@ public class PgResultSet implements ResultSet, PGRefCursorResultSet {
       return type.cast(object);
     }
 
-    // Delegate to codec for all value types
     byte[] value = getRawValue(columnIndex);
     if (value == null) {
       return null;

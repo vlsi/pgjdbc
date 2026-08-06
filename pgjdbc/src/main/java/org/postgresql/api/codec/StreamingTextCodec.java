@@ -17,7 +17,7 @@ import java.sql.SQLException;
  * allocating an intermediate {@code String} per element.
  *
  * <p>Primary use case: composing nested encoders. For example, the array
- * codec for {@code composite[]} can wrap its output in an
+ * codec for {@code composite[]} can wrap its output in a
  * {@link ContainerTextEscaper} and let the composite
  * codec stream into it directly — eliminating the per-element
  * {@code String} that the non-streaming path materializes only to walk it

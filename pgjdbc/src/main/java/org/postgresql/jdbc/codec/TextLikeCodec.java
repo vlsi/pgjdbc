@@ -45,9 +45,7 @@ public final class TextLikeCodec implements BinaryCodec, TextCodec {
 
   @Override
   public boolean decodesBinary() {
-    // The binary wire of a text-send type is the charset text, so it is genuinely decodable here
-    // (unlike FallbackCodec). Returning true makes the type eligible for binary receive and lets a
-    // value nested in a binary record decode to a PGobject instead of PGUnknownBinary.
+    // Beyond binary decode, true makes the type eligible for binary receive.
     return true;
   }
 
@@ -125,7 +123,6 @@ public final class TextLikeCodec implements BinaryCodec, TextCodec {
     return encodeValue(value, type);
   }
 
-  // Accepts a String, or a PGobject of the matching type (a null PGobject value encodes as "").
   private static String encodeValue(Object value, TypeDescriptor type) throws SQLException {
     if (value instanceof String) {
       return (String) value;

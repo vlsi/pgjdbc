@@ -26,8 +26,10 @@ import java.util.List;
  * This generator writes one such source file; the Gradle task compiles it into the test source set. Output
  * is deterministic -- OID-ordered, no timestamps -- so a rerun produces identical bytes.
  *
- * <p>Every generated method takes a {@code byte[]}, which {@link PgValueArgumentsFactory} draws from the
- * guided byte stream. The text targets feed the raw bytes to {@code decodeScalarTextBytesExpectingNoLeak},
+ * <p>Every generated method takes a {@code byte[]}. A guided target draws it from
+ * {@code PgValueArgumentsFactory}; a type whose binary wire domain is finite instead gets an exhaustive
+ * {@code @ParameterizedTest} over {@code CodecFuzzSupport.singleByteBinaryDomain()}. The text targets feed
+ * the raw bytes to {@code decodeScalarTextBytesExpectingNoLeak},
  * reaching invalid-UTF-8 text wires a valid-{@code String} generator never produces -- the one behavioural
  * difference from the Jazzer generator, whose text targets take a {@code String}.
  *

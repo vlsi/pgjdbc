@@ -31,11 +31,11 @@ import java.util.Set;
  * outcome comes from {@code WriteCoercions.encode(oid, method.presentedClass(value))}; the presented
  * class and the {@code NOT_IMPLEMENTED} flag live on {@link Method}, not here.
  *
- * <p>The static initialiser guards completeness (guard G2, the write-side mirror of
- * {@link SqlInputReader}'s guard): every {@link Method} must be bound here, so adding one to
- * {@code WriteCoercions} without wiring up its {@code SQLOutput} call fails fast rather than silently
- * narrowing coverage. Every method has a binding, including {@link #WRITE_OBJECT_AS} and the
- * {@code NOT_IMPLEMENTED} writers ({@code writeRef} and friends), which reject before a codec runs.
+ * <p>The static initialiser guards completeness, mirroring {@link SqlInputReader} on the read side:
+ * every {@link Method} must be bound here, so adding one to {@code WriteCoercions} without wiring up
+ * its {@code SQLOutput} call fails fast rather than silently narrowing coverage. Every method has a
+ * binding, including {@link #WRITE_OBJECT_AS} and the {@code NOT_IMPLEMENTED} writers
+ * ({@code writeRef} and friends), which reject before a codec runs.
  */
 public enum SqlOutputWriterBinding {
   WRITE_INT(Method.WRITE_INT, "writeInt", (out, v) -> out.writeInt((Integer) v)),
@@ -57,7 +57,6 @@ public enum SqlOutputWriterBinding {
   WRITE_DATE(Method.WRITE_DATE, "writeDate", (out, v) -> out.writeDate((Date) v)),
   WRITE_TIME(Method.WRITE_TIME, "writeTime", (out, v) -> out.writeTime((Time) v)),
   WRITE_TIMESTAMP(Method.WRITE_TIMESTAMP, "writeTimestamp", (out, v) -> out.writeTimestamp((Timestamp) v)),
-  // Widen to Integer via encodeInt: the presented class is Integer, carried by Method.WRITE_BYTE.
   WRITE_BYTE(Method.WRITE_BYTE, "writeByte", (out, v) -> out.writeByte((Byte) v)),
   WRITE_SHORT(Method.WRITE_SHORT, "writeShort", (out, v) -> out.writeShort((Short) v)),
   WRITE_URL(Method.WRITE_URL, "writeURL", (out, v) -> out.writeURL((URL) v)),
@@ -76,12 +75,12 @@ public enum SqlOutputWriterBinding {
     void write(SQLOutput out, Object value) throws SQLException;
   }
 
-  /** Every {@link Method} to its binding; guard G2 keeps this map total over {@code Method}. */
+  /** Every {@link Method} to its binding; the completeness guard keeps it total. */
   private static final Map<Method, SqlOutputWriterBinding> BY_METHOD = indexByMethod();
 
   static {
     // Every write method in the registry must map to an SQLOutput call, so a new Method cannot slip
-    // through untested. This is guard G2, the write-side mirror of SqlInputReader's completeness guard.
+    // through untested.
     Set<Method> missing = EnumSet.allOf(Method.class);
     missing.removeAll(BY_METHOD.keySet());
     if (!missing.isEmpty()) {
@@ -99,11 +98,12 @@ public enum SqlOutputWriterBinding {
   }
 
   /**
-   * The binding for a write method -- used to reach a descriptor's diagonal typed writer. Guard G2
-   * guarantees every {@link Method} is bound, so a registered method always resolves.
+   * Returns the binding for {@code method} -- used to reach a descriptor's diagonal typed writer.
+   * The completeness guard binds every {@link Method}, so a registered method always resolves.
    *
    * @param method the canonical write method
    * @return the binding that invokes it
+   * @throws IllegalArgumentException if no binding is bound to {@code method}
    */
   static SqlOutputWriterBinding of(Method method) {
     SqlOutputWriterBinding binding = BY_METHOD.get(method);
@@ -126,12 +126,12 @@ public enum SqlOutputWriterBinding {
     this.invoker = invoker;
   }
 
-  /** The canonical write method whose presented class and outcome the oracle checks against. */
+  /** Returns the canonical write method whose presented class and outcome the oracle checks. */
   public Method method() {
     return method;
   }
 
-  /** A human-readable name for assertion messages. */
+  /** Returns the writer's name as it appears in assertion messages. */
   String label() {
     return label;
   }

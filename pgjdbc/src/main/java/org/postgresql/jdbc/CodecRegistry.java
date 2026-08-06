@@ -78,7 +78,7 @@ import java.util.logging.Logger;
 /**
  * Registry for codec instances.
  *
- * <p>Manages codec lookup by OID, type name, and Java class. This registry is
+ * <p>Manages codec lookup by OID and by type name. This registry is
  * connection-scoped to allow per-connection codec customization.</p>
  *
  * <h2>Codec Resolution Order</h2>
@@ -230,7 +230,7 @@ public class CodecRegistry implements CodecLookup {
   }
 
   /**
-   * Registers all built-in codecs by name and Java class.
+   * Registers all built-in codecs by type name, aliases included.
    */
   private void registerBuiltinCodecs() {
     // Numeric types

@@ -14,34 +14,19 @@ import org.postgresql.core.Oid;
 public class PgArrayType extends PgType {
   private final PgType elementType;
 
-  /**
-   * Constructs a new PgArrayType.
-   *
-   * @param typeName the type name
-   * @param fullName the full name of the type
-   * @param oid the OID of the type
-   * @param elementType the element type
-   */
   public PgArrayType(TypeName typeName, String fullName, int oid, PgType elementType) {
     super(typeName, fullName, oid, 'b', 'A', -1, elementType.getOid(), Oid.UNSPECIFIED, Oid.UNSPECIFIED);
     this.elementType = elementType;
   }
 
-  /**
-   * Gets the element type.
-   *
-   * @return the element type
-   */
   public PgType getElementType() {
     return elementType;
   }
 
   /**
-   * Creates a new PgArrayType from a base type.
-   *
-   * @param baseType the base type
-   * @param arrayOid the OID of the array type
-   * @return a new PgArrayType
+   * Creates the array type whose elements are {@code baseType}, named the way PostgreSQL names one:
+   * the element type's namespace, its local name prefixed with {@code _}, and a formatted name
+   * suffixed with {@code []}.
    */
   public static PgArrayType fromBaseType(PgType baseType, int arrayOid) {
     TypeName arrayTypeName = TypeName.of(baseType.getName().getNamespace(), "_" + baseType.getName().getLocalName());

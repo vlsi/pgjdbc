@@ -32,7 +32,7 @@ import java.sql.SQLException;
  * this codec only strips the currency decoration to recover the numeric value. This matches the
  * historical driver, which never listed {@code money} among the binary-transfer OIDs.</p>
  *
- * <p>The binary methods below decode the 8-byte int64 anyway, for the cases where the driver cannot
+ * <p>The binary methods decode the 8-byte int64 anyway, for the cases where the driver cannot
  * avoid binary — {@code money} nested inside a binary {@code record} or array, or a caller that has
  * explicitly opted {@code money} into binary transfer — assuming the near-universal scale of 2.</p>
  *

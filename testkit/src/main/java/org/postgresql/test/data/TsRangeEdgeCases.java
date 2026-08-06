@@ -11,8 +11,8 @@ import java.util.List;
 
 /**
  * Edge-case {@code tsrange} values (timestamp range). The bounds are double-quoted because the timestamp
- * text contains spaces; this catalogue covers a closed range, the empty range, both-unbounded, and a range
- * whose bounds carry sub-second precision.
+ * text contains spaces; this catalogue covers a closed range, the empty range, ranges unbounded below and
+ * on both sides, and a range whose bounds carry sub-second precision.
  *
  * <p>Read-only ({@link EdgeCase#value()} is {@code null}).
  */

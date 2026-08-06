@@ -30,9 +30,9 @@ import java.util.Arrays;
  * materialising every field up front: each {@code readXxx} advances past one field's
  * {@code oid}/{@code length} header and decodes its body in place. Primitive reads
  * ({@code readInt}, {@code readLong}, ...) go through the slice-form {@link PrimitiveDecoders} and
- * never allocate; only the readers whose codec method has no slice form (String, BigDecimal, bytes,
- * temporal, array, and the type-mapped object path) copy the field's bytes out, and only for the
- * field actually read. This mirrors {@link PgSQLOutputBinary}, which streams into a sink.</p>
+ * never allocate; every other reader passes the same {@code (source, offset, length)} slice on to
+ * the codec. Only {@code readArray} copies the bytes out, because the {@link PgArray} it returns
+ * outlives this reader. This mirrors {@link PgSQLOutputBinary}, which streams into a sink.</p>
  *
  * <p>The cursor is bounded by the slice it was handed ({@code [offset, offset + length)}): every
  * header and body read is checked against that end, so a truncated or sub-sliced buffer fails with a
@@ -107,8 +107,8 @@ public final class PgSQLInputBinary extends PgSQLInput {
 
   @Override
   protected boolean advanceIsNull() throws SQLException {
-    // Fewer wire fields than the type declares: the trailing attributes read back as NULL, matching
-    // the previous array-based reader (which returned null past the parsed attribute count).
+    // Fewer wire fields than the type declares: the trailing attributes read back as NULL rather
+    // than failing.
     if (fieldIndex - 1 >= wireFieldCount) {
       curLength = -1;
       return true;
@@ -140,7 +140,7 @@ public final class PgSQLInputBinary extends PgSQLInput {
   }
 
   /**
-   * Gets the codec for the current field (the one just entered by advanceIsNull()).
+   * Gets the codec for the current field (the one just entered by {@link #advanceIsNull()}).
    */
   private BinaryCodec getCodec() {
     return castNonNull(currentCodec);

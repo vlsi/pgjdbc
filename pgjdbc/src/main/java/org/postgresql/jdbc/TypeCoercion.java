@@ -12,11 +12,11 @@ import java.sql.Clob;
 import java.sql.SQLException;
 
 /**
- * Shared type coercion logic used by both PgPreparedStatement (setObject with target SQL type)
- * and PgResultSet (array element conversion in getObject(i, T[].class)).
+ * Coerces an arbitrary Java object to a numeric, boolean, or string target type, following JDBC's
+ * {@code setObject(int, Object, int sqlType)} contract.
  *
- * <p>Handles conversion from arbitrary Java objects to specific numeric/string target types,
- * as required by JDBC's setObject(int, Object, int sqlType) contract.</p>
+ * <p>The same coercion serves a bound parameter and an array element decoded through
+ * {@code getObject(i, T[].class)}.</p>
  */
 final class TypeCoercion {
 

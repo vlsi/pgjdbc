@@ -17,8 +17,8 @@ import java.sql.SQLException;
 /**
  * Codec for PostgreSQL xml type.
  *
- * <p>Returns String for getObject(). SQLXML handling is done at the ResultSet level
- * using PgSQLXML wrapper.</p>
+ * <p>Decodes to a {@code String} in both wire formats; {@code PgResultSet} hands the value
+ * out as the {@code PgSQLXML} wrapper.</p>
  *
  * <p>The server's {@code xml_send}/{@code xml_recv} transfer the value as its text
  * representation in the client encoding, so both wire formats are the charset text bytes

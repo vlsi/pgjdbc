@@ -136,7 +136,8 @@ public enum PGProperty {
   /**
    * Comma separated list of types to enable binary transfer. Either OID numbers or names.
    * The special value {@code *} forces binary receive for all result columns, bypassing the
-   * per-type capability check.
+   * per-type capability check. It leaves the send direction alone, and
+   * {@code binaryTransferDisable=*} overrides it.
    */
   BINARY_TRANSFER_ENABLE(
       "binaryTransferEnable",

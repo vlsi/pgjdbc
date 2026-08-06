@@ -27,35 +27,24 @@ import java.util.Map;
 import java.util.Set;
 
 /**
- * Emits one {@code Generated<Type>CoercionReaderFuzzTest.java} per read-populated scalar, replacing the
- * single hand-written {@code JazzerCoercionReaderFuzzTest} whose one {@code @FuzzTest} drew the field
- * type, reader, and target class as leading indices from a {@link
- * com.code_intelligence.jazzer.api.FuzzedDataProvider}. Jazzer keeps one corpus per method and mutates the
- * whole byte stream, so those leading indices made every mutation jump between unrelated
- * type/reader/class cells; the fuzzer could not specialise, and a bounded regression run reached only one
- * random cell of the matrix.
+ * Emits one {@code Generated<Type>CoercionReaderFuzzTest.java} per read-populated scalar, with one test
+ * method per (reader, target class) pair.
  *
- * <p>Materialising the matrix as concrete methods fixes both, and lets each cell pick the value strategy
- * its natural class deserves. A cell bakes in its (scalar, reader, target class), so the only free
- * dimension is the value, and a bounded regression run replays every cell once rather than a single random
- * one. A scalar whose whole domain is small enough to enumerate -- {@code bool} (and a {@code byte} scalar
- * were one registered) -- is a {@code @ParameterizedTest} over every value, because a coverage-guided
- * campaign cannot grow a two- or 256-value domain and would only burn its budget. A larger Jazzer-native
- * class -- the wider integral, floating-point, {@code byte[]}, and {@code String} types -- takes the value
- * straight as a typed {@code @FuzzTest} parameter ({@code byte @NotNull [] value} rather than
- * {@code JazzerValues.draw(data, byte[].class)}), so Jazzer's structure-aware mutator drives it directly; a
- * {@code String} is sanitised with {@code FuzzText.stripNul} first, since PostgreSQL text cannot carry a
- * NUL. Only {@code numeric} and the temporal types, which have no native encodable form (a date may fall
- * outside the wire range, {@code numeric} needs a bounded scale), still draw from {@link JazzerValues} over
- * a {@code FuzzedDataProvider}, the path that guarantees an encodable value, so
- * {@link org.postgresql.fuzzkit.CoercionFuzzSupport#run} never trips on an unencodable input.
+ * <p>A method bakes in its (scalar, reader, target class), so the only free dimension is the value.
+ * Jazzer keeps one corpus per method and mutates the whole byte stream, so a baked-in cell lets the
+ * mutator specialise on that cell's value, and a bounded regression run replays every cell once rather
+ * than a single random cell of the matrix.
  *
  * <p>The cells per scalar are every {@link SqlInputReader} except {@code READ_OBJECT_AS} (each carries its
  * own target class of {@code null}), plus one method per {@link ReadOracle#TARGET_CLASSES} entry for
- * {@code readObject(Class)}. {@code javaTimePreferences} is read as a byte of five flag bits, but only for the
- * temporal scalars ({@code date}, {@code time}, {@code timetz}, {@code timestamp}, {@code timestamptz})
- * whose decode depends on it; every other scalar passes all-false and spends no fuzzer entropy on an inert
- * axis.
+ * {@code readObject(Class)}. The value strategy follows the scalar's natural class:
+ * {@link #exhaustiveValueSource} enumerates a small domain as a {@code @ParameterizedTest},
+ * {@link #nativeParamType} takes a Jazzer-native class straight as a typed {@code @FuzzTest} parameter,
+ * and everything else draws from {@link JazzerValues} over a {@code FuzzedDataProvider}, the path that
+ * guarantees an encodable value, so {@link org.postgresql.fuzzkit.CoercionFuzzSupport#run} never trips on
+ * an unencodable input. {@code javaTimePreferences} is read as a byte of five flag bits, but only for the
+ * temporal scalars whose decode depends on it ({@link #TEMPORAL_OIDS}); every other scalar passes
+ * all-false and spends no fuzzer entropy on an inert axis.
  *
  * <p>Driven by {@link FuzzTargetGenerator}, the module's single generator entry point, which passes the
  * generated-sources root. It needs no database connection: the axes come from the offline descriptor
@@ -104,15 +93,10 @@ public final class CoercionReaderFuzzTestGenerator {
       Map<Class<?>, String> objectSuffixes) {
     boolean temporal = TEMPORAL_OIDS.contains(descriptor.oid());
     String valueLiteral = classLiteral(descriptor.naturalClass());
-    // Three value strategies, by natural class:
-    //  - a small, exhaustively enumerable primitive domain (boolean, byte) uses @ParameterizedTest so JUnit
-    //    drives every value once and no fuzzer budget is spent on a domain a campaign cannot grow;
-    //  - a Jazzer-native class takes the value as a typed @FuzzTest parameter (a String is sanitised with
-    //    FuzzText.stripNul first, since PostgreSQL text cannot carry a NUL; every other native value
-    //    encodes as-is);
-    //  - everything else draws from a FuzzedDataProvider through JazzerValues, the only encodable path.
-    // The first two are never temporal, so they need no provider and no config byte. Only the byte[] and
-    // String native types need the @NotNull import.
+    // The value strategy follows the natural class: exhaustiveValueSource for a small enumerable domain,
+    // nativeParamType for a Jazzer-native class, a FuzzedDataProvider draw otherwise. Neither of the first
+    // two is ever temporal, so they need no provider and no config byte; only the byte[] and String native
+    // types need the @NotNull import.
     @Nullable String valueSource = exhaustiveValueSource(descriptor.naturalClass());
     @Nullable String nativeType = nativeParamType(descriptor.naturalClass());
     String nativeValueExpr = nativeValueExpr(descriptor.naturalClass());
@@ -216,10 +200,8 @@ public final class CoercionReaderFuzzTestGenerator {
   private static void appendMethod(StringBuilder sb, String methodName, String valueLiteral,
       @Nullable String valueSource, @Nullable String nativeType, String nativeValueExpr, boolean temporal,
       String readerLiteral, String targetLiteral) {
-    // A typed-parameter cell (exhaustive @ParameterizedTest or native @FuzzTest); nativeType is the
-    // primitive/array parameter and nativeValueExpr is the value handed to the case (a text value is
-    // NUL-stripped, every other native value passes straight through). A native scalar is never temporal,
-    // so the config axis is inert (byte 0) and no FuzzedDataProvider is needed.
+    // A typed-parameter cell (exhaustive @ParameterizedTest or native @FuzzTest). A native scalar is never
+    // temporal, so the config axis is inert (byte 0) and no FuzzedDataProvider is needed.
     if (nativeType != null) {
       if (valueSource != null) {
         sb.append("  @ParameterizedTest").append(NL)
@@ -280,9 +262,10 @@ public final class CoercionReaderFuzzTestGenerator {
    * a typed parameter when Jazzer mutates it natively and every native value can be made encodable on the
    * canonical wire: the integral, floating-point, {@code boolean}, and {@code byte[]} types encode as-is,
    * and the text types' {@link String} encodes once {@link #nativeValueExpr} strips its NUL. {@code numeric}'s
-   * {@link java.math.BigDecimal} and the temporal types have no native encodable form, so they keep the
-   * provider path. {@code Byte} is included for consistency with {@link #exhaustiveValueSource} even though
-   * no registered scalar carries it today.
+   * {@link java.math.BigDecimal} and the temporal types have no native encodable form -- a date may fall
+   * outside the wire range, and {@code numeric} needs a bounded scale -- so they keep the provider path.
+   * {@code Byte} is included for consistency with {@link #exhaustiveValueSource} even though no registered
+   * scalar carries it today.
    */
   private static @Nullable String nativeParamType(Class<?> naturalClass) {
     if (naturalClass == Integer.class) {

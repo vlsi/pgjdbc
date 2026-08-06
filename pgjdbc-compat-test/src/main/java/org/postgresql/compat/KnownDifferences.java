@@ -520,7 +520,8 @@ public final class KnownDifferences {
 
   /**
    * Returns the justification for an expected difference, or {@code null} if the cell is not expected to
-   * differ (in which case the oracle treats it as a regression). Point entries win over rules.
+   * differ (in which case the oracle treats it as a regression). Point entries win over rules. The
+   * matched entry is marked used, which is what lets {@link #unusedEntries()} report the rest.
    */
   public static @Nullable String accept(String label, ObservableOutcome current,
       ObservableOutcome baseline) {
@@ -639,9 +640,9 @@ public final class KnownDifferences {
   }
 
   /**
-   * The integer getter named by the trailing {@code |<accessor>} segment of a cell label (for a numeric
-   * cell, whether {@code numeric-edge|...} or {@code read|...|numeric|...}), or {@code null}. Callers pass a
-   * non-null value only for numeric cells, so this need not re-check the type.
+   * The integer getter named by the trailing {@code |<accessor>} segment of a cell label (for example
+   * {@code numeric-edge|...} or {@code read|...|numeric|...}), or {@code null}. Callers pass a non-null
+   * value only for numeric, float4 and float8 cells, so this need not re-check the type.
    */
   private static @Nullable IntGetter intGetterOf(String label) {
     String accessor = label.substring(label.lastIndexOf('|') + 1);

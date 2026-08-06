@@ -136,10 +136,10 @@ public final class Int4Codec implements PrimitiveBinaryEncoder, PrimitiveBinaryD
           data, 0, data.length(), Integer.MIN_VALUE, Integer.MAX_VALUE);
     } catch (NumberFormatException fast) {
       // The fast path rejects a leading '+', whitespace, or an out-of-range value; fall back to the
-      // String parser, which owns the parse and the error message. A String reaching here is copied
-      // out once; a borrowed view parses in place on the fast path.
-      // It also rejects a non-ASCII digit, which Integer.parseInt would otherwise accept, so screen for
-      // that here rather than on the fast path, where a well-formed value would pay for the scan.
+      // String parser, which owns the parse and the error message. A borrowed view is copied out
+      // here, but parses in place on the fast path.
+      // The fast path also rejects a non-ASCII digit, which Integer.parseInt would accept, so screen
+      // for that here rather than on the fast path, where a well-formed value would pay for the scan.
       String text = data.toString();
       try {
         NumberDecoders.requireAsciiLiteral(text);

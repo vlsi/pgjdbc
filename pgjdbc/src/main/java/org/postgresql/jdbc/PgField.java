@@ -12,7 +12,12 @@ import org.checkerframework.checker.nullness.qual.Nullable;
 
 /**
  * Represents a field in a PostgreSQL composite type.
- * Fields are loaded eagerly when a composite type is first accessed.
+ *
+ * <p>Instances are immutable. A field always carries its type as an OID, but carries a resolved
+ * {@link TypeDescriptor} only when whoever built it had one, so {@link #getType()} may be null and a
+ * caller that needs the descriptor resolves {@link #getTypeOid()} itself. A composite's fields are
+ * loaded eagerly when the type is first accessed; see
+ * {@link org.postgresql.core.TypeInfo#getFields(int)}.</p>
  */
 public final class PgField implements CompositeAttribute {
   private final String name;

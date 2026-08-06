@@ -8,11 +8,11 @@ package org.postgresql.jdbc;
 import java.sql.SQLException;
 
 /**
- * ThreadLocal counter for tracking nested encode/decode depth.
+ * Bounds how deeply codecs may recurse while encoding or decoding one value.
  *
- * <p>This class protects against stack overflow from deeply nested or
- * cyclically-referencing composite types. The maximum nesting depth is 64,
- * which should be sufficient for any reasonable use case.</p>
+ * <p>Deeply nested or cyclically-referencing composite types would otherwise overflow the stack.
+ * {@link #enter()} takes one of {@value #MAX_DEPTH} levels and refuses past that; {@link #exit()}
+ * gives the level back.</p>
  *
  * <p>Usage pattern:</p>
  * <pre>{@code
@@ -24,9 +24,10 @@ import java.sql.SQLException;
  * }
  * }</pre>
  *
- * <p><b>Thread Safety:</b> This class uses ThreadLocal, which is safe with
- * virtual threads due to the short lifespan of codec operations and proper
- * cleanup in finally blocks.</p>
+ * <p>The count is per thread, virtual threads included: a codec operation is short-lived, and every
+ * level it takes is released in a {@code finally}. Pairing every {@link #enter()} with an
+ * {@link #exit()} that way is what keeps it correct; a level leaked by an exception would shrink
+ * the budget of every later codec operation on that thread.</p>
  *
  * @since 42.8.0
  */
@@ -62,8 +63,6 @@ public final class CodecDepth {
 
   /**
    * Exits a nested encode/decode operation.
-   *
-   * <p>Call this in a finally block after {@link #enter()}.</p>
    */
   public static void exit() {
     int depth = DEPTH.get();

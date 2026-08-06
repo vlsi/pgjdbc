@@ -100,8 +100,8 @@ final class GenericArrayLeafCodec implements ArrayLeafCodec {
         return hasNulls;
       }
       if (leaf.getClass().isArray()) {
-        // Primitive leaf array (e.g. int[]/double[] bound to numeric[]): box each element and
-        // dispatch to the element codec. Primitive arrays never contain nulls.
+        // Primitive leaf array (e.g. int[]/double[] bound to numeric[]); a primitive array never
+        // contains nulls.
         int len = Array.getLength(leaf);
         for (int i = 0; i < len; i++) {
           Object element = Array.get(leaf, i);
@@ -171,8 +171,8 @@ final class GenericArrayLeafCodec implements ArrayLeafCodec {
         return;
       }
       if (leaf.getClass().isArray()) {
-        // Primitive leaf array (e.g. int[]/double[] bound to numeric[]): box each element. Primitive
-        // arrays never contain nulls.
+        // Primitive leaf array (e.g. int[]/double[] bound to numeric[]); a primitive array never
+        // contains nulls.
         int len = Array.getLength(leaf);
         for (int i = 0; i < len; i++) {
           if (i > 0) {

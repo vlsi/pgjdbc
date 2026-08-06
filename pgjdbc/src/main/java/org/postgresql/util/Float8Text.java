@@ -26,7 +26,8 @@ public final class Float8Text {
   }
 
   /**
-   * Appends {@code value} in PostgreSQL's {@code float8out} text form.
+   * Appends {@code value} in PostgreSQL's {@code float8out} text form. A non-finite value renders as
+   * {@code NaN}, {@code Infinity}, or {@code -Infinity}, and a negative zero as {@code -0}.
    *
    * @param sb the buffer to append to
    * @param value the value to append
