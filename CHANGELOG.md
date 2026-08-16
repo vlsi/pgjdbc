@@ -2,6 +2,12 @@
 Notable changes since version 42.0.0, read the complete [History of Changes](https://jdbc.postgresql.org/documentation/changelog.html).
 
 The format is based on [Keep a Changelog](http://keepachangelog.com/en/1.0.0/).
+## [Unreleased]
+
+### Added
+* feat: add the `maxLogMessageLength` connection property, which caps a single log message at 16384 characters by default and ends a shortened one with `...(truncated)`. A protocol trace logged at `FINEST` copies the query text and every bound value into one message, so a large batch or a large `bytea` could exhaust the heap while the driver built a message nobody reads in full. A bound value that no longer fits is now cut short, and an oversized `bytea` reports its size rather than being spelled out in hex. Set the property to `0` for the previous untruncated traces [Issue #995](https://github.com/pgjdbc/pgjdbc/issues/995)
+* feat: add the `maxLogParameterLength` connection property, which caps a single bound parameter in a `Bind` trace at 2048 characters by default and ends a shortened one with `...`. Without it one long value spends the whole trace on itself and hides every parameter after it, so the log shows the query but not the values it ran on. PostgreSQL bounds its own parameter logging the same way through `log_parameter_max_length`. Set the property to `0` to cap parameters only by `maxLogMessageLength` [Issue #995](https://github.com/pgjdbc/pgjdbc/issues/995)
+
 ## [42.7.13] (2026-07-06)
 
 ### Added

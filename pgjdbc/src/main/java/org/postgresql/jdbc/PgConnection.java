@@ -53,6 +53,7 @@ import org.postgresql.util.PGmoney;
 import org.postgresql.util.PGobject;
 import org.postgresql.util.PSQLException;
 import org.postgresql.util.PSQLState;
+import org.postgresql.util.internal.BoundedStringBuilder;
 import org.postgresql.xml.DefaultPGXmlFactoryFactory;
 import org.postgresql.xml.LegacyInsecurePGXmlFactoryFactory;
 import org.postgresql.xml.PGXmlFactoryFactory;
@@ -232,6 +233,12 @@ public class PgConnection implements BaseConnection {
   private final @Nullable String xmlFactoryFactoryClass;
   private @Nullable PGXmlFactoryFactory xmlFactoryFactory;
   private final ClassLoaderStrategy classLoaderStrategy;
+  /**
+   * Characters a single log message may reach before it is truncated. Column values reach the
+   * {@code FINEST} log unabridged otherwise, so the limit is what keeps logging from running the
+   * heap out (issue #995).
+   */
+  private final int maxLogMessageLength;
   private final LazyCleaner.Cleanable<IOException> cleanable;
   /* this is actually the database we are connected to */
   private @Nullable String catalog;
@@ -290,6 +297,8 @@ public class PgConnection implements BaseConnection {
     if (prepareThreshold == -1) {
       setForceBinary(true);
     }
+
+    this.maxLogMessageLength = PGProperty.MAX_LOG_MESSAGE_LENGTH.getInt(info);
 
     // Now make the initial connection and set up local state
     this.queryExecutor = ConnectionFactory.openConnection(hostSpecs, info);
@@ -778,7 +787,10 @@ public class PgConnection implements BaseConnection {
     PGobject obj = null;
 
     if (LOGGER.isLoggable(Level.FINEST)) {
-      LOGGER.log(Level.FINEST, "Constructing object from type={0} value=<{1}>", new Object[]{type, value});
+      BoundedStringBuilder message = new BoundedStringBuilder(maxLogMessageLength);
+      message.append("Constructing object from type=").append(type)
+          .append(" value=<").append(value).append(">");
+      LOGGER.log(Level.FINEST, message.toString());
     }
 
     try {

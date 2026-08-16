@@ -20,6 +20,7 @@ import org.postgresql.util.PGbytea;
 import org.postgresql.util.PSQLException;
 import org.postgresql.util.PSQLState;
 import org.postgresql.util.StreamWrapper;
+import org.postgresql.util.internal.BoundedStringBuilder;
 
 import org.checkerframework.checker.index.qual.NonNegative;
 import org.checkerframework.checker.index.qual.Positive;
@@ -44,6 +45,18 @@ class SimpleParameterList implements V3ParameterList {
 
   private static final byte TEXT = 0;
   private static final byte BINARY = 4;
+
+  /**
+   * Characters a hex-encoded {@code bytea} literal spends on decoration, that is {@code '\x} in
+   * front of the hex digits and {@code '::bytea} after them.
+   */
+  private static final int HEX_LITERAL_OVERHEAD = "'\\x".length() + "'::bytea".length();
+
+  /**
+   * Characters a {@code bytea} literal spends on decoration when the value already carries the
+   * hex-format prefix itself.
+   */
+  private static final int STRING_LITERAL_OVERHEAD = "'".length() + "'::bytea".length();
 
   SimpleParameterList(int paramCount, @Nullable TypeTransferModeRegistry transferModeRegistry) {
     this.paramValues = new Object[paramCount];
@@ -210,11 +223,17 @@ class SimpleParameterList implements V3ParameterList {
    * {}
    * </pre>
    **/
-  private static String quoteAndCast(String text, @Nullable String type, boolean standardConformingStrings) {
-    StringBuilder sb = new StringBuilder((text.length() + 10) / 10 * 11); // Add 10% for escaping.
+  private static void quoteAndCast(BoundedStringBuilder sb, String text, @Nullable String type,
+      boolean standardConformingStrings) {
     sb.append("('");
+    sb.ensureRoomFor((text.length() + 10) / 10 * 11); // Add 10% for escaping.
+    // Escaping at most doubles the input, so feeding the sink no more characters than it accepts
+    // keeps the intermediate string within twice the sink's budget.
+    int remaining = sb.remaining();
     try {
-      Utils.escapeLiteral(sb, text, standardConformingStrings);
+      Utils.appendEscapedLiteral(sb,
+          text.length() > remaining ? text.substring(0, remaining) : text,
+          standardConformingStrings);
     } catch (SQLException e) {
       // This should only happen if we have an embedded null
       // and there's not much we can do if we do hit one.
@@ -230,7 +249,75 @@ class SimpleParameterList implements V3ParameterList {
       sb.append(type);
     }
     sb.append(")");
-    return sb.toString();
+  }
+
+  /**
+   * Appends {@code value} as a {@code bytea} literal, or as its size when the literal does not fit
+   * into {@code sb}.
+   */
+  private static void appendByteaLiteral(BoundedStringBuilder sb, Object value,
+      SqlSerializationContext context) throws IOException {
+    if (appendSizeIfTooLong(sb, value, context)) {
+      return;
+    }
+    sb.append(PGbytea.toPGLiteral(value, context));
+  }
+
+  /**
+   * Reports the size of {@code value} in place of its {@code bytea} literal when the literal would
+   * not fit into {@code sb}, and returns whether it did so.
+   *
+   * <p>{@link PGbytea} builds the whole literal before any of it can reach {@code sb}, and two hex
+   * digits per byte make that literal outgrow the value itself, which is the
+   * {@code OutOfMemoryError} issue #995 reports. Measuring first keeps that intermediate within the
+   * budget. A hex prefix of a large value tells the reader nothing, and a literal cut in half would
+   * look like a complete one, so the size is what an oversized value contributes.</p>
+   */
+  private static boolean appendSizeIfTooLong(BoundedStringBuilder sb, Object value,
+      SqlSerializationContext context) {
+    if (sb.isUnbounded()) {
+      return false;
+    }
+    int remaining = sb.remaining();
+    if (value instanceof String) {
+      // A hex-format string is quoted as it stands, so the literal is as long as the string.
+      int length = ((String) value).length();
+      if ((long) length + STRING_LITERAL_OVERHEAD <= remaining) {
+        return false;
+      }
+      sb.append("<").append(length).append(" hex characters>");
+      return true;
+    }
+    int byteCount = renderedByteCount(value, context);
+    if (byteCount < 0 || 2L * byteCount + HEX_LITERAL_OVERHEAD <= remaining) {
+      return false;
+    }
+    sb.append("<").append(byteCount).append(" bytes>");
+    return true;
+  }
+
+  /**
+   * Returns the number of bytes {@link PGbytea#toPGLiteral(Object, SqlSerializationContext)}
+   * spells out for {@code value}, or {@code -1} when the literal stays short whatever the value
+   * holds.
+   */
+  private static int renderedByteCount(Object value, SqlSerializationContext context) {
+    if (value instanceof byte[]) {
+      return ((byte[]) value).length;
+    }
+    if (value instanceof StreamWrapper) {
+      StreamWrapper wrapper = (StreamWrapper) value;
+      if (wrapper.getBytes() == null && context.getIdempotent()) {
+        // An unread stream is rendered as "?" so that rendering does not consume it.
+        return -1;
+      }
+      return wrapper.getLength();
+    }
+    if (value instanceof ByteStreamWriter) {
+      return ((ByteStreamWriter) value).getLength();
+    }
+    // PGbytea rejects every other type, and the rejection message is short.
+    return -1;
   }
 
   private static <E extends Throwable> RuntimeException sneakyThrow(Throwable e) throws E {
@@ -244,12 +331,30 @@ class SimpleParameterList implements V3ParameterList {
 
   @Override
   public String toString(@Positive int index, SqlSerializationContext context) {
+    BoundedStringBuilder sb = new BoundedStringBuilder(BoundedStringBuilder.UNLIMITED);
+    appendTo(sb, index, context);
+    return sb.toString();
+  }
+
+  /**
+   * Appends the SQL literal for a parameter, keeping the output within the space {@code sb} has
+   * left.
+   *
+   * <p>A value that no longer fits is rendered as a prefix of its literal or as its size, so a
+   * bounded builder collects a parameter dump rather than SQL a server would accept. An unbounded
+   * builder receives the literal {@link #toString(int, SqlSerializationContext)} returns.</p>
+   *
+   * @param index 1-based parameter index
+   */
+  void appendTo(BoundedStringBuilder sb, @Positive int index, SqlSerializationContext context) {
     --index;
     Object paramValue = paramValues[index];
     if (paramValue == null) {
-      return "?";
+      sb.append("?");
+      return;
     } else if (paramValue == NULL_OBJECT) {
-      return "(NULL)";
+      sb.append("(NULL)");
+      return;
     }
     String textValue;
     String type;
@@ -258,13 +363,15 @@ class SimpleParameterList implements V3ParameterList {
         // A bytea value supplied as text in the escape format. Quote and cast it
         // like any other literal: quoteAndCast escapes quotes and backslashes per
         // standard_conforming_strings, which keeps the literal valid and safe from
-        // SQL injection. Hex-format strings (\x...) and byte[] values fall through
-        // to PGbytea.toPGLiteral below.
-        return quoteAndCast((String) paramValue, "bytea",
+        // SQL injection. Hex-format strings (\x...) and byte[] values are rendered
+        // by appendByteaLiteral instead.
+        quoteAndCast(sb, (String) paramValue, "bytea",
             context.getStandardConformingStrings());
+        return;
       }
       try {
-        return PGbytea.toPGLiteral(paramValue, context);
+        appendByteaLiteral(sb, paramValue, context);
+        return;
       } catch (Throwable e) {
         Throwable cause = e;
         if (!(cause instanceof IOException)) {
@@ -303,7 +410,8 @@ class SimpleParameterList implements V3ParameterList {
         case Oid.FLOAT4:
           float f = ByteConverter.float4((byte[]) paramValue, 0);
           if (Float.isNaN(f)) {
-            return "('NaN'::real)";
+            sb.append("('NaN'::real)");
+            return;
           }
           textValue = Float.toString(f);
           type = "real";
@@ -312,7 +420,8 @@ class SimpleParameterList implements V3ParameterList {
         case Oid.FLOAT8:
           double d = ByteConverter.float8((byte[]) paramValue, 0);
           if (Double.isNaN(d)) {
-            return "('NaN'::double precision)";
+            sb.append("('NaN'::double precision)");
+            return;
           }
           textValue = Double.toString(d);
           type = "double precision";
@@ -322,7 +431,8 @@ class SimpleParameterList implements V3ParameterList {
           Number n = ByteConverter.numeric((byte[]) paramValue);
           if (n instanceof Double) {
             assert ((Double) n).isNaN();
-            return "('NaN'::numeric)";
+            sb.append("('NaN'::numeric)");
+            return;
           }
           textValue = n.toString();
           type = "numeric";
@@ -349,7 +459,8 @@ class SimpleParameterList implements V3ParameterList {
           break;
 
         default:
-          return "?";
+          sb.append("?");
+          return;
       }
     } else {
       textValue = paramValue.toString();
@@ -406,7 +517,7 @@ class SimpleParameterList implements V3ParameterList {
           type = null;
       }
     }
-    return quoteAndCast(textValue, type, context.getStandardConformingStrings());
+    quoteAndCast(sb, textValue, type, context.getStandardConformingStrings());
   }
 
   @Override

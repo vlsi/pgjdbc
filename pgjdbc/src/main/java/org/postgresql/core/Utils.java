@@ -49,19 +49,23 @@ public class Utils {
     if (sbuf == null) {
       sbuf = new StringBuilder((value.length() + 10) / 10 * 11); // Add 10% for escaping.
     }
-    doAppendEscapedLiteral(sbuf, value, standardConformingStrings);
+    appendEscapedLiteral(sbuf, value, standardConformingStrings);
     return sbuf;
   }
 
   /**
-   * Common part for {@link #escapeLiteral(StringBuilder, String, boolean)}.
+   * Escapes the given literal {@code value} and appends it to {@code sbuf}.
    *
-   * @param sbuf Either StringBuffer or StringBuilder as we do not expect any IOException to be
-   *        thrown
+   * <p>The sink decides how much of the escaped value it keeps, so a sink with a limit can be
+   * handed a value of any size.</p>
+   *
+   * @param sbuf sink to append to; an {@link IOException} it throws is reported as
+   *        {@link PSQLState#UNEXPECTED_ERROR}
    * @param value value to append
    * @param standardConformingStrings if standard conforming strings should be used
+   * @throws SQLException if the string contains a {@code \0} character
    */
-  private static void doAppendEscapedLiteral(Appendable sbuf, String value,
+  public static void appendEscapedLiteral(Appendable sbuf, String value,
       boolean standardConformingStrings) throws SQLException {
     try {
       if (standardConformingStrings) {

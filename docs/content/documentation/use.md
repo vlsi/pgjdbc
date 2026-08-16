@@ -216,6 +216,23 @@ This property is no longer used by the driver and will be ignored. All logging c
 * **`loggerFile (`*String*`)`**\
 This property is no longer used by the driver and will be ignored. All logging configuration is handled by java.util.logging.
 
+* **`maxLogMessageLength (`*int*`)`** *Default `16384`*\
+Number of characters a log message that embeds query text or a data value may reach before the driver truncates it.
+The `FINEST` protocol traces copy the query text, every bound parameter value, and the server's error text into one
+message, so a large batch or a large value can exhaust the heap while the driver builds a message nobody reads in full.
+A truncated message ends with `...(truncated)`, a bound value that no longer fits is cut short, and an oversized
+`bytea` reports its size instead of being spelled out in hex. Set to `0`, or to any negative value, to log messages of
+any length.
+  Since: 42.7.14
+
+* **`maxLogParameterLength (`*int*`)`** *Default `2048`*\
+Number of characters a single bound parameter may reach in a `Bind` trace before the driver truncates it. Without the
+cap one long value spends the whole trace on itself and hides every parameter after it, so the log shows the query but
+not the values it ran on. PostgreSQL bounds its own parameter logging the same way through `log_parameter_max_length`.
+A truncated parameter ends with `...`, and `maxLogMessageLength` still bounds the trace as a whole. Set to `0`, or to
+any negative value, to cap parameters only by the message limit.
+  Since: 42.7.14
+
 * **`allowEncodingChanges (`*boolean*`)`** *Default `false`*\
 When using the V3 protocol the driver monitors changes in certain server configuration parameters that should not be touched by end users. 
 The `client_encoding` setting is set by the driver and should not be altered. If the driver detects a change it will abort the connection. 

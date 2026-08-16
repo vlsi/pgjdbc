@@ -106,6 +106,7 @@ import org.postgresql.util.PSQLException;
 import org.postgresql.util.PSQLState;
 import org.postgresql.util.PSQLWarning;
 import org.postgresql.util.ServerErrorMessage;
+import org.postgresql.util.internal.BoundedStringBuilder;
 import org.postgresql.util.internal.IntSet;
 import org.postgresql.util.internal.SourceStreamIOException;
 
@@ -233,6 +234,20 @@ public class QueryExecutorImpl extends QueryExecutorBase {
 
   private final AdaptiveFetchCache adaptiveFetchCache;
 
+  /**
+   * Characters a protocol trace message may reach before it is truncated. Query text and bound
+   * values are copied into the message, so the limit is what keeps logging from running the heap
+   * out (issue #995).
+   */
+  private final int maxLogMessageLength;
+
+  /**
+   * Characters a single bound parameter may reach inside a {@code Bind} trace. The cap keeps one
+   * long value from spending the whole message on itself, which would hide every parameter after
+   * it.
+   */
+  private final int maxLogParameterLength;
+
   private boolean inExtendedProtocol;
 
   @SuppressWarnings({"assignment", "argument",
@@ -243,6 +258,8 @@ public class QueryExecutorImpl extends QueryExecutorBase {
 
     long maxResultBuffer = pgStream.getMaxResultBuffer();
     this.adaptiveFetchCache = new AdaptiveFetchCache(maxResultBuffer, info);
+    this.maxLogMessageLength = PGProperty.MAX_LOG_MESSAGE_LENGTH.getInt(info);
+    this.maxLogParameterLength = PGProperty.MAX_LOG_PARAMETER_LENGTH.getInt(info);
 
     this.allowEncodingChanges = PGProperty.ALLOW_ENCODING_CHANGES.getBoolean(info);
     this.cleanupSavePoints = PGProperty.CLEANUP_SAVEPOINTS.getBoolean(info);
@@ -254,6 +271,13 @@ public class QueryExecutorImpl extends QueryExecutorBase {
   @Override
   public ProtocolVersion getProtocolVersion() {
     return protocolVersion;
+  }
+
+  /**
+   * Creates a builder for a protocol trace message, bounded by {@code maxLogMessageLength}.
+   */
+  private BoundedStringBuilder newLogMessage() {
+    return new BoundedStringBuilder(maxLogMessageLength);
   }
 
   /**
@@ -1788,10 +1812,11 @@ public class QueryExecutorImpl extends QueryExecutorBase {
     String nativeSql = query.getNativeSql();
 
     if (LOGGER.isLoggable(Level.FINEST)) {
-      StringBuilder sbuf = new StringBuilder(" FE=> Parse(stmt=" + statementName + ",query=\"");
+      BoundedStringBuilder sbuf = newLogMessage();
+      sbuf.append(" FE=> Parse(stmt=").append(statementName).append(",query=\"");
       sbuf.append(nativeSql);
       sbuf.append("\",oids={");
-      for (int i = 1; i <= params.getParameterCount(); i++) {
+      for (int i = 1; i <= params.getParameterCount() && !sbuf.isFull(); i++) {
         if (i != 1) {
           sbuf.append(",");
         }
@@ -1842,11 +1867,17 @@ public class QueryExecutorImpl extends QueryExecutorBase {
     byte[] encodedPortalName = portal == null ? null : portal.getEncodedPortalName();
 
     if (LOGGER.isLoggable(Level.FINEST)) {
-      StringBuilder sbuf = new StringBuilder(" FE=> Bind(stmt=" + statementName + ",portal=" + portal);
-      for (int i = 1; i <= params.getParameterCount(); i++) {
-        sbuf.append(",$").append(i).append("=<")
-            .append(params.toString(i, getStandardConformingStrings()))
-            .append(">,type=").append(Oid.toString(params.getTypeOID(i)));
+      BoundedStringBuilder sbuf = newLogMessage();
+      sbuf.append(" FE=> Bind(stmt=").append(statementName)
+          .append(",portal=").append(String.valueOf(portal));
+      SqlSerializationContext context =
+          SqlSerializationContext.of(getStandardConformingStrings(), true);
+      for (int i = 1; i <= params.getParameterCount() && !sbuf.isFull(); i++) {
+        sbuf.append(",$").append(i).append("=<");
+        sbuf.beginField(maxLogParameterLength);
+        params.appendTo(sbuf, i, context);
+        sbuf.endField();
+        sbuf.append(">,type=").append(Oid.toString(params.getTypeOID(i)));
       }
       sbuf.append(")");
       LOGGER.log(Level.FINEST, sbuf.toString());
@@ -2261,7 +2292,11 @@ public class QueryExecutorImpl extends QueryExecutorBase {
         params,
         SqlSerializationContext.of(getStandardConformingStrings(), false));
 
-    LOGGER.log(Level.FINEST, " FE=> SimpleQuery(query=\"{0}\")", nativeSql);
+    if (LOGGER.isLoggable(Level.FINEST)) {
+      BoundedStringBuilder sbuf = newLogMessage();
+      sbuf.append(" FE=> SimpleQuery(query=\"").append(nativeSql).append("\")");
+      LOGGER.log(Level.FINEST, sbuf.toString());
+    }
     Encoding encoding = pgStream.getEncoding();
 
     byte[] encoded = encoding.encode(nativeSql);
@@ -2970,7 +3005,12 @@ public class QueryExecutorImpl extends QueryExecutorBase {
     addNotification(new Notification(msg, pid, param));
 
     if (LOGGER.isLoggable(Level.FINEST)) {
-      LOGGER.log(Level.FINEST, " <=BE AsyncNotify({0},{1},{2})", new Object[]{pid, msg, param});
+      // The payload is whatever the notifying session passed to NOTIFY, so this message grows with
+      // application data the same way the outgoing traces do.
+      BoundedStringBuilder sbuf = newLogMessage();
+      sbuf.append(" <=BE AsyncNotify(").append(pid).append(",").append(msg).append(",")
+          .append(param).append(")");
+      LOGGER.log(Level.FINEST, sbuf.toString());
     }
   }
 
@@ -2987,7 +3027,13 @@ public class QueryExecutorImpl extends QueryExecutorBase {
     ServerErrorMessage errorMsg = new ServerErrorMessage(totalMessage);
 
     if (LOGGER.isLoggable(Level.FINEST)) {
-      LOGGER.log(Level.FINEST, " <=BE ErrorMessage({0})", errorMsg.toString());
+      // The server echoes the failing statement back in the error, so this message grows with the
+      // statement just as the outgoing traces do. What the limit bounds here is the record the
+      // handler receives: ServerErrorMessage renders one more copy of text the driver already
+      // holds, since receiveErrorString read the whole message off the wire before this point.
+      BoundedStringBuilder sbuf = newLogMessage();
+      sbuf.append(" <=BE ErrorMessage(").append(errorMsg.toString()).append(")");
+      LOGGER.log(Level.FINEST, sbuf.toString());
     }
 
     PSQLException error = new PSQLException(errorMsg, this.logServerErrorDetail);
@@ -3006,7 +3052,11 @@ public class QueryExecutorImpl extends QueryExecutorBase {
     ServerErrorMessage warnMsg = new ServerErrorMessage(pgStream.receiveString(nlen - 4));
 
     if (LOGGER.isLoggable(Level.FINEST)) {
-      LOGGER.log(Level.FINEST, " <=BE NoticeResponse({0})", warnMsg.toString());
+      // A RAISE NOTICE carries whatever text the server was asked to emit, so this message grows
+      // with that text the same way the error one does.
+      BoundedStringBuilder sbuf = newLogMessage();
+      sbuf.append(" <=BE NoticeResponse(").append(warnMsg.toString()).append(")");
+      LOGGER.log(Level.FINEST, sbuf.toString());
     }
 
     return new PSQLWarning(warnMsg);
@@ -3147,7 +3197,11 @@ public class QueryExecutorImpl extends QueryExecutorBase {
     final String value = pgStream.receiveCanonicalStringIfPresent();
 
     if (LOGGER.isLoggable(Level.FINEST)) {
-      LOGGER.log(Level.FINEST, " <=BE ParameterStatus({0} = {1})", new Object[]{name, value});
+      // PostgreSQL 18 reports search_path through GUC_REPORT, and the server caps neither the
+      // number of schemas an application may set nor the value it echoes back.
+      BoundedStringBuilder sbuf = newLogMessage();
+      sbuf.append(" <=BE ParameterStatus(").append(name).append(" = ").append(value).append(")");
+      LOGGER.log(Level.FINEST, sbuf.toString());
     }
 
     // if the name is empty, there is nothing to do

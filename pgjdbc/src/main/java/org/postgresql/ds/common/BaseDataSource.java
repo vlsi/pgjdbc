@@ -475,6 +475,38 @@ public abstract class BaseDataSource implements CommonDataSource, Referenceable 
   }
 
   /**
+   * @return maximum number of characters in a log message, 0 means no limit
+   * @see PGProperty#MAX_LOG_MESSAGE_LENGTH
+   */
+  public int getMaxLogMessageLength() {
+    return PGProperty.MAX_LOG_MESSAGE_LENGTH.getIntNoCheck(properties);
+  }
+
+  /**
+   * @param nchars maximum number of characters in a log message, 0 means no limit
+   * @see PGProperty#MAX_LOG_MESSAGE_LENGTH
+   */
+  public void setMaxLogMessageLength(int nchars) {
+    PGProperty.MAX_LOG_MESSAGE_LENGTH.set(properties, nchars);
+  }
+
+  /**
+   * @return maximum number of characters in a logged bind parameter, 0 means no limit
+   * @see PGProperty#MAX_LOG_PARAMETER_LENGTH
+   */
+  public int getMaxLogParameterLength() {
+    return PGProperty.MAX_LOG_PARAMETER_LENGTH.getIntNoCheck(properties);
+  }
+
+  /**
+   * @param nchars maximum number of characters in a logged bind parameter, 0 means no limit
+   * @see PGProperty#MAX_LOG_PARAMETER_LENGTH
+   */
+  public void setMaxLogParameterLength(int nchars) {
+    PGProperty.MAX_LOG_PARAMETER_LENGTH.set(properties, nchars);
+  }
+
+  /**
    * @param count prepare threshold
    * @see PGProperty#PREPARE_THRESHOLD
    */

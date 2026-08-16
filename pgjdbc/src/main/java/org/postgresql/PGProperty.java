@@ -465,6 +465,34 @@ public enum PGProperty {
       "When connections that are not explicitly closed are garbage collected, log the stacktrace from the opening of the connection to trace the leak source"),
 
   /**
+   * Number of characters a log message that embeds query text or a data value may reach before the
+   * driver truncates it, default is 16384, and any value of {@code 0} or less means no limit.
+   *
+   * <p>Such a message grows with the data the application sends or the server returns, so a large
+   * batch or a large value can exhaust the heap while the driver builds a message nobody reads in
+   * full. A truncated message ends with {@code ...(truncated)}, and a limit narrower than that
+   * marker leaves only as much of the marker as fits.</p>
+   */
+  MAX_LOG_MESSAGE_LENGTH(
+      "maxLogMessageLength",
+      "16384",
+      "Number of characters a log message that embeds query text or a data value may reach before the driver truncates it, 0 means no limit"),
+
+  /**
+   * Number of characters a single bound parameter may reach in a {@code Bind} trace before the
+   * driver truncates it, default is 2048, and any value of {@code 0} or less means no limit.
+   *
+   * <p>The cap keeps one long value from spending the whole trace on itself, so the trace still
+   * shows which values the other parameters carried. PostgreSQL bounds its own parameter logging
+   * the same way through {@code log_parameter_max_length}. A truncated parameter ends with
+   * {@code ...}, and {@link #MAX_LOG_MESSAGE_LENGTH} still bounds the trace as a whole.</p>
+   */
+  MAX_LOG_PARAMETER_LENGTH(
+      "maxLogParameterLength",
+      "2048",
+      "Number of characters a single bound parameter may reach in a Bind trace before the driver truncates it, 0 means no limit"),
+
+  /**
    * Specifies size of buffer during fetching result set. Can be specified as specified size or
    * percent of heap memory.
    */
