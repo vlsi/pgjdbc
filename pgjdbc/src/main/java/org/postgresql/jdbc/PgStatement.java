@@ -58,6 +58,14 @@ public class PgStatement implements Statement, BaseStatement {
   protected final ResourceLock lock = new ResourceLock();
   protected @Nullable ArrayList<Query> batchStatements;
   protected @Nullable ArrayList<@Nullable ParameterList> batchParameters;
+  /**
+   * Statements per batch entry, parallel to {@link #batchStatements}. Only
+   * {@link #addBatch(String)} fills it, since a {@code PreparedStatement} entry is always split and
+   * can be counted from the query itself.
+   */
+  protected @Nullable ArrayList<Integer> batchSubStatementCounts;
+  /** Sub-statement counts of the batch being executed, or null when the queries themselves say. */
+  private int @Nullable [] currentBatchSubStatementCounts;
   protected final int resultsettype; // the resultset type to return (ResultSet.TYPE_xxx)
   protected final int concurrency; // is it updateable or not? (ResultSet.CONCUR_xxx)
   private final int rsHoldability;
@@ -806,11 +814,56 @@ public class PgStatement implements Statement, BaseStatement {
       this.batchParameters = batchParameters = new ArrayList<@Nullable ParameterList>();
     }
 
+    ArrayList<Integer> batchSubStatementCounts = this.batchSubStatementCounts;
+    if (batchSubStatementCounts == null) {
+      this.batchSubStatementCounts = batchSubStatementCounts = new ArrayList<>();
+    }
+
     // Simple statements should not replace ?, ? with $1, $2
     boolean shouldUseParameterized = false;
     CachedQuery cachedQuery = connection.createQuery(sql, replaceProcessingEnabled, shouldUseParameterized);
     batchStatements.add(cachedQuery.query);
     batchParameters.add(null);
+    batchSubStatementCounts.add(countSubStatements(sql, cachedQuery));
+  }
+
+  /**
+   * Counts the statements the server will report a {@code CommandComplete} for.
+   *
+   * <p>Where the driver splits the SQL it also sends one Execute per statement, so the count is the
+   * number of sub-queries. {@link CachedQueryCreateAction} splits only when the query is
+   * parameterized or {@code preferQueryMode} is at least {@code EXTENDED}, and
+   * {@code addBatch(String)} is never parameterized, so below {@code EXTENDED} the entry travels as
+   * one {@code Query} message and the server decides how many statements it holds. That decision
+   * cannot be predicted here: the server counts a trailing comment as part of the statement before
+   * it, while {@link Parser} reports it as a statement of its own. A count that is wrong by one
+   * silently misaligns every later entry, so a multi-statement entry is refused in those modes
+   * rather than guessed at.</p>
+   *
+   * @param sql the SQL passed to {@code addBatch}
+   * @param cachedQuery the query built from it
+   * @return how many statements the entry holds, at least one
+   * @throws SQLException if the entry holds several statements and the mode cannot count them
+   */
+  private int countSubStatements(String sql, CachedQuery cachedQuery) throws SQLException {
+    Query[] subqueries = cachedQuery.query.getSubqueries();
+    if (subqueries != null) {
+      return subqueries.length;
+    }
+    if (connection.getPreferQueryMode().compareTo(PreferQueryMode.EXTENDED) >= 0) {
+      return 1;
+    }
+    int parsed = Parser.parseJdbcSql(sql,
+        connection.getStandardConformingStrings(),
+        false /* withParameters */, true /* splitStatements */,
+        false /* isBatchedReWriteConfigured */, false /* quoteReturningIdentifiers */).size();
+    if (parsed > 1) {
+      throw new PSQLException(
+          GT.tr("Multi-statement SQL in Statement.addBatch() needs preferQueryMode=extended. "
+              + "Batch each SQL statement separately, or raise preferQueryMode."),
+          PSQLState.NOT_IMPLEMENTED);
+    }
+    return 1;
   }
 
   @Override
@@ -821,6 +874,20 @@ public class PgStatement implements Statement, BaseStatement {
     if (batchParameters != null) {
       batchParameters.clear();
     }
+    if (batchSubStatementCounts != null) {
+      batchSubStatementCounts.clear();
+    }
+  }
+
+  /**
+   * Returns the sub-statement count of each entry in the batch being executed, or null when the
+   * queries carry that themselves.
+   *
+   * <p>{@code addBatch(String)} below {@code preferQueryMode=EXTENDED} holds unsplit multi-statement
+   * SQL, so {@link BatchResultHandler} cannot derive the count from the query.</p>
+   */
+  int @Nullable [] getBatchSubStatementCounts() {
+    return currentBatchSubStatementCounts;
   }
 
   protected BatchResultHandler createBatchHandler(Query[] queries,
@@ -839,8 +906,20 @@ public class PgStatement implements Statement, BaseStatement {
     // see http://shipilev.net/blog/2016/arrays-wisdom-ancients/
     Query[] queries = batchStatements.toArray(new Query[0]);
     @Nullable ParameterList[] parameterLists = batchParameters.toArray(new ParameterList[0]);
+    ArrayList<Integer> subStatementCounts = this.batchSubStatementCounts;
+    currentBatchSubStatementCounts = null;
+    if (subStatementCounts != null && subStatementCounts.size() == queries.length) {
+      int[] counts = new int[queries.length];
+      for (int i = 0; i < counts.length; i++) {
+        counts[i] = subStatementCounts.get(i);
+      }
+      currentBatchSubStatementCounts = counts;
+    }
     batchStatements.clear();
     batchParameters.clear();
+    if (subStatementCounts != null) {
+      subStatementCounts.clear();
+    }
 
     int flags;
 

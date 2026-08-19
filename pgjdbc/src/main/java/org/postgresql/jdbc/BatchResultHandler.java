@@ -40,6 +40,8 @@ public class BatchResultHandler extends ResultHandlerBase {
   private int resultIndex;
 
   private final Query[] queries;
+  /** Sub-statements each batch entry reports, parallel to {@link #queries}. */
+  private final int[] subStatementCounts;
   private final long[] longUpdateCounts;
   private final @Nullable ParameterList @Nullable [] parameterLists;
   private final boolean expectGeneratedKeys;
@@ -48,23 +50,82 @@ public class BatchResultHandler extends ResultHandlerBase {
   private final @Nullable List<List<Tuple>> allGeneratedRows;
   private @Nullable List<Tuple> latestGeneratedRows;
   private @Nullable PgResultSet latestGeneratedKeysRs;
+  /** Sub-statements of the entry at {@link #resultIndex} that have not reported yet. */
+  private int pendingSubResults;
+  /** Whether any sub-statement of the entry at {@link #resultIndex} changed rows. */
+  private boolean entryAffectedRows;
+  /** A sub-statement returned rows and its {@code CommandComplete} may still follow. */
+  private boolean rowsAwaitingStatus;
 
   BatchResultHandler(PgStatement pgStatement, Query[] queries,
       @Nullable ParameterList @Nullable [] parameterLists,
       boolean expectGeneratedKeys) {
     this.pgStatement = pgStatement;
     this.queries = queries;
+    int[] counts = pgStatement.getBatchSubStatementCounts();
+    this.subStatementCounts = counts != null ? counts : subStatementCountsOf(queries);
     this.parameterLists = parameterLists;
     this.longUpdateCounts = new long[queries.length];
     this.expectGeneratedKeys = expectGeneratedKeys;
     this.allGeneratedRows = !expectGeneratedKeys ? null : new ArrayList<List<Tuple>>();
   }
 
+  /**
+   * Counts the sub-statements of each entry the way the extended protocol splits them.
+   *
+   * <p>An entry that the extended protocol never split — {@code Statement.addBatch(String)} below
+   * {@code preferQueryMode=EXTENDED} — is counted by {@link PgStatement} at {@code addBatch} time
+   * instead, and reaches this class through
+   * {@link PgStatement#getBatchSubStatementCounts()}.</p>
+   */
+  private static int[] subStatementCountsOf(Query[] queries) {
+    int[] counts = new int[queries.length];
+    for (int i = 0; i < queries.length; i++) {
+      Query[] subqueries = queries[i].getSubqueries();
+      counts[i] = subqueries == null ? 1 : subqueries.length;
+    }
+    return counts;
+  }
+
+  /**
+   * Records one sub-statement's outcome and closes the batch entry once its last sub-statement has
+   * reported.
+   *
+   * <p>JDBC gives an entry one update count, so an entry of several statements cannot report a
+   * per-statement figure. Summing them would invent a number no statement produced. What survives
+   * is the distinction the caller can act on: an entry where nothing changed reports {@code 0},
+   * and one where something did reports {@link Statement#SUCCESS_NO_INFO}.</p>
+   *
+   * @param updateCount rows the sub-statement reported
+   */
+  private void completeSubResult(long updateCount) {
+    if (resultIndex >= queries.length) {
+      handleError(new PSQLException(GT.tr("Too many update results were returned."),
+          PSQLState.TOO_MANY_RESULTS));
+      return;
+    }
+    if (pendingSubResults == 0) {
+      pendingSubResults = subStatementCounts[resultIndex];
+      entryAffectedRows = false;
+    }
+    entryAffectedRows |= updateCount != 0;
+    if (--pendingSubResults > 0) {
+      return;
+    }
+    longUpdateCounts[resultIndex] = subStatementCounts[resultIndex] == 1 ? updateCount
+        : entryAffectedRows ? Statement.SUCCESS_NO_INFO : 0;
+    resultIndex++;
+  }
+
   @Override
   public void handleResultRows(Query fromQuery, Field[] fields, List<Tuple> tuples,
       @Nullable ResultCursor cursor) {
-    // If SELECT, then handleCommandStatus call would just be missing
-    resultIndex++;
+    // If SELECT, then handleCommandStatus call would just be missing, so the sub-statement that
+    // preceded this one is only known to be over now.
+    if (rowsAwaitingStatus) {
+      completeSubResult(0);
+    }
+    rowsAwaitingStatus = true;
     if (!expectGeneratedKeys) {
       // No rows expected -> just ignore rows
       return;
@@ -86,8 +147,6 @@ public class BatchResultHandler extends ResultHandlerBase {
   public void handleCommandStatus(String status, long updateCount, long insertOID) {
     List<Tuple> latestGeneratedRows = this.latestGeneratedRows;
     if (latestGeneratedRows != null) {
-      // We have DML. Decrease resultIndex that was just increased in handleResultRows
-      resultIndex--;
       // If exception thrown, no need to collect generated keys
       // Note: some generated keys might be secured in generatedKeys
       if (updateCount > 0 && (getException() == null || isProgressDurable())) {
@@ -98,16 +157,17 @@ public class BatchResultHandler extends ResultHandlerBase {
         }
       }
       this.latestGeneratedRows = null;
+      // This status belongs to the sub-statement that just returned rows.
+      rowsAwaitingStatus = false;
+    } else if (rowsAwaitingStatus) {
+      // The sub-statement that returned rows gets no status of its own, so it ends here, with the
+      // zero JDBC expects of a SELECT. This status belongs to the sub-statement after it.
+      rowsAwaitingStatus = false;
+      completeSubResult(0);
     }
 
-    if (resultIndex >= queries.length) {
-      handleError(new PSQLException(GT.tr("Too many update results were returned."),
-          PSQLState.TOO_MANY_RESULTS));
-      return;
-    }
     latestGeneratedKeysRs = null;
-
-    longUpdateCounts[resultIndex++] = updateCount;
+    completeSubResult(updateCount);
   }
 
   /**
@@ -184,6 +244,9 @@ public class BatchResultHandler extends ResultHandlerBase {
 
       super.handleError(batchException);
     }
+    // The failing entry is done, however many of its statements never reported.
+    pendingSubResults = 0;
+    rowsAwaitingStatus = false;
     resultIndex++;
 
     super.handleError(newError);
@@ -191,6 +254,10 @@ public class BatchResultHandler extends ResultHandlerBase {
 
   @Override
   public void handleCompletion() throws SQLException {
+    if (rowsAwaitingStatus) {
+      rowsAwaitingStatus = false;
+      completeSubResult(0);
+    }
     updateGeneratedKeys();
     SQLException batchException = getException();
     if (batchException != null) {

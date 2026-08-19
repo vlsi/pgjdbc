@@ -26,6 +26,7 @@ import org.junit.jupiter.params.ParameterizedClass;
 import org.junit.jupiter.params.provider.MethodSource;
 
 import java.sql.BatchUpdateException;
+import java.sql.Connection;
 import java.sql.DatabaseMetaData;
 import java.sql.Date;
 import java.sql.PreparedStatement;
@@ -289,67 +290,148 @@ public class BatchExecuteTest extends BaseTest4 {
 
   @Test
   public void testMultiStatementSqlInAddBatch() throws Exception {
-    // 42.7.13 refused multi-statement SQL here, and threw ClassCastException from the executor for
-    // the PreparedStatement form. Both were regressions against 42.7.12, where the outcome depends
-    // on whether a sub-statement returns rows: BatchResultHandler counts CommandComplete messages
-    // against one slot per entry, and a RETURNING sub-statement delivers rows instead of one.
-    String update = "UPDATE testbatch SET col1 = col1 + 1 WHERE pk = 1";
-
+    // A batch entry holding several statements gets one update count, because that is all JDBC
+    // gives it. The server reports one CommandComplete per statement, and those are collapsed onto
+    // the entry: SUCCESS_NO_INFO when any statement changed rows, since no single figure describes
+    // them all.
     try (Statement stmt = con.createStatement()) {
-      stmt.addBatch(update + "; " + update + " RETURNING col1");
-      assertArrayEquals(new int[]{1}, stmt.executeBatch(),
-          "a RETURNING sub-statement reports no update count, so the entry keeps the first one");
-    }
-    assertEquals(2, getCol1Value(), "both UPDATEs of the entry ran");
-
-    try (Statement stmt = con.createStatement()) {
-      stmt.addBatch(update + "; " + update);
-      SQLException sqle = assertThrows(SQLException.class, stmt::executeBatch,
-          "two CommandCompletes overrun the entry's single update-count slot");
-      assertEquals(PSQLState.TOO_MANY_RESULTS.getState(), sqle.getSQLState(),
-          "the overrun is reported as TOO_MANY_RESULTS, not as a refusal or ClassCastException");
+      stmt.addBatch("UPDATE testbatch SET col1 = col1 + 1 WHERE pk = 1;"
+          + " UPDATE testbatch SET col1 = col1 + 2 WHERE pk = 1");
+      assertArrayEquals(new int[]{Statement.SUCCESS_NO_INFO}, stmt.executeBatch(),
+          "a multi-statement entry gets one update count");
+      assertEquals(3, getCol1Value(), "both UPDATEs of the entry should have run");
     }
   }
 
   @Test
   public void testMultiStatementSqlInPreparedAddBatch() throws Exception {
-    // The shape from https://github.com/pgjdbc/pgjdbc/issues/4349. It reached the caller as
-    // ClassCastException from CompositeQuery to SimpleQuery, thrown before anything was sent, so
-    // neither statement ran. What it does instead is what 42.7.12 did, which differs by whether a
-    // sub-statement returns rows: BatchResultHandler counts CommandComplete messages against one
-    // slot per entry, and a RETURNING sub-statement delivers rows instead of a CommandComplete.
-    String update = "UPDATE testbatch SET col1 = col1 + 1 WHERE pk = 1";
-
-    try (PreparedStatement ps = con.prepareStatement(update + "; " + update + " RETURNING col1")) {
+    // The shape from https://github.com/pgjdbc/pgjdbc/issues/4349, which used to reach the caller
+    // as ClassCastException from CompositeQuery to SimpleQuery.
+    String sql = "UPDATE testbatch SET col1 = col1 + ? WHERE pk = 1;"
+        + " UPDATE testbatch SET col1 = col1 + ? WHERE pk = 1";
+    try (PreparedStatement ps = con.prepareStatement(sql)) {
+      ps.setInt(1, 1);
+      ps.setInt(2, 2);
       ps.addBatch();
-      assertArrayEquals(new int[]{1}, ps.executeBatch(),
-          "a RETURNING sub-statement reports no update count, so the entry keeps the first one");
-      assertEquals(2, getCol1Value(), "both UPDATEs of the entry ran");
-    }
-
-    try (PreparedStatement ps = con.prepareStatement(update + "; " + update)) {
-      ps.addBatch();
-      SQLException sqle = assertThrows(SQLException.class, ps::executeBatch,
-          "two CommandCompletes overrun the entry's single update-count slot");
-      assertEquals(PSQLState.TOO_MANY_RESULTS.getState(), sqle.getSQLState(),
-          "the overrun is reported as TOO_MANY_RESULTS, not as ClassCastException");
-    }
-
-    // The reported SQL binds a parameter in each statement, which routes through
-    // CompositeParameterList.getSubparams(). The cast this fixes happened before any of that, so
-    // the shape has to be exercised as reported rather than only in its parameterless form.
-    String bound = "UPDATE testbatch SET col1 = col1 + ? WHERE pk = 1";
-    // The overrun above still ran both of its statements before it was noticed, so read the value
-    // rather than predicting it.
-    int before = getCol1Value();
-    try (PreparedStatement ps = con.prepareStatement(bound + "; " + bound + " RETURNING col1")) {
       ps.setInt(1, 10);
       ps.setInt(2, 20);
       ps.addBatch();
-      assertArrayEquals(new int[]{1}, ps.executeBatch(), "the parameterized form behaves the same");
+      assertArrayEquals(new int[]{Statement.SUCCESS_NO_INFO, Statement.SUCCESS_NO_INFO},
+          ps.executeBatch(), "one update count per addBatch(), not per statement");
+      assertEquals(33, getCol1Value(), "all four UPDATEs should have run");
     }
-    assertEquals(before + 30, getCol1Value(),
-        "each bound UPDATE applied its own parameter: +10 and +20");
+  }
+
+  @Test
+  public void testMultiStatementBatchEntryThatChangedNothing() throws Exception {
+    // SUCCESS_NO_INFO says "something happened, the amount is not expressible". When every
+    // statement of the entry reports zero, the amount is expressible and is zero.
+    String sql = "UPDATE testbatch SET col1 = col1 + ? WHERE pk = 999;"
+        + " UPDATE testbatch SET col1 = col1 + ? WHERE pk = 999";
+    try (PreparedStatement ps = con.prepareStatement(sql)) {
+      ps.setInt(1, 1);
+      ps.setInt(2, 2);
+      ps.addBatch();
+      assertArrayEquals(new int[]{0}, ps.executeBatch(),
+          "an entry whose every statement matched no row reports 0, not SUCCESS_NO_INFO");
+      assertEquals(0, getCol1Value(), "no row matches pk = 999");
+    }
+  }
+
+  @Test
+  public void testUpdateCountPerEntryWhateverTheStatementCount() throws Exception {
+    // The invariant that matters: executeBatch() returns one count per addBatch() call, however
+    // the parser splits each entry. A trailing semicolon leaves one statement, a comment after it
+    // makes two, and neither may change the number of counts.
+    String update = "UPDATE testbatch SET col1 = col1 + 1 WHERE pk = 1";
+    // Every entry runs its UPDATE exactly once, whatever else the entry holds.
+    int expectedCol1 = SINGLE_STATEMENT_SUFFIXES.length + MULTI_STATEMENT_SUFFIXES.length;
+
+    try (Statement stmt = con.createStatement()) {
+      for (String suffix : SINGLE_STATEMENT_SUFFIXES) {
+        stmt.addBatch(update + suffix);
+      }
+      for (String suffix : MULTI_STATEMENT_SUFFIXES) {
+        stmt.addBatch(update + suffix);
+      }
+      int[] counts = stmt.executeBatch();
+      assertEquals(SINGLE_STATEMENT_SUFFIXES.length + MULTI_STATEMENT_SUFFIXES.length,
+          counts.length, "one update count per addBatch() call");
+      for (int i = 0; i < SINGLE_STATEMENT_SUFFIXES.length; i++) {
+        assertEquals(1, counts[i], "single-statement entry " + SINGLE_STATEMENT_SUFFIXES[i]);
+      }
+      for (int i = SINGLE_STATEMENT_SUFFIXES.length; i < counts.length; i++) {
+        assertEquals(Statement.SUCCESS_NO_INFO, counts[i],
+            "multi-statement entry " + MULTI_STATEMENT_SUFFIXES[i - SINGLE_STATEMENT_SUFFIXES.length]);
+      }
+    }
+    assertEquals(expectedCol1, getCol1Value(), "every entry should have run its UPDATE once");
+
+    // Below EXTENDED the entry travels as one Query message and the server decides how many
+    // statements it holds — it counts a trailing comment as part of the statement before it, where
+    // Parser reports a statement of its own. A wrong count would misalign every later entry, so a
+    // multi-statement entry is refused there instead of guessed at.
+    Properties props = new Properties();
+    PGProperty.PREFER_QUERY_MODE.set(props, "simple");
+    try (Connection simpleCon = TestUtil.openDB(props);
+         Statement stmt = simpleCon.createStatement()) {
+      for (String suffix : SINGLE_STATEMENT_SUFFIXES) {
+        stmt.addBatch(update + suffix);
+      }
+      for (String suffix : MULTI_STATEMENT_SUFFIXES) {
+        SQLException sqle = assertThrows(SQLException.class, () -> stmt.addBatch(update + suffix),
+            "addBatch() of " + update + suffix + " below preferQueryMode=extended");
+        assertEquals(PSQLState.NOT_IMPLEMENTED.getState(), sqle.getSQLState(),
+            "SQLState of " + update + suffix);
+      }
+      stmt.clearBatch();
+    }
+  }
+
+  /** Suffixes that leave the SQL a single statement: a bare semicolon does not split it. */
+  private static final String[] SINGLE_STATEMENT_SUFFIXES = {"", ";", "; ", ";\n", ";;"};
+
+  /**
+   * Suffixes that turn the SQL into more than one statement. The first two are the surprise: a
+   * comment after the final semicolon parses as a statement of its own.
+   */
+  private static final String[] MULTI_STATEMENT_SUFFIXES =
+      {"; -- trailing", ";\n/* c */", "; SELECT 1"};
+
+
+  @Test
+  public void testRefusedEntryLeavesTheRestOfTheBatchRunnable() throws Exception {
+    // The javadoc and the release note both promise that a refused entry is kept out of the batch.
+    // That is only observable when the batch survives the refusal and is then executed: the
+    // accepted entries must run and the refused one must not. Both orders are exercised, because a
+    // refusal on the very first addBatch() runs the guard before the lazy init of batchStatements
+    // and batchParameters, and a refusal after one has been added runs it after.
+    String update = "UPDATE testbatch SET col1 = col1 + 1 WHERE pk = 1";
+    String multi = update + "; " + update;
+
+    try (Statement stmt = con.createStatement()) {
+      stmt.addBatch(update);
+      assertRefused(stmt, multi);
+      stmt.addBatch(update);
+      assertArrayEquals(new int[]{1, 1}, stmt.executeBatch(),
+          "the two accepted entries run, the refused one never entered the batch");
+    }
+    assertEquals(2, getCol1Value(), "the refused entry must not have added its two updates");
+
+    try (Statement stmt = con.createStatement()) {
+      assertRefused(stmt, multi);
+      stmt.addBatch(update);
+      assertArrayEquals(new int[]{1}, stmt.executeBatch(),
+          "a batch refused on its first entry still accepts and runs the next one");
+    }
+    assertEquals(3, getCol1Value(), "only the accepted entry of the second batch ran");
+  }
+
+  private static void assertRefused(Statement stmt, String sql) {
+    SQLException sqle = assertThrows(SQLException.class, () -> stmt.addBatch(sql),
+        "addBatch() of " + sql);
+    assertEquals(PSQLState.NOT_IMPLEMENTED.getState(), sqle.getSQLState(),
+        "SQLState of " + sql);
   }
 
   private int getCol1Value() throws SQLException {
