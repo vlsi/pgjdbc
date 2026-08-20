@@ -6,6 +6,7 @@
 package org.postgresql.core.v3;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.postgresql.test.util.PgWire.authenticationCleartextPassword;
@@ -13,10 +14,12 @@ import static org.postgresql.test.util.PgWire.concat;
 import static org.postgresql.test.util.PgWire.countFrontendMessages;
 import static org.postgresql.test.util.PgWire.int4;
 import static org.postgresql.test.util.PgWire.message;
+import static org.postgresql.test.util.PgWire.messageWithLength;
 import static org.postgresql.test.util.PgWire.successfulStartup;
 
 import org.postgresql.PGProperty;
 import org.postgresql.core.ConnectionFactory;
+import org.postgresql.core.PGStream;
 import org.postgresql.core.QueryExecutor;
 import org.postgresql.test.util.ScriptedSocketFactory;
 import org.postgresql.util.HostSpec;
@@ -131,8 +134,44 @@ class ConnectionFactoryHardeningTest {
   }
 
   @Test
+  void negotiateProtocolVersionRejectsMoreOptionsThanTheStartupPacketCarried() {
+    // The backend reports the options it did not recognise, so it cannot report more of them
+    // than the driver sent. The envelope alone allows one option per body byte, which under
+    // the message ceiling is millions of empty names, each one appended to the error text.
+    byte[] script = message('v', int4(PROTOCOL_3_0), int4(1000), new byte[1000]);
+
+    PSQLException thrown = assertConnectFails(script);
+
+    assertEquals(PSQLState.PROTOCOL_VIOLATION.getState(), thrown.getSQLState());
+    assertTrue(thrown.getMessage().contains("startup packet carried"),
+        "the failure should measure the count against what the driver sent: "
+            + thrown.getMessage());
+    assertTrue(thrown.getMessage().contains("1000"),
+        "the failure should quote the count it rejected: " + thrown.getMessage());
+  }
+
+  @Test
+  void negotiateProtocolVersionRejectsALengthOverTheCeiling() {
+    // Every unrecognised option is a GUC name the driver itself sent, so a well-formed message
+    // stays a few hundred bytes. A longer one must be rejected before any option C-string is
+    // scanned against its envelope.
+    byte[] script = messageWithLength('v', PGStream.MAX_NEGOTIATE_PROTOCOL_VERSION_SIZE + 1,
+        int4(PROTOCOL_3_0), int4(0));
+
+    PSQLException thrown = assertConnectFails(script);
+
+    Throwable cause = thrown.getCause();
+    assertNotNull(cause, "the connection failure should carry the rejection as its cause");
+    assertTrue(cause.getMessage().contains("NegotiateProtocolVersion"),
+        "the failure should name the message it rejected: " + cause.getMessage());
+    assertTrue(cause.getMessage().contains("cannot be relaxed"),
+        "nothing about this message varies with the workload, so the failure should not send "
+            + "the reader looking for a property: " + cause.getMessage());
+  }
+
+  @Test
   void negotiateProtocolVersionWithNoUnknownOptionsIsAccepted() throws Exception {
-    // The control the three cases above are measured against: a server that downgrades the
+    // The control the rejection cases are measured against: a server that downgrades the
     // protocol and recognises every option connects normally. Without it, a check that
     // rejected every NegotiateProtocolVersion would still pass them.
     QueryExecutor executor = connect(concat(negotiateProtocolVersion(0), successfulStartup()));

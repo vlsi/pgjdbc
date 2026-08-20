@@ -336,7 +336,7 @@ public class ConnectionFactoryImpl extends ConnectionFactory {
       sendStartupPacket(newStream, ProtocolVersion.fromMajorMinor(protocolMajor,protocolMinor), paramList);
 
       // Do authentication (until AuthenticationOk).
-      doAuthentication(newStream, hostSpec.getHost(), user, info);
+      doAuthentication(newStream, hostSpec.getHost(), user, info, paramList.size());
 
       return newStream;
     } catch (Exception e) {
@@ -815,7 +815,8 @@ public class ConnectionFactoryImpl extends ConnectionFactory {
     }
   }
 
-  private static void doAuthentication(PGStream pgStream, String host, String user, Properties info) throws IOException, SQLException {
+  private static void doAuthentication(PGStream pgStream, String host, String user,
+      Properties info, int startupParamCount) throws IOException, SQLException {
     // Now get the response from the backend, either an error message
     // or an authentication request
 
@@ -848,13 +849,25 @@ public class ConnectionFactoryImpl extends ConnectionFactory {
         switch (beresp) {
           case PgMessageType.NEGOTIATE_PROTOCOL_RESPONSE:  // Negotiate Protocol Version
             // NegotiateProtocolVersion: 4 (self) + 4 (protocol) + 4 (numOptions) + per-option C-strings
-            int negotiateMsgLen = pgStream.readMessageLength("NegotiateProtocolVersion", 12);
+            int negotiateMsgLen = pgStream.readPreAuthMessageLength(
+                "NegotiateProtocolVersion", 12, PGStream.MAX_NEGOTIATE_PROTOCOL_VERSION_SIZE);
             protocol = pgStream.receiveInteger4();
             int numOptionsNotRecognized = pgStream.receiveInteger4();
             if (numOptionsNotRecognized < 0) {
               throw pgStream.markBroken(new PSQLException(GT.tr(
                   "Protocol error. NegotiateProtocolVersion has negative option count {0}.",
                   String.valueOf(numOptionsNotRecognized)),
+                  PSQLState.PROTOCOL_VIOLATION));
+            }
+            // The backend reports the startup-packet options it did not recognise, so it
+            // cannot report more of them than the driver sent. The remaining-envelope check
+            // is the weaker of the two, since it admits one option per body byte: a million
+            // empty names still fit under MAX_NEGOTIATE_PROTOCOL_VERSION_SIZE, and reporting
+            // them costs work proportional to the count.
+            if (numOptionsNotRecognized > startupParamCount) {
+              throw pgStream.markBroken(new PSQLException(GT.tr(
+                  "Protocol error. NegotiateProtocolVersion reports {0} unrecognised options, but the startup packet carried {1}.",
+                  String.valueOf(numOptionsNotRecognized), String.valueOf(startupParamCount)),
                   PSQLState.PROTOCOL_VIOLATION));
             }
             // Each unrecognised option is at least a NUL byte; cap against the envelope.
@@ -867,12 +880,17 @@ public class ConnectionFactoryImpl extends ConnectionFactory {
             }
             if (numOptionsNotRecognized > 0) {
               // do not connect and throw an error
-              String errorMessage = "Protocol error, received invalid options: ";
+              StringBuilder errorMessage =
+                  new StringBuilder("Protocol error, received invalid options: ");
               for (int i = 0; i < numOptionsNotRecognized; i++) {
-                errorMessage += (i > 0 ? "," : "") + pgStream.receiveString();
+                if (i > 0) {
+                  errorMessage.append(',');
+                }
+                errorMessage.append(pgStream.receiveString());
               }
-              LOGGER.log(Level.FINEST, errorMessage);
-              throw pgStream.markBroken(new PSQLException(errorMessage, PSQLState.PROTOCOL_VIOLATION));
+              String failure = errorMessage.toString();
+              LOGGER.log(Level.FINEST, failure);
+              throw pgStream.markBroken(new PSQLException(failure, PSQLState.PROTOCOL_VIOLATION));
             }
             pgStream.endMessage();
             int major = protocol >> 16 & 0xff;
