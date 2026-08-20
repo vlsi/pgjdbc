@@ -388,25 +388,33 @@ public class VisibleBufferedInputStream extends InputStream {
 
   /**
    * Scans the length of the next null-terminated string from the stream, rejecting a scan
-   * that would consume more than {@code maxBytes} bytes without finding a NUL. This is used
-   * to prevent an unbounded scan (and unbounded buffer growth) on a desynced stream.
+   * that finds no NUL within {@code envelopeBudget} or {@code fieldCap} bytes, whichever is
+   * smaller. This is used to prevent an unbounded scan (and unbounded buffer growth) on a
+   * desynced stream.
    *
-   * @param maxBytes inclusive maximum number of bytes the scan is allowed to consume,
-   *                 including the trailing NUL
+   * <p>The scan holds every byte it has looked at, because the caller decodes the string
+   * straight out of the buffer, so the budget that trips first also caps how far the buffer
+   * grows before the failure.</p>
+   *
+   * @param envelopeBudget inclusive maximum the message envelope leaves for this string,
+   *                       including the trailing NUL
+   * @param fieldCap inclusive maximum for this one string, including the trailing NUL;
+   *                 enforced together with {@code envelopeBudget}, smaller first
    * @param packetName protocol message name; used only in the error message
    * @param messageLength declared total length (including the 4 length bytes) of the protocol
    *                      message currently being parsed; used only in the error message
    * @return the length of the next null-terminated string (including the trailing NUL)
    * @throws EOFException if the stream ends before a NUL is found
-   * @throws IOException if no NUL is found within {@code maxBytes}, or if reading fails
+   * @throws IOException if no NUL is found within either budget, or if reading fails
    */
-  public int scanCStringLength(int maxBytes, String packetName, int messageLength)
-      throws IOException {
-    if (maxBytes <= 0) {
+  public int scanCStringLength(int envelopeBudget, int fieldCap, String packetName,
+      int messageLength) throws IOException {
+    if (envelopeBudget <= 0) {
       throw new IOException(GT.tr(
           "Protocol error. Unexpected C-string in {0} message of {1} bytes (remaining budget: {2} bytes).",
-          packetName, String.valueOf(messageLength), String.valueOf(maxBytes)));
+          packetName, String.valueOf(messageLength), String.valueOf(envelopeBudget)));
     }
+    int maxBytes = Math.min(envelopeBudget, fieldCap);
     int scanned = 0;
     while (true) {
       // After readMore() the buffer may have been compacted (index reset to 0) or extended
@@ -420,9 +428,14 @@ public class VisibleBufferedInputStream extends InputStream {
         // the NUL, so a string whose terminator sits at maxBytes + 1 must be rejected even
         // though the scan found a NUL.
         if (scanned > maxBytes) {
+          if (fieldCap < envelopeBudget) {
+            throw new CStringCeilingException(GT.tr(
+                "Protocol error. C-string in {0} message of {1} bytes exceeds the pgjdbc ceiling of {2} bytes on a single C-string.",
+                packetName, String.valueOf(messageLength), String.valueOf(fieldCap)));
+          }
           throw new IOException(GT.tr(
               "Protocol error. C-string in {0} message of {1} bytes exceeds remaining budget of {2} bytes.",
-              packetName, String.valueOf(messageLength), String.valueOf(maxBytes)));
+              packetName, String.valueOf(messageLength), String.valueOf(envelopeBudget)));
         }
         if (buffer[pos++] == '\0') {
           return scanned;
@@ -431,6 +444,20 @@ public class VisibleBufferedInputStream extends InputStream {
       if (!readMore(STRING_SCAN_SPAN, true)) {
         throw new EOFException();
       }
+    }
+  }
+
+  /**
+   * Signals that a C-string hit the per-field ceiling rather than its message envelope. Only
+   * the ceiling answers to {@code -Dpgjdbc.protocolHardeningMode=disable}, so {@link PGStream}
+   * names that remedy for this failure and not for a spent envelope, and it tells the two
+   * apart by type rather than by matching on message text.
+   */
+  static class CStringCeilingException extends IOException {
+    private static final long serialVersionUID = 1L;
+
+    CStringCeilingException(String message) {
+      super(message);
     }
   }
 

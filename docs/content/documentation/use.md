@@ -96,11 +96,24 @@ To connect, you need to get a `Connection` instance from JDBC. To do this, you u
 ### System Properties
 `pgjdbc.config.cleanup.thread.ttl` (milliseconds, default: 30000). The driver has an internal cleanup thread which monitors and cleans up unclosed connections. This property sets the duration the cleanup thread will keep running if there is nothing to clean up.
 
-`pgjdbc.protocolHardeningMode` (`fail` | `disable`, default: `fail`). The driver bounds the length of every message the backend sends. Where the protocol itself fixes no maximum, the driver applies a ceiling of its own. A ceiling that varies with the workload is an ordinary connection property, listed under Connection Parameters below; `RowDescription`, `NegotiateProtocolVersion` and the pre-authentication token messages get a fixed ceiling instead, since none of them varies with the workload.
+`pgjdbc.protocolHardeningMode` (`fail` | `disable`, default: `fail`). Controls the message-length ceilings the driver applies where the v3 protocol fixes no maximum of its own. Under `fail`, a message over one of them closes the connection with `Protocol error. <message type> message has length N which exceeds the pgjdbc ceiling of M bytes.` Under `disable`, the driver skips them.
 
-This property is the escape hatch for those ceilings as a group: `fail` closes the connection when one is exceeded, `disable` skips them entirely. Raising the individual property is almost always the better answer, since it keeps the remaining ceilings in force; reach for `disable` only as a temporary workaround while a false positive is investigated, and please [file an issue](https://github.com/pgjdbc/pgjdbc/issues) when you do.
+Where the right ceiling depends on your workload, it is an ordinary connection property, listed under Connection Parameters below. Where it does not, the driver uses a fixed number:
 
-The ceilings that apply before authentication answer to their property but not to this one: `disable` does not switch them off, because the peer has proved nothing yet. Checks that catch a value no conforming backend can send — an envelope that disagrees with the bytes read, a negative count, a field that overruns its row — always close the connection too, and no configuration relaxes them. This property is read once when the driver class loads and applies to every connection in the JVM; it is deliberately not available in the JDBC URL, so that a connection string cannot be used to switch the checks off.
+| What is bounded | Default | Property that raises it | `disable` skips it |
+| --- | --- | --- | --- |
+| `CopyData`, including replication data | 64 MB (`DEFAULT_MAX_COPY_DATA_SIZE`, 64,000,000 bytes) | `maxCopyDataSize` | only while the property is unset |
+| `ErrorResponse`, `NoticeResponse`, `CommandComplete`, `ParameterStatus`, `NotificationResponse` | 64 MB (`DEFAULT_MAX_SERVER_TEXT_MESSAGE_SIZE`, 64,000,000 bytes) | `maxServerTextMessageSize` | yes, after authentication |
+| One NUL-terminated string inside a message | 1 MiB (`MAX_CSTRING_LENGTH`, 1,048,576 bytes) | — | yes, after authentication |
+| `RowDescription` | 8 MiB (`MAX_ROW_DESCRIPTION_SIZE`, 8,388,608 bytes) | — | no |
+| `NegotiateProtocolVersion` | 1 MiB (`MAX_NEGOTIATE_PROTOCOL_VERSION_SIZE`, 1,048,576 bytes) | — | no |
+| `AuthenticationRequest`, `AuthenticationGSSContinue` | 8008 bytes (`MAX_AUTHENTICATION_MESSAGE_SIZE`) | — | no |
+
+`disable` skips only the ceilings the last column marks. Raising the individual property is almost always the better answer, since it keeps the remaining ceilings in force. Reach for `disable` only as a temporary workaround while a false positive is investigated, and please [file an issue](https://github.com/pgjdbc/pgjdbc/issues) when you do.
+
+Some checks stay in force whatever the mode is. The `RowDescription` ceiling is one. PostgreSQL tops out near 133 KiB there (1664 columns), and 8 MiB clears even a fork that raises both the column limit and the identifier length. A message above that is a desynchronized stream rather than a wide query. The ceilings that apply before the server has authenticated are another, since at that point the peer has proved nothing. Last are the checks that catch a value no conforming backend can send: a message whose declared length disagrees with the bytes it contains, a negative field count, or a field that overruns its row. Any of these closes the connection, and no configuration relaxes them. `maxResultBuffer` is a memory cap rather than a protocol ceiling, and this property does not affect it either.
+
+The property is read once when the driver class loads and applies to every connection in the JVM. It is deliberately not available in the JDBC URL, so that a connection string cannot be used to switch the checks off.
 
 ### Connection Parameters
 

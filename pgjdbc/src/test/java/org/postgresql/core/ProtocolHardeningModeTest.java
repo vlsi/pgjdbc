@@ -36,6 +36,7 @@ import org.junit.jupiter.api.parallel.Isolated;
 import java.io.EOFException;
 import java.io.IOException;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.List;
 import java.util.logging.Handler;
 import java.util.logging.Level;
@@ -401,6 +402,81 @@ class ProtocolHardeningModeTest {
   }
 
   @Test
+  void cStringCeilingRejectsUnderFailAndIsLiftedUnderDisable() throws IOException {
+    // A ParameterStatus may declare up to maxServerTextMessageSize, but no single C-string
+    // inside it carries bulk data, so the per-string ceiling rejects the string before the
+    // envelope does. A GUC value is the one scanned field the server gives no length of its
+    // own, so DISABLE has to lift that ceiling back to the envelope the way it lifts the
+    // message ceilings.
+    int overCeiling = PGStream.MAX_CSTRING_LENGTH + 1;
+    byte[] value = new byte[overCeiling];
+    Arrays.fill(value, (byte) 'a');
+    // Body: the over-long value and its NUL, so the envelope is spent exactly and only the
+    // ceiling can reject it.
+    byte[] data = bodyWithLength(4 + overCeiling + 1, value, new byte[]{0});
+
+    PGStream failing = newStream(data);
+    failing.setProtocolHardeningMode(ProtocolHardeningMode.FAIL);
+    assertEquals(4 + overCeiling + 1, failing.readMessageLength("ParameterStatus", 6));
+
+    IOException thrown = assertThrows(IOException.class, failing::receiveString,
+        "A C-string over the ceiling must throw under FAIL");
+    assertTrue(thrown.getMessage().contains("pgjdbc ceiling"),
+        "Thrown message must name the ceiling as pgjdbc's own rather than as the "
+            + "envelope: " + thrown.getMessage());
+    assertTrue(thrown.getMessage().contains(String.valueOf(PGStream.MAX_CSTRING_LENGTH)),
+        "Thrown message must quote the ceiling it enforced: " + thrown.getMessage());
+    assertTrue(thrown.getMessage().contains(ProtocolHardeningMode.SYSTEM_PROPERTY),
+        "A ceiling the mode relaxes must name the escape hatch: " + thrown.getMessage());
+    assertTrue(failing.isClosed(),
+        "A ceiling violation must mark the stream broken under FAIL");
+
+    PGStream disabled = newStream(data);
+    disabled.setProtocolHardeningMode(ProtocolHardeningMode.DISABLE);
+    assertEquals(4 + overCeiling + 1, disabled.readMessageLength("ParameterStatus", 6));
+    assertEquals(overCeiling, disabled.receiveString().length(),
+        "DISABLE must lift the ceiling back to the remaining envelope");
+    assertFalse(disabled.isClosed(),
+        "A string the envelope still allows must not break the stream under DISABLE");
+  }
+
+  @Test
+  void cStringCeilingClearsEveryFieldThatReachesAScan() throws IOException {
+    // The ceiling is pgjdbc's own number, so it has to clear the largest field a conforming
+    // backend can send through a C-string scan. The widest of those is a NOTIFY payload.
+    int notifyPayloadMaxLength = 8000;
+    int nameDataLen = 64;
+
+    assertTrue(PGStream.MAX_CSTRING_LENGTH >= 100 * notifyPayloadMaxLength,
+        "The ceiling must stay at least 100x NOTIFY_PAYLOAD_MAX_LENGTH (" + notifyPayloadMaxLength
+            + " bytes), so that a fork raising the payload limit still fits, but it is "
+            + PGStream.MAX_CSTRING_LENGTH);
+    assertTrue(PGStream.MAX_CSTRING_LENGTH >= 1000 * nameDataLen,
+        "The ceiling must stay at least 1000x NAMEDATALEN (" + nameDataLen
+            + " bytes), so that a fork raising it still fits, but it is "
+            + PGStream.MAX_CSTRING_LENGTH);
+    assertTrue(PGStream.MAX_CSTRING_LENGTH < PGStream.DEFAULT_MAX_SERVER_TEXT_MESSAGE_SIZE,
+        "A ceiling at or above DEFAULT_MAX_SERVER_TEXT_MESSAGE_SIZE ("
+            + PGStream.DEFAULT_MAX_SERVER_TEXT_MESSAGE_SIZE + " bytes) would bound nothing");
+  }
+
+  @Test
+  void everyPreAuthenticationEnvelopeBoundsACStringOnItsOwn() {
+    // Before authentication the mode reaches nothing, so a C-string there must stay bounded
+    // whatever the mode says. That holds only while every ceiling applied before
+    // authentication sits at or below the per-string ceiling: the envelope then bounds the
+    // string on its own. These are the two such ceilings today, NegotiateProtocolVersion for
+    // its option names and AuthenticationRequest for the SASL mechanism list. Raising either
+    // past MAX_CSTRING_LENGTH, or adding a third above it, re-opens the gap.
+    assertTrue(PGStream.MAX_NEGOTIATE_PROTOCOL_VERSION_SIZE <= PGStream.MAX_CSTRING_LENGTH,
+        "NegotiateProtocolVersion may not open an envelope wider than a single C-string may "
+            + "be, but its ceiling is " + PGStream.MAX_NEGOTIATE_PROTOCOL_VERSION_SIZE);
+    assertTrue(PGStream.MAX_AUTHENTICATION_MESSAGE_SIZE <= PGStream.MAX_CSTRING_LENGTH,
+        "AuthenticationRequest may not open an envelope wider than a single C-string may be, "
+            + "but its ceiling is " + PGStream.MAX_AUTHENTICATION_MESSAGE_SIZE);
+  }
+
+  @Test
   void cStringEofMidScanMarksBroken() throws IOException {
     // Declare msgSize = 100 (so the scan budget is 96 bytes, well above the data
     // we feed) and provide a name that starts without a NUL and then truncates
@@ -413,8 +489,9 @@ class ProtocolHardeningModeTest {
     int len = pgStream.readMessageLength("ParameterStatus", 6);
     assertEquals(100, len);
 
-    assertThrows(IOException.class, pgStream::receiveString,
-        "C-string EOF mid-scan must throw");
+    assertThrows(EOFException.class, pgStream::receiveString,
+        "C-string EOF mid-scan must still throw EOFException, not the plain IOException the "
+            + "per-string ceiling branch throws");
     assertTrue(pgStream.isClosed(),
         "C-string EOF mid-scan must mark the stream broken at the throw site");
   }

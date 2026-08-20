@@ -99,6 +99,21 @@ public enum ProtocolHardeningMode {
   public static final String ISSUE_TRACKER_URL = "https://github.com/pgjdbc/pgjdbc/issues";
 
   /**
+   * Appends the escape hatch to a message for a ceiling no connection property raises, so the
+   * text still tells the reader what to do next. Prefer
+   * {@link #appendSilenceHint(String, String)} wherever a property exists, since raising the
+   * property keeps the remaining ceilings in force.
+   *
+   * @param baseMessage localised message the ceiling produced
+   */
+  public static String appendSilenceHint(String baseMessage) {
+    return baseMessage
+        + GT.tr(" Set -D{0}=disable to skip these ceilings altogether."
+            + " Please file a bug report at {1}.",
+            SYSTEM_PROPERTY, ISSUE_TRACKER_URL);
+  }
+
+  /**
    * Appends the hint naming the escape hatch, so whoever reads the exception knows the
    * ceiling is adjustable without reading the source.
    *

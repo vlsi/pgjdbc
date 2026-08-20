@@ -103,8 +103,31 @@ public class PGStream implements Closeable, Flushable {
    * driver just sent: every option in it is a parameter name the driver chose. Those are GUC
    * names, and a startup packet is a few hundred bytes, so 1 MiB is orders of magnitude over
    * anything reachable and does not vary with the workload.
+   *
+   * <p>Keep this ceiling at or below {@link #MAX_CSTRING_LENGTH}, and keep every other ceiling
+   * that applies before authentication there too. No mode lifts the per-string ceiling before
+   * the peer has authenticated, so a C-string stays bounded there only while the envelope
+   * around it is no wider than one string may be.
    */
   public static final int MAX_NEGOTIATE_PROTOCOL_VERSION_SIZE = 1 << 20;
+
+  /**
+   * Ceiling, in bytes including the trailing NUL, that pgjdbc applies to one NUL-terminated
+   * string inside a backend message. No connection property raises it: the widest field that
+   * reaches a string scan is a NOTIFY payload, which the backend caps at 8000 bytes.
+   * {@link ProtocolHardeningMode#DISABLE} raises it to {@link #MAX_MESSAGE_SIZE}, leaving the
+   * message envelope as the only bound, because a GUC value is the one scanned field the
+   * server gives no length of its own.
+   *
+   * <p>The envelope bounds the sum of a message's fields, but not how much the driver holds
+   * while it looks for the NUL of a single one: {@link #receiveString()} decodes straight out
+   * of the read buffer, so the scan cannot discard as it goes, and the buffer doubles until
+   * the scan runs out of budget. Without this ceiling a message that declares a size near its
+   * own ceiling and sends no NUL would grow the buffer past that ceiling before being
+   * rejected; with it the buffer stops at 2 MiB. ErrorResponse and NoticeResponse are
+   * unaffected, since their bodies are read as a block rather than scanned.
+   */
+  public static final int MAX_CSTRING_LENGTH = 1 << 20;
 
   /**
    * Ceiling pgjdbc applies to AuthenticationRequest and AuthenticationGSSContinue: 8 bytes of
@@ -1195,10 +1218,13 @@ public class PGStream implements Closeable, Flushable {
   /**
    * Scans the next NUL-terminated C-string and returns its length (including the trailing
    * NUL). The scan is always bounded so a desynced stream cannot drive an unbounded
-   * buffer-grow-and-read loop. The bound is the remaining envelope of the message
-   * currently being parsed ({@link #readMessageLength(String, int) readMessageLength}'s
-   * declared length minus everything already consumed) when one is tracked, otherwise
-   * {@link #MAX_MESSAGE_SIZE}.
+   * buffer-grow-and-read loop. Two bounds apply and the smaller one wins. The first is the
+   * remaining envelope of the message being parsed
+   * ({@link #readMessageLength(String, int) readMessageLength}'s declared length minus
+   * everything already consumed), or {@link #MAX_MESSAGE_SIZE} when no envelope is tracked.
+   * The second is {@link #MAX_CSTRING_LENGTH} on the string itself, which
+   * {@link ProtocolHardeningMode#DISABLE} raises to {@link #MAX_MESSAGE_SIZE} where an
+   * envelope is tracked.
    */
   private int scanBoundedCStringLength() throws IOException {
     // VisibleBufferedInputStream.scanCStringLength throws plain IOException on two
@@ -1208,10 +1234,16 @@ public class PGStream implements Closeable, Flushable {
     // of, so route any IOException through markBroken to set the broken flag at the
     // throw point. Without the wrap, isClosed() would still return false until the
     // upstream caller eventually invoked abort().
+
+    // DISABLE lifts this ceiling like any other pgjdbc ceiling, but only where an envelope
+    // bounds the scan in its place.
+    boolean modeReaches = messageEndPosition >= 0;
+    int fieldCap = modeReaches && protocolHardeningMode == ProtocolHardeningMode.DISABLE
+        ? MAX_MESSAGE_SIZE : MAX_CSTRING_LENGTH;
     try {
       if (messageEndPosition < 0) {
         return pgInput.scanCStringLength(
-            MAX_MESSAGE_SIZE, "<no envelope>", MAX_MESSAGE_SIZE);
+            MAX_MESSAGE_SIZE, fieldCap, "<no envelope>", MAX_MESSAGE_SIZE);
       }
       long remaining = messageEndPosition - pgInput.getPosition();
       if (remaining <= 0) {
@@ -1221,7 +1253,14 @@ public class PGStream implements Closeable, Flushable {
       }
       int budget = (int) Math.min(remaining, MAX_MESSAGE_SIZE);
       return pgInput.scanCStringLength(
-          budget, currentMessageNameForError(), currentMessageLength);
+          budget, fieldCap, currentMessageNameForError(), currentMessageLength);
+    } catch (VisibleBufferedInputStream.CStringCeilingException e) {
+      // Name the escape hatch only where it would have helped. Where the mode does not reach
+      // this ceiling, pointing at it misdirects whoever triages the failure, and under DISABLE
+      // it would tell them to set the value they already set.
+      throw markBroken(modeReaches
+          ? new IOException(ProtocolHardeningMode.appendSilenceHint(e.getMessage()))
+          : e);
     } catch (IOException e) {
       throw markBroken(e);
     }

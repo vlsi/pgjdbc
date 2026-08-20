@@ -15,10 +15,11 @@ import java.io.ByteArrayInputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.nio.charset.StandardCharsets;
+import java.util.Arrays;
 
 /**
- * Fails when {@link VisibleBufferedInputStream#scanCStringLength(int, String, int)} misjudges
- * a C-string against its budget, or when {@link VisibleBufferedInputStream#getPosition()}
+ * Fails when {@link VisibleBufferedInputStream#scanCStringLength(int, int, String, int)} misjudges
+ * a C-string against either of its two budgets, or when {@link VisibleBufferedInputStream#getPosition()}
  * loses count of the bytes consumed.
  *
  * <p>Both have to hold while the wrapped stream hands over fewer bytes than were asked for,
@@ -29,7 +30,7 @@ class VisibleBufferedInputStreamTest {
 
   /**
    * Wraps a byte array but only returns up to {@code chunk} bytes per {@code read()} call,
-   * forcing {@link VisibleBufferedInputStream#scanCStringLength(int, String, int)} to invoke
+   * forcing {@link VisibleBufferedInputStream#scanCStringLength(int, int, String, int)} to invoke
    * {@code readMore()} mid-scan even when the underlying data already contains the NUL.
    */
   private static InputStream chunkedStream(byte[] data, int chunk) {
@@ -52,13 +53,38 @@ class VisibleBufferedInputStreamTest {
     // readMore() multiple times mid-scan, exercising the resume-from-scanned path.
     VisibleBufferedInputStream in = new VisibleBufferedInputStream(chunkedStream(body, 5), 8);
 
-    int nameLen = in.scanCStringLength(30, "ParameterStatus", 34);
+    int nameLen = in.scanCStringLength(30, PGStream.MAX_CSTRING_LENGTH, "ParameterStatus", 34);
     assertEquals(17, nameLen, "application_name + NUL");
     in.skip(nameLen);
 
-    int valueLen = in.scanCStringLength(30, "ParameterStatus", 34);
+    int valueLen = in.scanCStringLength(30, PGStream.MAX_CSTRING_LENGTH, "ParameterStatus", 34);
     assertEquals(13, valueLen, "Driver Tests + NUL");
     in.skip(valueLen);
+  }
+
+  @Test
+  void scanCStringLengthStopsAtTheFieldCapBeforeTheEnvelope() throws IOException {
+    // The scan holds every byte it has looked at, because the caller decodes the string
+    // straight out of the buffer. An envelope-sized budget therefore sizes the buffer as
+    // well: it doubles until the scan runs out of budget. The field cap is what keeps that
+    // growth away from the envelope.
+    byte[] noNul = new byte[64 * 1024];
+    Arrays.fill(noNul, (byte) 'a');
+    VisibleBufferedInputStream in =
+        new VisibleBufferedInputStream(new ByteArrayInputStream(noNul), 8);
+
+    IOException thrown = assertThrows(IOException.class,
+        () -> in.scanCStringLength(noNul.length, 64, "ParameterStatus", noNul.length + 4));
+
+    assertTrue(thrown.getMessage().contains("pgjdbc ceiling"),
+        "the failure must name the cap as pgjdbc's own rather than read as an envelope "
+            + "figure: " + thrown.getMessage());
+    assertTrue(thrown.getMessage().contains("64"),
+        "the failure must quote the cap it enforced: " + thrown.getMessage());
+    assertTrue(in.getBuffer().length <= 4096,
+        "a 64-byte cap trips inside the first 1024-byte read span, so the buffer must not "
+            + "double towards the 64 KiB envelope, but it reached " + in.getBuffer().length
+            + " bytes");
   }
 
   @Test
@@ -68,7 +94,7 @@ class VisibleBufferedInputStreamTest {
     assertEquals(32, data.length);
     VisibleBufferedInputStream in = new VisibleBufferedInputStream(new ByteArrayInputStream(data), 64);
     IOException e = assertThrows(IOException.class,
-        () -> in.scanCStringLength(30, "ParameterStatus", 34));
+        () -> in.scanCStringLength(30, PGStream.MAX_CSTRING_LENGTH, "ParameterStatus", 34));
     // The error must surface both the packet name and the declared message length so an
     // operator triaging a desync can correlate it with a wire capture.
     String msg = e.getMessage();
@@ -87,7 +113,7 @@ class VisibleBufferedInputStreamTest {
     assertEquals(31, data.length);
     VisibleBufferedInputStream in = new VisibleBufferedInputStream(new ByteArrayInputStream(data), 64);
     IOException e = assertThrows(IOException.class,
-        () -> in.scanCStringLength(30, "ParameterStatus", 34));
+        () -> in.scanCStringLength(30, PGStream.MAX_CSTRING_LENGTH, "ParameterStatus", 34));
     assertTrue(e.getMessage().contains("30"), e.getMessage());
   }
 
@@ -97,7 +123,7 @@ class VisibleBufferedInputStreamTest {
     byte[] data = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaa\0".getBytes(StandardCharsets.US_ASCII);
     assertEquals(30, data.length);
     VisibleBufferedInputStream in = new VisibleBufferedInputStream(new ByteArrayInputStream(data), 64);
-    assertEquals(30, in.scanCStringLength(30, "ParameterStatus", 34));
+    assertEquals(30, in.scanCStringLength(30, PGStream.MAX_CSTRING_LENGTH, "ParameterStatus", 34));
   }
 
   @Test
@@ -108,7 +134,7 @@ class VisibleBufferedInputStreamTest {
     assertEquals(41, data.length);
     VisibleBufferedInputStream in = new VisibleBufferedInputStream(chunkedStream(data, 3), 16);
     assertThrows(IOException.class,
-        () -> in.scanCStringLength(30, "ParameterStatus", 34));
+        () -> in.scanCStringLength(30, PGStream.MAX_CSTRING_LENGTH, "ParameterStatus", 34));
   }
 
   @Test
@@ -169,7 +195,7 @@ class VisibleBufferedInputStreamTest {
     VisibleBufferedInputStream in =
         new VisibleBufferedInputStream(chunkedStream(data, 3), 8);
 
-    int nameLen = in.scanCStringLength(11, "Test", 11);
+    int nameLen = in.scanCStringLength(11, PGStream.MAX_CSTRING_LENGTH, "Test", 11);
     assertEquals(5, nameLen);
     assertEquals(0L, in.getPosition(), "scanCStringLength must not advance the cursor");
     in.skip(nameLen);
