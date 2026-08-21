@@ -348,21 +348,24 @@ public class BatchExecuteTest extends BaseTest4 {
     int expectedCol1 = SINGLE_STATEMENT_SUFFIXES.length + MULTI_STATEMENT_SUFFIXES.length;
 
     try (Statement stmt = con.createStatement()) {
-      for (String suffix : SINGLE_STATEMENT_SUFFIXES) {
+      // Multi-statement entries go first, so the one ending in SELECT is followed by another entry
+      // and its deferred close happens mid-batch rather than only at handleCompletion.
+      for (String suffix : MULTI_STATEMENT_SUFFIXES) {
         stmt.addBatch(update + suffix);
       }
-      for (String suffix : MULTI_STATEMENT_SUFFIXES) {
+      for (String suffix : SINGLE_STATEMENT_SUFFIXES) {
         stmt.addBatch(update + suffix);
       }
       int[] counts = stmt.executeBatch();
       assertEquals(SINGLE_STATEMENT_SUFFIXES.length + MULTI_STATEMENT_SUFFIXES.length,
           counts.length, "one update count per addBatch() call");
-      for (int i = 0; i < SINGLE_STATEMENT_SUFFIXES.length; i++) {
-        assertEquals(1, counts[i], "single-statement entry " + SINGLE_STATEMENT_SUFFIXES[i]);
-      }
-      for (int i = SINGLE_STATEMENT_SUFFIXES.length; i < counts.length; i++) {
+      for (int i = 0; i < MULTI_STATEMENT_SUFFIXES.length; i++) {
         assertEquals(Statement.SUCCESS_NO_INFO, counts[i],
-            "multi-statement entry " + MULTI_STATEMENT_SUFFIXES[i - SINGLE_STATEMENT_SUFFIXES.length]);
+            "multi-statement entry " + MULTI_STATEMENT_SUFFIXES[i]);
+      }
+      for (int i = MULTI_STATEMENT_SUFFIXES.length; i < counts.length; i++) {
+        assertEquals(1, counts[i],
+            "single-statement entry " + SINGLE_STATEMENT_SUFFIXES[i - MULTI_STATEMENT_SUFFIXES.length]);
       }
     }
     assertEquals(expectedCol1, getCol1Value(), "every entry should have run its UPDATE once");
@@ -375,16 +378,130 @@ public class BatchExecuteTest extends BaseTest4 {
     PGProperty.PREFER_QUERY_MODE.set(props, "simple");
     try (Connection simpleCon = TestUtil.openDB(props);
          Statement stmt = simpleCon.createStatement()) {
+      // testbatch is a temp table of the outer connection, so this one needs its own.
+      TestUtil.execute(simpleCon, "CREATE TEMP TABLE simplebatch (pk int, col1 int)");
+      TestUtil.execute(simpleCon, "INSERT INTO simplebatch VALUES (1, 0)");
+      String simpleUpdate = "UPDATE simplebatch SET col1 = col1 + 1 WHERE pk = 1";
       for (String suffix : SINGLE_STATEMENT_SUFFIXES) {
-        stmt.addBatch(update + suffix);
+        stmt.addBatch(simpleUpdate + suffix);
       }
       for (String suffix : MULTI_STATEMENT_SUFFIXES) {
-        SQLException sqle = assertThrows(SQLException.class, () -> stmt.addBatch(update + suffix),
-            "addBatch() of " + update + suffix + " below preferQueryMode=extended");
+        SQLException sqle =
+            assertThrows(SQLException.class, () -> stmt.addBatch(simpleUpdate + suffix),
+                "addBatch() of " + simpleUpdate + suffix + " below preferQueryMode=extended");
         assertEquals(PSQLState.NOT_IMPLEMENTED.getState(), sqle.getSQLState(),
-            "SQLState of " + update + suffix);
+            "SQLState of " + simpleUpdate + suffix);
       }
-      stmt.clearBatch();
+      // The refused entries must be out of the batch, not merely unreported: executing what is
+      // left has to run the accepted entries and nothing else.
+      assertEquals(SINGLE_STATEMENT_SUFFIXES.length, stmt.executeBatch().length,
+          "a refused addBatch() must leave the batch holding only the accepted entries");
+      try (ResultSet rs = stmt.executeQuery("SELECT col1 FROM simplebatch WHERE pk = 1")) {
+        assertTrue(rs.next());
+        assertEquals(SINGLE_STATEMENT_SUFFIXES.length, rs.getInt(1),
+            "the refused entries must not have run");
+      }
+    }
+  }
+
+  @Test
+  public void testMultiStatementEntryFailingPartWay() throws Exception {
+    // An entry that failed part-way fails as a whole, even though its first statement had run.
+    // A successful entry goes first so the assertion cannot be satisfied by the blanket
+    // EXECUTE_FAILED fill alone: the failure has to be charged to entry 1.
+    try (Statement stmt = con.createStatement()) {
+      stmt.addBatch("UPDATE testbatch SET col1 = col1 + 1 WHERE pk = 1");
+      stmt.addBatch("UPDATE testbatch SET col1 = col1 + 2 WHERE pk = 1; SELECT 1/0");
+      BatchUpdateException bue =
+          assertThrows(BatchUpdateException.class, stmt::executeBatch, "SELECT 1/0 should fail");
+      assertEquals(2, bue.getUpdateCounts().length, "one update count per entry");
+      assertEquals(Statement.EXECUTE_FAILED, bue.getUpdateCounts()[1],
+          "the entry that failed part-way fails as a whole");
+      assertTrue(bue.getMessage().contains("col1 + 2"),
+          "the failure belongs to entry 1: " + bue.getMessage());
+      assertFalse(bue.getMessage().contains("col1 + 1 WHERE pk = 1 "),
+          "the failure must not be charged to entry 0: " + bue.getMessage());
+    }
+  }
+
+  @Test
+  public void testMultiStatementEntryWithACommandThatReportsNoRowCount() throws Exception {
+    // TRUNCATE, DROP and the DDL family arrive with no row count, which the parser surfaces as
+    // zero. Reading that as "changed nothing" would let an entry that truncated a table report 0.
+    try (Statement stmt = con.createStatement()) {
+      stmt.addBatch("TRUNCATE testbatch; UPDATE testbatch SET col1 = col1 WHERE pk = 999");
+      assertArrayEquals(new int[]{Statement.SUCCESS_NO_INFO}, stmt.executeBatch(),
+          "an entry holding TRUNCATE must not report 0");
+      try (ResultSet rs = stmt.executeQuery("SELECT count(*) FROM testbatch")) {
+        assertTrue(rs.next());
+        assertEquals(0, rs.getInt(1), "TRUNCATE should have emptied the table");
+      }
+    }
+  }
+
+  @Test
+  public void testMultiStatementEntryWritingRowsUnderASelectTag() throws Exception {
+    // CREATE TABLE AS, SELECT INTO and CREATE MATERIALIZED VIEW report their row count under a
+    // "SELECT n" command tag while writing rows, so a tag-based reading of "did it change
+    // anything" gets them backwards and the entry claims it changed nothing.
+    try (Statement stmt = con.createStatement()) {
+      stmt.addBatch("CREATE TEMP TABLE batchctas AS SELECT * FROM testbatch;"
+          + " UPDATE testbatch SET col1 = col1 WHERE pk = 999");
+      assertArrayEquals(new int[]{Statement.SUCCESS_NO_INFO}, stmt.executeBatch(),
+          "an entry that wrote rows under a SELECT tag must not report 0");
+      try (ResultSet rs = stmt.executeQuery("SELECT count(*) FROM batchctas")) {
+        assertTrue(rs.next());
+        assertEquals(1, rs.getInt(1), "CREATE TABLE AS should have copied the row");
+      }
+    }
+
+    // The count in the tag is real but it is not this entry's: a CTAS that copied no rows still
+    // created the table, so "SELECT 0" is not evidence that the entry changed nothing.
+    try (Statement stmt = con.createStatement()) {
+      stmt.addBatch("CREATE TEMP TABLE batchctasempty AS SELECT * FROM testbatch WHERE false;"
+          + " UPDATE testbatch SET col1 = col1 WHERE pk = 999");
+      assertArrayEquals(new int[]{Statement.SUCCESS_NO_INFO}, stmt.executeBatch(),
+          "an entry that created a relation must not report 0, however many rows it copied");
+      try (ResultSet rs = stmt.executeQuery("SELECT count(*) FROM batchctasempty")) {
+        assertTrue(rs.next(), "the table exists even though it is empty");
+        assertEquals(0, rs.getInt(1));
+      }
+    }
+  }
+
+  @Test
+  public void testFailureIsChargedToTheEntryThatFailed() throws Exception {
+    // A sub-statement that returned rows is closed only when the next report arrives. If a failure
+    // is that next report and does not close it first, resultIndex still names the finished entry
+    // and BatchUpdateException quotes its SQL. The message names the entry number in a translated
+    // string, so assert on the SQL it quotes, which is not translated.
+    try (Statement stmt = con.createStatement()) {
+      stmt.addBatch("SELECT col1 FROM testbatch WHERE pk = 1");
+      stmt.addBatch("SELECT 1/0");
+      BatchUpdateException bue =
+          assertThrows(BatchUpdateException.class, stmt::executeBatch, "SELECT 1/0 should fail");
+      assertTrue(bue.getMessage().contains("1/0"),
+          "the failure belongs to the entry holding SELECT 1/0: " + bue.getMessage());
+      assertFalse(bue.getMessage().contains("col1 FROM testbatch"),
+          "the failure must not be charged to the entry before it: " + bue.getMessage());
+    }
+  }
+
+  @Test
+  public void testMultiStatementEntryReturningRowsIsNotSilent() throws Exception {
+    // A RETURNING sub-statement gets no CommandComplete of its own on the no-results batch path,
+    // so the rows themselves are the only evidence it changed anything. A SELECT next to it must
+    // not be mistaken for the same thing.
+    try (Statement stmt = con.createStatement()) {
+      stmt.addBatch("UPDATE testbatch SET col1 = col1 + 1 WHERE pk = 1 RETURNING col1;"
+          + " UPDATE testbatch SET col1 = col1 WHERE pk = 999");
+      stmt.addBatch("SELECT col1 FROM testbatch WHERE pk = 1;"
+          + " UPDATE testbatch SET col1 = col1 WHERE pk = 999");
+      int[] counts = stmt.executeBatch();
+      assertEquals(Statement.SUCCESS_NO_INFO, counts[0],
+          "an entry whose RETURNING statement changed a row must not report 0");
+      assertEquals(0, counts[1], "an entry that only read rows changed nothing");
+      assertEquals(1, getCol1Value(), "only the RETURNING UPDATE should have changed col1");
     }
   }
 
@@ -397,42 +514,6 @@ public class BatchExecuteTest extends BaseTest4 {
    */
   private static final String[] MULTI_STATEMENT_SUFFIXES =
       {"; -- trailing", ";\n/* c */", "; SELECT 1"};
-
-
-  @Test
-  public void testRefusedEntryLeavesTheRestOfTheBatchRunnable() throws Exception {
-    // The javadoc and the release note both promise that a refused entry is kept out of the batch.
-    // That is only observable when the batch survives the refusal and is then executed: the
-    // accepted entries must run and the refused one must not. Both orders are exercised, because a
-    // refusal on the very first addBatch() runs the guard before the lazy init of batchStatements
-    // and batchParameters, and a refusal after one has been added runs it after.
-    String update = "UPDATE testbatch SET col1 = col1 + 1 WHERE pk = 1";
-    String multi = update + "; " + update;
-
-    try (Statement stmt = con.createStatement()) {
-      stmt.addBatch(update);
-      assertRefused(stmt, multi);
-      stmt.addBatch(update);
-      assertArrayEquals(new int[]{1, 1}, stmt.executeBatch(),
-          "the two accepted entries run, the refused one never entered the batch");
-    }
-    assertEquals(2, getCol1Value(), "the refused entry must not have added its two updates");
-
-    try (Statement stmt = con.createStatement()) {
-      assertRefused(stmt, multi);
-      stmt.addBatch(update);
-      assertArrayEquals(new int[]{1}, stmt.executeBatch(),
-          "a batch refused on its first entry still accepts and runs the next one");
-    }
-    assertEquals(3, getCol1Value(), "only the accepted entry of the second batch ran");
-  }
-
-  private static void assertRefused(Statement stmt, String sql) {
-    SQLException sqle = assertThrows(SQLException.class, () -> stmt.addBatch(sql),
-        "addBatch() of " + sql);
-    assertEquals(PSQLState.NOT_IMPLEMENTED.getState(), sqle.getSQLState(),
-        "SQLState of " + sql);
-  }
 
   private int getCol1Value() throws SQLException {
     Statement stmt = con.createStatement();

@@ -822,9 +822,13 @@ public class PgStatement implements Statement, BaseStatement {
     // Simple statements should not replace ?, ? with $1, $2
     boolean shouldUseParameterized = false;
     CachedQuery cachedQuery = connection.createQuery(sql, replaceProcessingEnabled, shouldUseParameterized);
+    // Count first: countSubStatements refuses what it cannot count, and a refused entry must not
+    // reach the batch. It would run on the next executeBatch(), and it would leave the counts one
+    // shorter than the queries, which silently disables the counts altogether.
+    int subStatements = countSubStatements(sql, cachedQuery);
     batchStatements.add(cachedQuery.query);
     batchParameters.add(null);
-    batchSubStatementCounts.add(countSubStatements(sql, cachedQuery));
+    batchSubStatementCounts.add(subStatements);
   }
 
   /**
