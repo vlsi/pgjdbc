@@ -18,6 +18,7 @@ import static org.junit.jupiter.api.Assumptions.assumeTrue;
 import org.postgresql.PGProperty;
 import org.postgresql.PGStatement;
 import org.postgresql.core.ServerVersion;
+import org.postgresql.jdbc.PreferQueryMode;
 import org.postgresql.test.TestUtil;
 import org.postgresql.util.PSQLState;
 
@@ -290,6 +291,7 @@ public class BatchExecuteTest extends BaseTest4 {
 
   @Test
   public void testMultiStatementSqlInAddBatch() throws Exception {
+    assumeMultiStatementAddBatchSupported();
     // A batch entry holding several statements gets one update count, because that is all JDBC
     // gives it. The server reports one CommandComplete per statement, and those are collapsed onto
     // the entry: SUCCESS_NO_INFO when any statement changed rows, since no single figure describes
@@ -340,6 +342,7 @@ public class BatchExecuteTest extends BaseTest4 {
 
   @Test
   public void testUpdateCountPerEntryWhateverTheStatementCount() throws Exception {
+    assumeMultiStatementAddBatchSupported();
     // The invariant that matters: executeBatch() returns one count per addBatch() call, however
     // the parser splits each entry. A trailing semicolon leaves one statement, a comment after it
     // makes two, and neither may change the number of counts.
@@ -406,6 +409,7 @@ public class BatchExecuteTest extends BaseTest4 {
 
   @Test
   public void testMultiStatementEntryFailingPartWay() throws Exception {
+    assumeMultiStatementAddBatchSupported();
     // An entry that failed part-way fails as a whole, even though its first statement had run.
     // A successful entry goes first so the assertion cannot be satisfied by the blanket
     // EXECUTE_FAILED fill alone: the failure has to be charged to entry 1.
@@ -426,6 +430,7 @@ public class BatchExecuteTest extends BaseTest4 {
 
   @Test
   public void testMultiStatementEntryWithACommandThatReportsNoRowCount() throws Exception {
+    assumeMultiStatementAddBatchSupported();
     // TRUNCATE, DROP and the DDL family arrive with no row count, which the parser surfaces as
     // zero. Reading that as "changed nothing" would let an entry that truncated a table report 0.
     try (Statement stmt = con.createStatement()) {
@@ -441,6 +446,7 @@ public class BatchExecuteTest extends BaseTest4 {
 
   @Test
   public void testMultiStatementEntryWritingRowsUnderASelectTag() throws Exception {
+    assumeMultiStatementAddBatchSupported();
     // CREATE TABLE AS, SELECT INTO and CREATE MATERIALIZED VIEW report their row count under a
     // "SELECT n" command tag while writing rows, so a tag-based reading of "did it change
     // anything" gets them backwards and the entry claims it changed nothing.
@@ -489,6 +495,7 @@ public class BatchExecuteTest extends BaseTest4 {
 
   @Test
   public void testMultiStatementEntryReturningRowsIsNotSilent() throws Exception {
+    assumeMultiStatementAddBatchSupported();
     // A RETURNING sub-statement gets no CommandComplete of its own on the no-results batch path,
     // so the rows themselves are the only evidence it changed anything. A SELECT next to it must
     // not be mistaken for the same thing.
@@ -514,6 +521,55 @@ public class BatchExecuteTest extends BaseTest4 {
    */
   private static final String[] MULTI_STATEMENT_SUFFIXES =
       {"; -- trailing", ";\n/* c */", "; SELECT 1"};
+
+  @Test
+  public void testRefusedEntryLeavesTheRestOfTheBatchRunnable() throws Exception {
+    // Below preferQueryMode=extended a multi-statement entry is still refused, and the refusal has
+    // to keep it out of the batch rather than merely leave it unreported. Both orders are
+    // exercised: a refusal on the very first addBatch() runs the guard before the lazy init of
+    // batchStatements and batchParameters, and a refusal after one entry runs it after.
+    assumeTrue(preferQueryMode.compareTo(PreferQueryMode.EXTENDED) < 0,
+        "from preferQueryMode=extended a multi-statement entry is accepted, not refused");
+    String update = "UPDATE testbatch SET col1 = col1 + 1 WHERE pk = 1";
+    String multi = update + "; " + update;
+
+    try (Statement stmt = con.createStatement()) {
+      stmt.addBatch(update);
+      assertRefused(stmt, multi);
+      stmt.addBatch(update);
+      assertArrayEquals(new int[]{1, 1}, stmt.executeBatch(),
+          "the two accepted entries run, the refused one never entered the batch");
+    }
+    assertEquals(2, getCol1Value(), "the refused entry must not have added its two updates");
+
+    try (Statement stmt = con.createStatement()) {
+      assertRefused(stmt, multi);
+      stmt.addBatch(update);
+      assertArrayEquals(new int[]{1}, stmt.executeBatch(),
+          "a batch refused on its first entry still accepts and runs the next one");
+    }
+    assertEquals(3, getCol1Value(), "only the accepted entry of the second batch ran");
+  }
+
+  private static void assertRefused(Statement stmt, String sql) {
+    SQLException sqle = assertThrows(SQLException.class, () -> stmt.addBatch(sql),
+        "addBatch() of " + sql);
+    assertEquals(PSQLState.NOT_IMPLEMENTED.getState(), sqle.getSQLState(),
+        "SQLState of " + sql);
+  }
+
+  /**
+   * Skips a test that batches multi-statement SQL through {@code Statement.addBatch(String)}.
+   *
+   * <p>Such an entry is never parameterized, so below {@code preferQueryMode=extended} the driver
+   * does not split it and cannot tell how many statements the server will report. It is refused
+   * there, which is what {@code testUpdateCountPerEntryWhateverTheStatementCount} asserts on a
+   * connection of its own.</p>
+   */
+  private void assumeMultiStatementAddBatchSupported() {
+    assumeTrue(preferQueryMode.compareTo(PreferQueryMode.EXTENDED) >= 0,
+        "Statement.addBatch(String) splits multi-statement SQL only from preferQueryMode=extended");
+  }
 
   private int getCol1Value() throws SQLException {
     Statement stmt = con.createStatement();
