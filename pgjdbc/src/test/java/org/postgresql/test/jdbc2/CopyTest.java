@@ -769,7 +769,54 @@ class CopyTest {
     }
   }
 
+  /**
+   * Fails when a read timeout inside a backend message is reported as something the caller can
+   * carry on from. The bytes the driver already took are not in the stream any more, so the next
+   * read would take the middle of that message for the start of the next one.
+   */
+  @Test
+  @Timeout(value = 30, unit = TimeUnit.SECONDS, threadMode = Timeout.ThreadMode.SEPARATE_THREAD)
+  void readTimeoutInsideMessageEndsTheCopy() throws Exception {
+    TestUtil.createTable(con, "copytest_stall", "data text");
+    try {
+      try (Statement stmt = con.createStatement()) {
+        stmt.execute(
+            "INSERT INTO copytest_stall SELECT 'row' || g FROM generate_series(1, 20000) g");
+      }
 
+      try (MessageStallProxyServer proxyServer = new MessageStallProxyServer(TestUtil.getServer(),
+          TestUtil.getPort())) {
+        Properties props = new Properties();
+        TestUtil.setTestUrlProperty(props, PGProperty.PG_HOST, "localhost");
+        TestUtil.setTestUrlProperty(props, PGProperty.PG_PORT,
+            String.valueOf(proxyServer.getServerPort()));
+        PGProperty.SOCKET_TIMEOUT.set(props, 1);
+        PGProperty.CANCEL_SIGNAL_TIMEOUT.set(props, 1);
+        PGProperty.SSL_MODE.set(props, "disable");
+        PGProperty.GSS_ENC_MODE.set(props, "disable");
+
+        try (Connection proxyCon = TestUtil.openDB(props)) {
+          CopyManager manager = proxyCon.unwrap(PGConnection.class).getCopyAPI();
+          CopyOut copyOut = manager.copyOut("COPY copytest_stall TO STDOUT");
+          assertNotNull(copyOut.readFromCopy(), "Expected data row from COPY TO STDOUT");
+
+          proxyServer.stallInsideNextMessage(TimeUnit.SECONDS.toMillis(30));
+
+          SQLException timeout = readUntilTimeout(copyOut);
+          assertInstanceOf(IOException.class, timeout.getCause(),
+              () -> "a timeout inside a message is a connection failure, got " + timeout);
+          assertFalse(timeout.getCause() instanceof SocketTimeoutException,
+              "a timeout inside a message must not be reported as one the caller can resume from");
+          assertTrue(proxyCon.isClosed(),
+              "a stream that lost its message boundary has to take the connection with it");
+          assertThrows(SQLException.class, copyOut::readFromCopy,
+              "the copy must not look like something to carry on reading from");
+        }
+      }
+    } finally {
+      TestUtil.dropTable(con, "copytest_stall");
+    }
+  }
 
 
   /**
