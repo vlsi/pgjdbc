@@ -1458,7 +1458,10 @@ public class QueryExecutorImpl extends QueryExecutorBase {
             }
           }
 
-          int c = pgStream.receiveChar();
+          // The wake-up a replication stream asks for belongs to this read and no other in the
+          // loop: past the type byte the driver is inside a message, where the catch below turns
+          // a timeout into the connection failure it is
+          int c = pgStream.receiveMessageType();
           try {
             switch (c) {
 
