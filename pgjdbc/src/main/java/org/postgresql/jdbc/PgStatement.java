@@ -13,6 +13,7 @@ import org.postgresql.core.BaseStatement;
 import org.postgresql.core.CachedQuery;
 import org.postgresql.core.Field;
 import org.postgresql.core.ParameterList;
+import org.postgresql.core.Parser;
 import org.postgresql.core.Provider;
 import org.postgresql.core.Query;
 import org.postgresql.core.QueryExecutor;
@@ -838,12 +839,12 @@ public class PgStatement implements Statement, BaseStatement {
    * number of sub-queries. {@link CachedQueryCreateAction} splits only when the query is
    * parameterized or {@code preferQueryMode} is at least {@code EXTENDED}, and
    * {@code addBatch(String)} is never parameterized, so under {@code simple} and
-   * {@code extendedForPrepared} the entry travels as one {@code Query} message and the server
-   * decides how many statements it holds. That decision
-   * cannot be predicted here: the server counts a trailing comment as part of the statement before
-   * it, while {@link Parser} reports it as a statement of its own. A count that is wrong by one
-   * silently misaligns every later entry, so a multi-statement entry is refused in those modes
-   * rather than guessed at.</p>
+   * {@code extendedForPrepared} the entry travels as one {@code Query} message and the server, not
+   * the driver, decides how many statements it holds. That decision cannot be predicted here: the
+   * server counts a trailing comment as part of the statement before it, while {@link Parser}
+   * reports a statement of its own, and a count wrong by one silently misaligns every later entry.
+   * Collapsing an entry needs the count, so those modes refuse a multi-statement entry rather than
+   * guess at it.</p>
    *
    * @param sql the SQL passed to {@code addBatch}
    * @param cachedQuery the query built from it
