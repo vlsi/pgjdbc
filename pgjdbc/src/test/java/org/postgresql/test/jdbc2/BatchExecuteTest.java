@@ -5,6 +5,7 @@
 
 package org.postgresql.test.jdbc2;
 
+import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
@@ -288,20 +289,67 @@ public class BatchExecuteTest extends BaseTest4 {
 
   @Test
   public void testMultiStatementSqlInAddBatch() throws Exception {
-    // Multi-statement SQL in a single addBatch() entry has never worked in pgjdbc:
-    // BatchResultHandler allocates one update-count slot per batch entry, but
-    // CompositeQuery emits one CommandComplete per sub-statement, so it used to fail
-    // deep inside the protocol layer with "Too many update results were returned"
-    // or ClassCastException. Reject it at the JDBC boundary with a clear message.
+    // 42.7.13 refused multi-statement SQL here, and threw ClassCastException from the executor for
+    // the PreparedStatement form. Both were regressions against 42.7.12, where the outcome depends
+    // on whether a sub-statement returns rows: BatchResultHandler counts CommandComplete messages
+    // against one slot per entry, and a RETURNING sub-statement delivers rows instead of one.
+    String update = "UPDATE testbatch SET col1 = col1 + 1 WHERE pk = 1";
+
     try (Statement stmt = con.createStatement()) {
-      String sql = "UPDATE testbatch SET col1 = col1 + 1 WHERE pk = 1;"
-          + " UPDATE testbatch SET col1 = col1 + 2 WHERE pk = 1";
-      SQLException sqle = assertThrows(SQLException.class, () -> stmt.addBatch(sql));
-      assertEquals(PSQLState.NOT_IMPLEMENTED.getState(), sqle.getSQLState(),
-          "Multi-statement addBatch() should fail with NOT_IMPLEMENTED SQLState");
-      assertEquals(0, getCol1Value(),
-          "Rejected addBatch() must not execute either UPDATE.");
+      stmt.addBatch(update + "; " + update + " RETURNING col1");
+      assertArrayEquals(new int[]{1}, stmt.executeBatch(),
+          "a RETURNING sub-statement reports no update count, so the entry keeps the first one");
     }
+    assertEquals(2, getCol1Value(), "both UPDATEs of the entry ran");
+
+    try (Statement stmt = con.createStatement()) {
+      stmt.addBatch(update + "; " + update);
+      SQLException sqle = assertThrows(SQLException.class, stmt::executeBatch,
+          "two CommandCompletes overrun the entry's single update-count slot");
+      assertEquals(PSQLState.TOO_MANY_RESULTS.getState(), sqle.getSQLState(),
+          "the overrun is reported as TOO_MANY_RESULTS, not as a refusal or ClassCastException");
+    }
+  }
+
+  @Test
+  public void testMultiStatementSqlInPreparedAddBatch() throws Exception {
+    // The shape from https://github.com/pgjdbc/pgjdbc/issues/4349. It reached the caller as
+    // ClassCastException from CompositeQuery to SimpleQuery, thrown before anything was sent, so
+    // neither statement ran. What it does instead is what 42.7.12 did, which differs by whether a
+    // sub-statement returns rows: BatchResultHandler counts CommandComplete messages against one
+    // slot per entry, and a RETURNING sub-statement delivers rows instead of a CommandComplete.
+    String update = "UPDATE testbatch SET col1 = col1 + 1 WHERE pk = 1";
+
+    try (PreparedStatement ps = con.prepareStatement(update + "; " + update + " RETURNING col1")) {
+      ps.addBatch();
+      assertArrayEquals(new int[]{1}, ps.executeBatch(),
+          "a RETURNING sub-statement reports no update count, so the entry keeps the first one");
+      assertEquals(2, getCol1Value(), "both UPDATEs of the entry ran");
+    }
+
+    try (PreparedStatement ps = con.prepareStatement(update + "; " + update)) {
+      ps.addBatch();
+      SQLException sqle = assertThrows(SQLException.class, ps::executeBatch,
+          "two CommandCompletes overrun the entry's single update-count slot");
+      assertEquals(PSQLState.TOO_MANY_RESULTS.getState(), sqle.getSQLState(),
+          "the overrun is reported as TOO_MANY_RESULTS, not as ClassCastException");
+    }
+
+    // The reported SQL binds a parameter in each statement, which routes through
+    // CompositeParameterList.getSubparams(). The cast this fixes happened before any of that, so
+    // the shape has to be exercised as reported rather than only in its parameterless form.
+    String bound = "UPDATE testbatch SET col1 = col1 + ? WHERE pk = 1";
+    // The overrun above still ran both of its statements before it was noticed, so read the value
+    // rather than predicting it.
+    int before = getCol1Value();
+    try (PreparedStatement ps = con.prepareStatement(bound + "; " + bound + " RETURNING col1")) {
+      ps.setInt(1, 10);
+      ps.setInt(2, 20);
+      ps.addBatch();
+      assertArrayEquals(new int[]{1}, ps.executeBatch(), "the parameterized form behaves the same");
+    }
+    assertEquals(before + 30, getCol1Value(),
+        "each bound UPDATE applied its own parameter: +10 and +20");
   }
 
   private int getCol1Value() throws SQLException {
