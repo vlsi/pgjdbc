@@ -1196,13 +1196,15 @@ public class QueryExecutorImpl extends QueryExecutorBase {
     try {
       if (op instanceof CopyIn) {
         try (ResourceLock ignore = lock.obtain()) {
-          LOGGER.log(Level.FINEST, "FE => CopyFail");
-          final byte[] msg = "Copy cancel requested".getBytes(StandardCharsets.US_ASCII);
-          pgStream.sendChar(PgMessageType.COPY_FAIL); // CopyFail
-          pgStream.sendInteger4(5 + msg.length);
-          pgStream.send(msg);
-          pgStream.sendChar(0);
-          pgStream.flush();
+          if (!op.copyDoneSent) {
+            LOGGER.log(Level.FINEST, "FE => CopyFail");
+            final byte[] msg = "Copy cancel requested".getBytes(StandardCharsets.US_ASCII);
+            pgStream.sendChar(PgMessageType.COPY_FAIL); // CopyFail
+            pgStream.sendInteger4(5 + msg.length);
+            pgStream.send(msg);
+            pgStream.sendChar(0);
+            pgStream.flush();
+          }
           do {
             try {
               processCopyResults(op, true); // discard rest of input
@@ -1238,7 +1240,7 @@ public class QueryExecutorImpl extends QueryExecutorBase {
       }
     }
 
-    if (op instanceof CopyIn) {
+    if (op instanceof CopyIn && !op.copyDoneSent) {
       if (errors < 1) {
         throw new PSQLException(GT.tr("Missing expected error response to copy cancel request"),
             PSQLState.COMMUNICATION_ERROR);
@@ -1264,16 +1266,25 @@ public class QueryExecutorImpl extends QueryExecutorBase {
       }
 
       try {
-        LOGGER.log(Level.FINEST, " FE=> CopyDone");
+        if (!op.copyDoneSent) {
+          LOGGER.log(Level.FINEST, " FE=> CopyDone");
 
-        pgStream.sendChar(PgMessageType.COPY_DONE); // CopyDone
-        pgStream.sendInteger4(4);
-        pgStream.flush();
+          pgStream.sendChar(PgMessageType.COPY_DONE); // CopyDone
+          pgStream.sendInteger4(4);
+          pgStream.flush();
+          op.copyDoneSent = true;
+        }
 
         do {
           processCopyResults(op, true);
         } while (hasLock(op));
         return op.getHandledRowCount();
+      } catch (SocketTimeoutException ste) {
+        // The answer to CopyDone is late, which the caller can wait for again: CopyDone is on the
+        // wire already, so nothing is re-sent. processCopyResults reports a timeout inside a
+        // message as the connection failure it is, so one that reaches here came from between two
+        throw new PSQLException(GT.tr("Database connection failed when ending copy"),
+            PSQLState.CONNECTION_FAILURE, ste);
       } catch (SQLException e) {
         // A copy the server failed has already been unlocked by the ReadyForQuery that followed
         // its error, and that connection is fine. Still holding the lock means the exchange

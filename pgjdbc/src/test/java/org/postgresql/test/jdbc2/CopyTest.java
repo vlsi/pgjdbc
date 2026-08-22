@@ -24,6 +24,7 @@ import org.postgresql.copy.PGCopyOutputStream;
 import org.postgresql.core.ServerVersion;
 import org.postgresql.jdbc.PgConnection;
 import org.postgresql.test.TestUtil;
+import org.postgresql.test.util.CountingSocketFactory;
 import org.postgresql.test.util.MessageStallProxyServer;
 import org.postgresql.test.util.StrangeProxyServer;
 import org.postgresql.util.ByteBufferByteStreamWriter;
@@ -1152,6 +1153,146 @@ class CopyTest {
     ByteBuffer message = ByteBuffer.allocate(1 + 4 + body.length);
     message.put((byte) 'd').putInt(4 + body.length).put(body);
     return message.array();
+  }
+
+  /**
+   * Fails when a read timeout while ending a COPY takes the connection with it. CopyDone is on the
+   * wire before the wait starts, so waiting again re-sends nothing and the caller can carry on.
+   */
+  @Test
+  @Timeout(value = 60, unit = TimeUnit.SECONDS, threadMode = Timeout.ThreadMode.SEPARATE_THREAD)
+  void endCopyKeepsTheCopyWhenTheAnswerIsLate() throws Exception {
+    try (MessageStallProxyServer proxyServer = new MessageStallProxyServer(TestUtil.getServer(),
+        TestUtil.getPort())) {
+      CountingSocketFactory.Counters counters = CountingSocketFactory.register();
+      Properties props = lateAnswerProps(proxyServer);
+      PGProperty.SOCKET_FACTORY.set(props, CountingSocketFactory.class.getName());
+      PGProperty.SOCKET_FACTORY_ARG.set(props, counters.key());
+      try (Connection proxyCon = TestUtil.openDB(props)) {
+        TestUtil.createTempTable(proxyCon, "copytest_endlate", "data text");
+        CopyIn copyIn = beginCopyWithOneRow(proxyCon, "copytest_endlate");
+
+        proxyServer.stallBeforeNextMessage(TimeUnit.SECONDS.toMillis(3));
+        SQLException late = assertThrows(SQLException.class, copyIn::endCopy,
+            "the caller asked for a socket timeout and has to hear about it");
+        assertInstanceOf(SocketTimeoutException.class, late.getCause(),
+            () -> "a late answer is a timeout, not a broken connection, got " + late);
+        assertFalse(proxyCon.isClosed(), "a copy that can still be ended keeps its connection");
+        assertTrue(copyIn.isActive(), "the copy is still waiting for its answer");
+
+        long sentBeforeRetry = counters.bytesOut.get();
+        assertEquals(1, endCopyUntilItAnswers(copyIn), "the copy ends with the row it was given");
+        assertEquals(sentBeforeRetry, counters.bytesOut.get(),
+            "waiting for the answer again must not put a second CopyDone on the wire");
+      } finally {
+        CountingSocketFactory.unregister(counters);
+      }
+    }
+  }
+
+  /**
+   * Fails when CopyManager's cleanup treats a copy that is merely waiting for its answer as one
+   * that still needs cancelling. Sending CopyFail after CopyDone reaches a backend that has left
+   * copy mode, so the cancel finds no error response and throws over the real failure.
+   */
+  @Test
+  @Timeout(value = 60, unit = TimeUnit.SECONDS, threadMode = Timeout.ThreadMode.SEPARATE_THREAD)
+  void aLateAnswerReachesTheCallerOfCopyManager() throws Exception {
+    try (MessageStallProxyServer proxyServer = new MessageStallProxyServer(TestUtil.getServer(),
+        TestUtil.getPort())) {
+      try (Connection proxyCon = TestUtil.openDB(lateAnswerProps(proxyServer))) {
+        TestUtil.createTempTable(proxyCon, "copytest_manager", "data text");
+        CopyManager manager = proxyCon.unwrap(PGConnection.class).getCopyAPI();
+
+        // Long enough for endCopy to time out at one second, short enough that the cleanup which
+        // follows still gets the answer -- which is where sending CopyFail after CopyDone shows
+        proxyServer.stallBeforeMessageType('C', 1500);
+        SQLException thrown = assertThrows(SQLException.class,
+            () -> manager.copyIn("COPY copytest_manager FROM STDIN",
+                new ByteArrayInputStream("one\n".getBytes(StandardCharsets.UTF_8))),
+            "a late CommandComplete has to surface as the timeout it is");
+        assertInstanceOf(SocketTimeoutException.class, rootCauseOf(thrown),
+            () -> "the cleanup must not throw over the timeout, got " + thrown);
+      }
+    }
+  }
+
+  /**
+   * Fails when closing a stream whose copy could not be ended leaves that copy holding the
+   * connection. Nothing else would give the lock back, so the next operation on the connection
+   * would wait for a copy no one can finish.
+   */
+  @Test
+  @Timeout(value = 60, unit = TimeUnit.SECONDS, threadMode = Timeout.ThreadMode.SEPARATE_THREAD)
+  void closingAStreamOverALateAnswerLeavesNoLockBehind() throws Exception {
+    try (MessageStallProxyServer proxyServer = new MessageStallProxyServer(TestUtil.getServer(),
+        TestUtil.getPort())) {
+      try (Connection proxyCon = TestUtil.openDB(lateAnswerProps(proxyServer))) {
+        TestUtil.createTempTable(proxyCon, "copytest_streamclose", "data text");
+        CopyManager manager = proxyCon.unwrap(PGConnection.class).getCopyAPI();
+        PGCopyOutputStream stream = new PGCopyOutputStream(
+            manager.copyIn("COPY copytest_streamclose FROM STDIN"));
+        stream.write("one\n".getBytes(StandardCharsets.UTF_8));
+        stream.flush();
+
+        proxyServer.stallBeforeNextMessage(TimeUnit.SECONDS.toMillis(3));
+        assertThrows(IOException.class, stream::close,
+            "close cannot end the copy while the answer is late");
+
+        // The copy has to be over one way or another: either the connection is usable or it was
+        // given up. What must not happen is a wait for a copy nobody can finish, which is what
+        // this test's timeout would catch
+        try (Statement st = proxyCon.createStatement();
+             ResultSet rs = st.executeQuery("select 1")) {
+          assertTrue(rs.next(), "a usable connection has to answer");
+        } catch (SQLException gaveUp) {
+          assertTrue(proxyCon.isClosed(),
+              () -> "the connection was given up rather than left holding the copy, got " + gaveUp);
+        }
+      }
+    }
+  }
+
+  private static Properties lateAnswerProps(MessageStallProxyServer proxyServer) {
+    Properties props = new Properties();
+    TestUtil.setTestUrlProperty(props, PGProperty.PG_HOST, "localhost");
+    TestUtil.setTestUrlProperty(props, PGProperty.PG_PORT,
+        String.valueOf(proxyServer.getServerPort()));
+    PGProperty.SOCKET_TIMEOUT.set(props, 1);
+    PGProperty.CANCEL_SIGNAL_TIMEOUT.set(props, 1);
+    // The proxy reads the v3 framing to find a message boundary, so it needs plain traffic
+    PGProperty.SSL_MODE.set(props, "disable");
+    PGProperty.GSS_ENC_MODE.set(props, "disable");
+    return props;
+  }
+
+  private static CopyIn beginCopyWithOneRow(Connection con, String table) throws SQLException {
+    CopyIn copyIn = con.unwrap(PGConnection.class).getCopyAPI()
+        .copyIn("COPY " + table + " FROM STDIN");
+    byte[] row = "one\n".getBytes(StandardCharsets.UTF_8);
+    copyIn.writeToCopy(row, 0, row.length);
+    return copyIn;
+  }
+
+  /** Ends the copy, waiting past the answers that are merely late, and returns the row count. */
+  private static long endCopyUntilItAnswers(CopyIn copyIn) throws SQLException {
+    for (int attempt = 0; attempt < 30; attempt++) {
+      try {
+        return copyIn.endCopy();
+      } catch (SQLException late) {
+        assertInstanceOf(SocketTimeoutException.class, late.getCause(),
+            () -> "only a late answer should stop this, got " + late);
+      }
+    }
+    return fail("the copy never answered");
+  }
+
+  private static Throwable rootCauseOf(Throwable thrown) {
+    Throwable cause = thrown;
+    while (cause.getCause() != null) {
+      cause = cause.getCause();
+    }
+    return cause;
   }
 
   /**
