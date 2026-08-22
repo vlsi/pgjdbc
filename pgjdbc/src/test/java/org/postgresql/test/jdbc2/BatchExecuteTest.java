@@ -353,14 +353,6 @@ public class BatchExecuteTest extends BaseTest4 {
     }
   }
 
-  private static int col1Of(Connection con, String table) throws SQLException {
-    try (Statement stmt = con.createStatement();
-         ResultSet rs = stmt.executeQuery("SELECT col1 FROM " + table + " WHERE pk = 1")) {
-      assertTrue(rs.next());
-      return rs.getInt(1);
-    }
-  }
-
   @Test
   public void testMultiStatementSqlInPreparedAddBatch() throws Exception {
     // The shape from https://github.com/pgjdbc/pgjdbc/issues/4349. It reached the caller as
@@ -400,6 +392,14 @@ public class BatchExecuteTest extends BaseTest4 {
     }
     assertEquals(before + 30, getCol1Value(),
         "each bound UPDATE applied its own parameter: +10 and +20");
+  }
+
+  private static int col1Of(Connection con, String table) throws SQLException {
+    try (Statement stmt = con.createStatement();
+         ResultSet rs = stmt.executeQuery("SELECT col1 FROM " + table + " WHERE pk = 1")) {
+      assertTrue(rs.next());
+      return rs.getInt(1);
+    }
   }
 
   private int getCol1Value() throws SQLException {

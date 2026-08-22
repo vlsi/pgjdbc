@@ -1618,6 +1618,24 @@ public class QueryExecutorImpl extends QueryExecutorBase {
    * @param flags query execution flags
    * @return estimated number of bytes produced by a single query execution or MAX_BUFFERED_RECV_BYTES
    */
+  private static int estimateQueryResponseBytes(Query query, int flags) {
+    Query[] subqueries = query.getSubqueries();
+    if (subqueries == null) {
+      return estimateQueryResponseBytes((SimpleQuery) query, flags);
+    }
+    // A composite query is sent as one unit, so the whole of it has to fit the budget the check
+    // works with. Saturate rather than sum past the cap: beyond it the answer is the same, and the
+    // sum of enough sub-statements would overflow.
+    int total = 0;
+    for (Query subquery : subqueries) {
+      total += estimateQueryResponseBytes((SimpleQuery) subquery, flags);
+      if (total >= MAX_BUFFERED_RECV_BYTES) {
+        return MAX_BUFFERED_RECV_BYTES;
+      }
+    }
+    return total;
+  }
+
   private static int estimateQueryResponseBytes(SimpleQuery query, int flags) {
     // Assume all statements need at least this much reply buffer space,
     // plus params
@@ -1664,7 +1682,7 @@ public class QueryExecutorImpl extends QueryExecutorBase {
    *
    * See the comments above MAX_BUFFERED_RECV_BYTES's declaration for details.
    */
-  private void flushIfDeadlockRisk(SimpleQuery query,
+  private void flushIfDeadlockRisk(Query query,
       ResultHandler resultHandler,
       @Nullable BatchResultHandler batchHandler,
       final int flags, boolean adaptiveFetch) throws IOException {
@@ -1702,22 +1720,33 @@ public class QueryExecutorImpl extends QueryExecutorBase {
     Query[] subqueries = query.getSubqueries();
     SimpleParameterList[] subparams = parameters.getSubparams();
 
-    if (subqueries == null) {
-      SimpleQuery simpleQuery = (SimpleQuery) query;
-      flushIfDeadlockRisk(simpleQuery, resultHandler, batchHandler, flags, adaptiveFetch);
+    // A composite query is one statement to the caller, so a Sync in the middle of it would commit
+    // its leading statements on their own under auto-commit, and let secureProgress record an entry
+    // that has not finished. Checking once for the whole query keeps it intact — but only while it
+    // fits the budget. An entry whose own responses exceed the buffer cannot be sent unread without
+    // risking the deadlock this accounting exists to prevent (issues #194 and #195), so that one
+    // keeps the per-statement checks and gives up being atomic instead.
+    boolean checkPerSubStatement = subqueries != null
+        && estimateQueryResponseBytes(query, flags) >= MAX_BUFFERED_RECV_BYTES;
+    if (!checkPerSubStatement) {
+      flushIfDeadlockRisk(query, resultHandler, batchHandler, flags, adaptiveFetch);
+    }
 
+    if (subqueries == null) {
       // If we saw errors, don't send anything more.
       if (resultHandler.getException() == null) {
         if (fetchSize != 0) {
           adaptiveFetchCache.addNewQuery(adaptiveFetch, query);
         }
-        sendOneQuery(simpleQuery, (SimpleParameterList) parameters, maxRows, fetchSize,
+        sendOneQuery((SimpleQuery) query, (SimpleParameterList) parameters, maxRows, fetchSize,
             flags);
       }
     } else {
       for (int i = 0; i < subqueries.length; i++) {
         final SimpleQuery subquery = (SimpleQuery) subqueries[i];
-        flushIfDeadlockRisk(subquery, resultHandler, batchHandler, flags, adaptiveFetch);
+        if (checkPerSubStatement) {
+          flushIfDeadlockRisk(subquery, resultHandler, batchHandler, flags, adaptiveFetch);
+        }
 
         // If we saw errors, don't send anything more.
         if (resultHandler.getException() != null) {
