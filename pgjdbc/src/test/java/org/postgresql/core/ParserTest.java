@@ -270,6 +270,37 @@ class ParserTest {
     assertFalse(parseInfo.isFunction(), () -> "isFunction() should be false for: " + sql);
   }
 
+  /**
+   * An E'' literal is recognised wherever it sits, including at the very start of the input. The
+   * guard demanded a character before the E to check that the E was not the tail of a longer
+   * identifier, so a literal at offset 1 was read as an ordinary one and its backslash escape was
+   * not honoured.
+   */
+  @Test
+  void escapeStringLiteralAtTheStartOfTheInput() {
+    // E'\'' holds one quote: the backslash escapes the quote after it, so the literal ends at the
+    // last character, index 4 of the five
+    assertEquals(4, Parser.parseSingleQuotes("E'\\''".toCharArray(), 1, true));
+    // The same literal after other text has always been read that way, ending at index 5 of six
+    assertEquals(5, Parser.parseSingleQuotes(" E'\\''".toCharArray(), 2, true));
+    assertEquals(5, Parser.parseSingleQuotes("(E'\\''".toCharArray(), 2, true));
+  }
+
+  /**
+   * An e that continues an identifier does not make the literal an escape string, and the start of
+   * the input does not change that either way.
+   */
+  @Test
+  void eThatContinuesAnIdentifierIsNotAnEscapeString() {
+    // 1e'\'' : the e continues the token before it, so this is an ordinary literal and the
+    // backslash is just a character. It ends at the first quote after it, index 4.
+    assertEquals(4, Parser.parseSingleQuotes("1e'\\''".toCharArray(), 2, true));
+    assertEquals(4, Parser.parseSingleQuotes("ae'\\''".toCharArray(), 2, true));
+    // With standard_conforming_strings off every literal honours the backslash, so the same input
+    // reaches the last quote at index 5
+    assertEquals(5, Parser.parseSingleQuotes("1e'\\''".toCharArray(), 2, false));
+  }
+
   @Test
   void unterminatedEscape() throws Exception {
     assertEquals("{oj ", Parser.replaceProcessing("{oj ", true, false));
