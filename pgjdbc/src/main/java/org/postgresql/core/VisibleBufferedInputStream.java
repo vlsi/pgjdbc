@@ -297,9 +297,17 @@ public class VisibleBufferedInputStream extends InputStream {
 
   /**
    * {@inheritDoc}
+   *
+   * <p>A count of zero or less skips nothing and returns {@code 0}. {@link InputStream#skip(long)}
+   * lets a subclass treat a negative count differently, and this one does not: the read position
+   * is an index into the buffer that {@link #getBuffer()} hands out, so moving it backwards puts
+   * every later read out of bounds.</p>
    */
   @Override
   public long skip(long n) throws IOException {
+    if (n <= 0) {
+      return 0;
+    }
     int avail = endIndex - index;
     if (avail >= n) {
       // Cast to int is safe here since the number of available bytes within the buffer
