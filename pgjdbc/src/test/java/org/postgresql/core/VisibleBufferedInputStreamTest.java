@@ -6,16 +6,21 @@
 package org.postgresql.core;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 
 import org.junit.jupiter.api.Test;
 
 import java.io.ByteArrayInputStream;
+import java.io.EOFException;
 import java.io.IOException;
 import java.io.InputStream;
+import java.nio.charset.StandardCharsets;
 
 /**
- * Pins what {@link VisibleBufferedInputStream} reports rather than reads: {@code available()}
- * answers from the buffer alone, and a scanned string is measured with its terminator.
+ * Pins the two things {@link VisibleBufferedInputStream} promises about reporting rather than
+ * reading: that {@code available()} answers from the buffer alone, and that a string the stream
+ * never terminates fails with a reason.
  */
 class VisibleBufferedInputStreamTest {
   private static final byte[] DATA = {1, 2, 3, 4, 5, 6, 7, 8};
@@ -69,6 +74,16 @@ class VisibleBufferedInputStreamTest {
     VisibleBufferedInputStream in = new VisibleBufferedInputStream(new Claims(500), 1024);
 
     assertEquals(500, in.available(), "nothing buffered yet");
+  }
+
+  @Test
+  void anUnterminatedStringSaysWhyItFailed() {
+    VisibleBufferedInputStream in = new VisibleBufferedInputStream(
+        new ByteArrayInputStream("abc".getBytes(StandardCharsets.UTF_8)), 1024);
+
+    EOFException e = assertThrows(EOFException.class, in::scanCStringLength,
+        "a string the stream never terminates");
+    assertNotNull(e.getMessage(), "the end of the stream is reported with a reason");
   }
 
   @Test

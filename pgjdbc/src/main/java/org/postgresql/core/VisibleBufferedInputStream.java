@@ -376,7 +376,7 @@ public class VisibleBufferedInputStream extends InputStream {
         }
       }
       if (!readMore(STRING_SCAN_SPAN, true)) {
-        throw new EOFException();
+        throw new EOFException("End of stream reached while looking for the end of a string");
       }
       pos = index;
     }
