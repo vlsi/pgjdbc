@@ -669,10 +669,29 @@ public class PGStream implements Closeable, Flushable {
     }
   }
 
+  /**
+   * Discards a given number of bytes from the backend.
+   *
+   * @param size number of bytes to discard
+   * @throws EOFException if the connection ends before that many bytes arrive
+   * @throws IOException if a data I/O error occurs
+   */
   public void skip(int size) throws IOException {
     long s = 0;
     while (s < size) {
-      s += pgInput.skip(size - s);
+      long skipped = pgInput.skip(size - s);
+      if (skipped == 0) {
+        // A stream is allowed to skip nothing and still have more to give, and a stream that has
+        // ended skips nothing forever, so neither spinning nor failing is right on its own.
+        // Reading blocks for a byte and reports the end as -1
+        if (pgInput.read() == -1) {
+          throw new EOFException();
+        }
+        // That byte is one of the bytes being discarded, so it counts, and reading it primed the
+        // buffer that the next skip drains
+        skipped = 1;
+      }
+      s += skipped;
     }
   }
 
