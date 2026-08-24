@@ -1500,7 +1500,7 @@ public class Parser {
               i, new String(sql)),
           PSQLState.SYNTAX_ERROR);
     }
-    String functionName = new String(sql, i, argPos - i).trim();
+    String functionName = escapeFunctionName(sql, i, argPos);
     // extract arguments
     i = argPos + 1;// we start the scan after the first (
     i = escapeFunctionArguments(newsql, functionName, sql, i, stdStrings);
@@ -1510,6 +1510,53 @@ public class Parser {
       newsql.append(sql[i++]);
     }
     return i;
+  }
+
+  /**
+   * Reads the name of a {@code {fn ...}} escape, which runs from {@code start} to the opening
+   * parenthesis of its argument list.
+   *
+   * <p>A comment between the name and the parenthesis belongs to the escape rather than to the
+   * name, so it gives way to a space and the trim removes it along with the whitespace around it.
+   * A line comment has to go: the newline that ended it does not survive the trim, so the comment
+   * would take the argument list with it. The space matters where the comment sits between two
+   * tokens rather than beside one: a comment separates tokens in PostgreSQL, so a name that only
+   * looks whole once the comment is gone must not become one.</p>
+   *
+   * @param sql    SQL text
+   * @param start  offset of the function name
+   * @param argPos offset of the opening parenthesis of the argument list
+   * @return the function name, with comments and surrounding whitespace removed
+   */
+  private static String escapeFunctionName(char[] sql, int start, int argPos) {
+    StringBuilder name = new StringBuilder(argPos - start);
+    int i = start;
+    while (i < argPos) {
+      char ch = sql[i];
+      if (ch == '"') {
+        // A delimited identifier may hold anything, including what looks like a comment
+        int end = Math.min(parseDoubleQuotes(sql, i), argPos - 1);
+        name.append(sql, i, end - i + 1);
+        i = end + 1;
+      } else if (ch == '-' || ch == '/') {
+        int end = ch == '-' ? parseLineComment(sql, i) : parseBlockComment(sql, i);
+        if (end > i) {
+          // A comment separates tokens, so it leaves a space behind rather than nothing. Without
+          // it "con/**/cat" would read as the name concat, which the lookup rewrites and the
+          // server never would: PostgreSQL rejects "con/**/cat(...)" as a syntax error.
+          name.append(' ');
+          i = end + 1;
+        } else {
+          // Not a comment after all, so it is part of the name
+          name.append(ch);
+          i++;
+        }
+      } else {
+        name.append(ch);
+        i++;
+      }
+    }
+    return name.toString().trim();
   }
 
   /**

@@ -313,19 +313,60 @@ class ParserTest {
   }
 
   /**
-   * A block comment between the name and the argument list is part of the escape, so neither the
-   * brace nor a parenthesis inside it belongs to the escape's own syntax. Only block comments are
-   * handled: a line comment would swallow the argument list along with the newline, which is a
-   * separate defect this change does not address.
+   * A comment between the name and the argument list is part of the escape, so neither a brace nor
+   * a parenthesis inside it belongs to the escape's own syntax, and the comment is dropped along
+   * with the whitespace around it.
    */
   @Test
-  void escapeFunctionMayHaveABlockCommentBeforeItsArgumentList() throws SQLException {
-    // The space before '(' is dropped the same way "{fn now ()}" loses it
-    assertEquals("select abs /* } */(-1)",
+  void escapeFunctionMayHaveACommentBeforeItsArgumentList() throws SQLException {
+    // The comment goes the same way the space before '(' does in "{fn now ()}"
+    assertEquals("select abs(-1)",
         Parser.replaceProcessing("select {fn abs /* } */ (-1)}", true, true));
     // A parenthesis inside the comment is not the argument list either
-    assertEquals("select abs /* ( */(-1)",
+    assertEquals("select abs(-1)",
         Parser.replaceProcessing("select {fn abs /* ( */ (-1)}", true, true));
+    // A line comment ends at a newline that the trim would have removed
+    assertEquals("select abs(-1)",
+        Parser.replaceProcessing("select {fn abs -- c\n (-1)}", true, true));
+    // With no whitespace of its own, the comment still gives way to a space that the trim removes
+    assertEquals("select abs(-1)",
+        Parser.replaceProcessing("select {fn abs/* c */(-1)}", true, true));
+    assertEquals("select abs(-1)",
+        Parser.replaceProcessing("select {fn abs --\n (-1)}", true, true));
+  }
+
+  /**
+   * The name is what the driver looks up to decide whether the function needs rewriting, so a
+   * comment in front of the argument list must not hide a function that does. The first case is
+   * the control and passes on the unfixed parser.
+   */
+  @Test
+  void escapeFunctionWithACommentIsStillRewritten() throws SQLException {
+    assertEquals("select ('a'||'b')",
+        Parser.replaceProcessing("select {fn concat('a','b')}", true, true));
+    assertEquals("select ('a'||'b')",
+        Parser.replaceProcessing("select {fn concat /* c */ ('a','b')}", true, true));
+    assertEquals("select ('a'||'b')",
+        Parser.replaceProcessing("select {fn concat -- c\n ('a','b')}", true, true));
+  }
+
+  /**
+   * A comment separates tokens in PostgreSQL, so removing one must not join what it separated.
+   * {@code con/**}{@code /cat} is two identifiers and no function call; were it read as the name
+   * {@code concat}, the driver would rewrite it into valid SQL that the statement never was.
+   */
+  @Test
+  void aCommentInsideTheNameStillSeparatesTokens() throws SQLException {
+    // PostgreSQL rejects every input below with "syntax error at or near \"(\""
+    assertEquals("select con cat('a','b')",
+        Parser.replaceProcessing("select {fn con/**/cat('a','b')}", true, true));
+    assertEquals("select ab s(1)",
+        Parser.replaceProcessing("select {fn ab/**/s(1)}", true, true));
+    assertEquals("select c onc at('a','b')",
+        Parser.replaceProcessing("select {fn c--\nonc--\nat('a','b')}", true, true));
+    // Two delimited identifiers must not become the single identifier con"cat
+    assertEquals("select \"con\" \"cat\"('a','b')",
+        Parser.replaceProcessing("select {fn \"con\"/**/\"cat\"('a','b')}", true, true));
   }
 
   /**
