@@ -31,25 +31,24 @@ import javax.net.SocketFactory;
 /**
  * Fails when {@link PGStream#skip(int)} does not discard exactly the bytes it was asked for.
  *
- * <p>Discarding is where the driver relies on {@link InputStream#skip(long)}, which is allowed to
- * skip nothing and still have more to give. A stream that has ended also skips nothing, and it
- * says so forever. Telling the two apart is the whole job: read the end as the end, and treat a
- * stream that is merely being unhelpful as one that still owes bytes. Getting it wrong either
- * hangs the connection or breaks a usable one, and getting the count wrong leaves the connection
- * off a message boundary, which surfaces later as a protocol error somewhere else.</p>
+ * <p>Discarding goes through {@link InputStream#skip(long)}, which may return zero while more
+ * bytes are still on the way, and a stream that has ended returns zero from every skip. The
+ * driver has to tell the two apart: throw {@link EOFException} once the stream has ended, and
+ * keep discarding while it has not. Treating every zero as the end breaks a usable connection;
+ * treating none of them as the end never finishes. Discarding the wrong number of bytes leaves
+ * the connection off a message boundary, which a later read reports as a protocol error.</p>
  *
- * <p>The streams below stand in for what a {@code socketFactory} may hand the driver, which is
- * where an implementation the driver did not write can reach it.</p>
+ * <p>{@link CountingStream} stands in for what the {@code socketFactory} connection property may
+ * put under the driver: an input stream the driver did not write.</p>
  */
-// A stream that never makes progress used to spin here, so cap the wait: a hang is a failure
-// of the thing under test, and it should read as one rather than stalling the build. The
-// separate thread is what makes that work, since the default mode only checks the clock once
-// the test method returns, which a spinning one never does
+// A skip that never finishes would hang this test, and the separate thread is what turns the
+// hang into a failure: the default mode only checks the clock once the test method returns,
+// which a hung test never does
 @Timeout(value = 30, unit = TimeUnit.SECONDS, threadMode = Timeout.ThreadMode.SEPARATE_THREAD)
 class PGStreamSkipTest {
   /**
-   * Payload the stream serves. Every byte differs from its neighbours, so a skip that lands at the
-   * wrong offset is visible in the byte read after it.
+   * Payload the stream serves. Each of the 256 byte values appears once, so the byte read after a
+   * skip identifies the offset the skip landed on.
    */
   private static final byte[] DATA = new byte[256];
 
@@ -60,12 +59,12 @@ class PGStreamSkipTest {
   }
 
   /**
-   * How many bytes a wrapped stream agrees to skip per call.
+   * How many bytes of a requested skip a wrapped stream discards per call.
    */
   enum SkipStyle {
-    /** Skips everything asked of it, the ordinary case. */
+    /** Delegates the skip to the wrapped stream. This is the ordinary case. */
     HONEST,
-    /** Skips nothing, ever, which the contract permits. */
+    /** Skips nothing, ever, which {@link InputStream#skip(long)} permits. */
     REFUSES,
     /** Skips a single byte per call, so progress is real but slow. */
     ONE_AT_A_TIME
@@ -73,10 +72,10 @@ class PGStreamSkipTest {
 
   @Test
   void skipDiscardsExactlyTheRequestedBytes() throws Exception {
-    // The buffer under PGStream is 8192 bytes, so a request below the payload is served from it
-    // once it is primed, and one above it has to reach the wrapped stream
+    // A zero-byte skip never calls down at all, and the buffer under PGStream starts empty, so
+    // every other size here reaches the wrapped stream on the first call
     for (SkipStyle style : SkipStyle.values()) {
-      for (int size : new int[]{0, 1, 100, DATA.length - 1}) {
+      for (int size : new int[]{0, 1, 100, DATA.length - 1, DATA.length}) {
         CountingStream source = new CountingStream(new ByteArrayInputStream(DATA), style);
         try (PGStream stream = openStream(source)) {
           String label = style + " skip=" + size;
@@ -103,8 +102,10 @@ class PGStreamSkipTest {
   }
 
   /**
-   * A stream that refuses to skip must not degrade to one read per byte: the read that breaks the
-   * refusal primes the buffer, and the next skip drains it wholesale.
+   * Fails when a skip over a stream that refuses to skip degrades to one read per byte.
+   *
+   * <p>The read that breaks the refusal fills the buffer, and the next skip drains it in one
+   * call.</p>
    */
   @Test
   void skipDoesNotFallBackToReadingByteByByte() throws Exception {
@@ -118,22 +119,26 @@ class PGStreamSkipTest {
     }
   }
 
+  /**
+   * Opens a {@link PGStream} that reads from {@code source}, with no server behind it. The
+   * {@code 8192} argument sizes the send buffer, not the buffer the driver reads through.
+   */
   private static PGStream openStream(InputStream source) throws IOException {
     return new PGStream(new FixedSocketFactory(source), new HostSpec("localhost", 5432), 0, 8192);
   }
 
   /**
-   * Counts what the driver asked of the stream, and answers skip as the style dictates.
+   * Counts the skip and read calls the driver makes, and skips as {@link SkipStyle} prescribes.
    *
-   * <p>Refuses to play along with a caller that ignores a zero from {@link #skip(long)}: after
-   * {@link #ZERO_SKIP_LIMIT} of them with nothing read in between, it throws instead of letting
-   * the caller spin. That turns the defect this test guards into an immediate failure that names
-   * itself, rather than one the surrounding timeout has to catch.</p>
+   * <p>{@link #skip(long)} throws {@link IllegalStateException} once more than
+   * {@link #ZERO_SKIP_LIMIT} skips in a row have returned zero with nothing read in between. A
+   * caller that ignores a zero skip fails the test there, with a message that states what it
+   * did, rather than spinning until the class timeout ends the test.</p>
    */
   static final class CountingStream extends FilterInputStream {
     /**
-     * Consecutive zero-returning skips that count as a caller making no progress. Reading resets
-     * the count, since that is how a caller reacts to a skip that skipped nothing.
+     * Consecutive zero-returning skips that count as a caller making no progress. A read resets
+     * the count, because a caller that reads after a zero skip has made progress.
      */
     static final int ZERO_SKIP_LIMIT = 10;
 
@@ -190,7 +195,8 @@ class PGStreamSkipTest {
   }
 
   /**
-   * Hands the driver a socket whose input is the given stream, so no server is involved.
+   * Creates sockets that read from the stream given to the constructor, so no server is involved.
+   * Anything the driver writes goes to a buffer nothing reads.
    */
   static final class FixedSocketFactory extends SocketFactory {
     private final InputStream input;

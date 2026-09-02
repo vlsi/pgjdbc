@@ -681,14 +681,14 @@ public class PGStream implements Closeable, Flushable {
     while (s < size) {
       long skipped = pgInput.skip(size - s);
       if (skipped == 0) {
-        // A stream is allowed to skip nothing and still have more to give, and a stream that has
-        // ended skips nothing forever, so neither spinning nor failing is right on its own.
-        // Reading blocks for a byte and reports the end as -1
+        // InputStream.skip may return zero and still have data coming, and an ended stream
+        // returns zero from every skip, so zero alone does not distinguish the two cases. A read
+        // does distinguish them: it blocks until a byte arrives, and reports the end as -1.
         if (pgInput.read() == -1) {
           throw new EOFException();
         }
-        // That byte is one of the bytes being discarded, so it counts, and reading it primed the
-        // buffer that the next skip drains
+        // The byte just read is one of the bytes being discarded, so it counts toward the total.
+        // The read also buffered whatever else had arrived, and the next skip drains that buffer.
         skipped = 1;
       }
       s += skipped;
