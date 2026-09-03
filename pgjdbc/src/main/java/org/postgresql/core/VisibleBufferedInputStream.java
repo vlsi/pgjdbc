@@ -297,20 +297,42 @@ public class VisibleBufferedInputStream extends InputStream {
 
   /**
    * {@inheritDoc}
+   *
+   * <p>Bytes are discarded through this stream's own buffer, so a discard follows the same
+   * socket-timeout rule as {@link #ensureBytes(int)}: a {@link SocketTimeoutException} is waited
+   * out unless {@link #setTimeoutRequested(boolean)} is set, which in the driver means
+   * {@link PGStream#setNetworkTimeout(int)} was given a non-zero timeout. The wrapped stream's
+   * {@link InputStream#skip(long)} is never called, so a discard does not depend on how a stream
+   * supplied through the {@code socketFactory} connection property implements it.</p>
+   *
+   * <p>A discard that fails part-way is not restartable. The bytes it already took are gone, and
+   * the exception carries no count, so the caller cannot tell how far the discard got.</p>
+   *
+   * <p>A count of zero or less discards nothing and returns {@code 0}.</p>
    */
   @Override
   public long skip(long n) throws IOException {
-    int avail = endIndex - index;
-    if (avail >= n) {
-      // Cast to int is safe here since the number of available bytes within the buffer
-      // always fits within int
-      index += (int) n;
-      return n;
+    if (n <= 0) {
+      return 0;
     }
-    n -= avail;
-    index = 0;
-    endIndex = 0;
-    return avail + wrapped.skip(n);
+    long skipped = 0;
+    while (skipped < n) {
+      int buffered = endIndex - index;
+      if (buffered == 0) {
+        // read() blocks until a byte arrives, reports end of stream as -1, and fills the
+        // buffer, so the next pass drains it in one step
+        if (read() < 0) {
+          break;
+        }
+        skipped++;
+        continue;
+      }
+      // The minimum cannot exceed buffered, which is an int, so the cast is safe
+      int take = (int) Math.min(buffered, n - skipped);
+      index += take;
+      skipped += take;
+    }
+    return skipped;
   }
 
   /**
