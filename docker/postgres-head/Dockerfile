@@ -1,9 +1,9 @@
-# syntax=docker/dockerfile:1@sha256:87999aa3d42bdc6bea60565083ee17e86d1f3339802f543c0d03998580f9cb89
+# syntax=docker/dockerfile:1@sha256:ecfaec9ed6d810b56388c508f4121597bfbba70d41a6dfeee4d8cad5f295fc32
 # PostgreSQL devel image built from apt.postgresql.org's `*-pgdg-snapshot`.
 # Drop-in compatible with the official `postgres:*` image, so the shared
 # docker/postgres-server compose runs it via PG_IMAGE.
 
-FROM debian:trixie-slim@sha256:020c0d20b9880058cbe785a9db107156c3c75c2ac944a6aa7ab59f2add76a7bd
+FROM debian:trixie-slim@sha256:3a39a0592364683e6bab97937b72cad5a8fa6dcbbee90edb3bb48c7f8e94f258
 
 # Empty default => pick the highest postgresql-N available in pgdg-snapshot
 # at build time, so the image follows new major releases without a Dockerfile
