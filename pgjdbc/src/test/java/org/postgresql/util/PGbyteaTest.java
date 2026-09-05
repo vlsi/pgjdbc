@@ -14,6 +14,7 @@ import org.postgresql.core.v3.SqlSerializationContext;
 import org.junit.jupiter.api.Test;
 
 import java.io.IOException;
+import java.nio.ByteBuffer;
 import java.sql.SQLException;
 import java.util.Random;
 
@@ -70,6 +71,40 @@ class PGbyteaTest {
   void toPGLiteral_hexString_empty() throws IOException {
     assertEquals("'\\x'::bytea",
         PGbytea.toPGLiteral("\\x", SqlSerializationContext.of(true, true)));
+  }
+
+  @Test
+  void toPGLiteral_byteArray_nonStandardConformingStrings() throws IOException {
+    // With standard_conforming_strings off a backslash in a plain literal starts an escape
+    // sequence, so the literal has to be an escape string constant with the backslash doubled
+    assertEquals("E'\\\\x00010203'::bytea",
+        PGbytea.toPGLiteral(new byte[]{0, 1, 2, 3}, SqlSerializationContext.of(false, true)));
+  }
+
+  @Test
+  void toPGLiteral_hexString_nonStandardConformingStrings() throws IOException {
+    assertEquals("E'\\\\x00010203'::bytea",
+        PGbytea.toPGLiteral("\\x00010203", SqlSerializationContext.of(false, true)));
+  }
+
+  @Test
+  void toPGLiteral_hexString_empty_nonStandardConformingStrings() throws IOException {
+    assertEquals("E'\\\\x'::bytea",
+        PGbytea.toPGLiteral("\\x", SqlSerializationContext.of(false, true)));
+  }
+
+  @Test
+  void toPGLiteral_streamWrapper_nonStandardConformingStrings() throws IOException {
+    assertEquals("E'\\\\x00010203'::bytea",
+        PGbytea.toPGLiteral(new StreamWrapper(new byte[]{0, 1, 2, 3}, 0, 4),
+            SqlSerializationContext.of(false, true)));
+  }
+
+  @Test
+  void toPGLiteral_byteStreamWriter_nonStandardConformingStrings() throws IOException {
+    assertEquals("E'\\\\x00010203'::bytea",
+        PGbytea.toPGLiteral(new ByteBufferByteStreamWriter(ByteBuffer.wrap(new byte[]{0, 1, 2, 3})),
+            SqlSerializationContext.of(false, true)));
   }
 
   @Test

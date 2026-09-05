@@ -176,6 +176,11 @@ public class PGbytea {
    * Formats input object as {@code bytea} literal like {@code '\xcafebabe'::bytea}.
    * The following inputs are supported: {@code byte[]}, {@link StreamWrapper}, and
    * {@link ByteStreamWriter}.
+   *
+   * <p>When {@code context} reports {@code standard_conforming_strings} off, the literal comes out
+   * as {@code E'\\xcafebabe'::bytea}: the hex format opens with a backslash, and such a server
+   * reads a backslash in a plain literal as an escape character.</p>
+   *
    * @param value input value to format
    * @param context specifies configuration for converting the parameters to string
    * @return formatted value
@@ -207,13 +212,17 @@ public class PGbytea {
         throw new IllegalArgumentException(
             GT.tr("The bytea hex value has an odd number of digits."));
       }
-      return "'" + str + "'::bytea";
+      StringBuilder sb = new StringBuilder(str.length() + 12);
+      appendHexLiteralPrefix(sb, context);
+      sb.append(str, 2, str.length());
+      sb.append("'::bytea");
+      return sb.toString();
     }
 
     if (value instanceof byte[]) {
       byte[] bytes = (byte[]) value;
-      StringBuilder sb = new StringBuilder(bytes.length * 2 + 11);
-      sb.append("'\\x");
+      StringBuilder sb = new StringBuilder(bytes.length * 2 + 13);
+      appendHexLiteralPrefix(sb, context);
       appendHexString(sb, bytes, 0, bytes.length);
       sb.append("'::bytea");
       return sb.toString();
@@ -229,8 +238,8 @@ public class PGbytea {
       }
 
       int length = sw.getLength();
-      StringBuilder sb = new StringBuilder(length * 2 + 11);
-      sb.append("'\\x");
+      StringBuilder sb = new StringBuilder(length * 2 + 13);
+      appendHexLiteralPrefix(sb, context);
       if (bytes != null) {
         appendHexString(sb, bytes, sw.getOffset(), length);
       } else if (length > 0) {
@@ -258,8 +267,8 @@ public class PGbytea {
     if (value instanceof ByteStreamWriter) {
       ByteStreamWriter bsw = (ByteStreamWriter) value;
       int len = bsw.getLength();
-      StringBuilder sb = new StringBuilder(len * 2 + 11);
-      sb.append("'\\x");
+      StringBuilder sb = new StringBuilder(len * 2 + 13);
+      appendHexLiteralPrefix(sb, context);
       FixedLengthOutputStream str = new FixedLengthOutputStream(len, new OutputStream() {
         @Override
         public void write(int b) {
@@ -282,6 +291,19 @@ public class PGbytea {
 
     throw new IllegalArgumentException(
         GT.tr("Cannot convert {0} to {1} literal", value.getClass(), "bytea"));
+  }
+
+  /**
+   * Opens a hex-format {@code bytea} literal: the {@code E} prefix where one is needed, the quote,
+   * and the {@code \x} marker. A server with {@code standard_conforming_strings} off reads a
+   * backslash in a plain literal as an escape character, so the literal is written as an escape
+   * string constant there, with the marker's backslash doubled.
+   *
+   * @param sb output builder
+   * @param context specifies configuration for converting the parameters to string
+   */
+  private static void appendHexLiteralPrefix(StringBuilder sb, SqlSerializationContext context) {
+    sb.append(context.getStandardConformingStrings() ? "'\\x" : "E'\\\\x");
   }
 
   private static boolean isHexDigit(char ch) {
