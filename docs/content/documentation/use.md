@@ -622,6 +622,7 @@ A limit whose right value depends on the workload is a connection property, and 
 | `CopyData`, which carries `COPY ... TO STDOUT` output and replication data | 64 MB (64000000 bytes) | `maxCopyDataSize` | only while the property is unset |
 | `ErrorResponse`, `NoticeResponse`, `CommandComplete`, `ParameterStatus`, `NotificationResponse` | 64 MB (64000000 bytes) | `maxServerTextMessageSize` | yes, after authentication |
 | `RowDescription` | 8 MiB (8388608 bytes) | none | no |
+| `NegotiateProtocolVersion` | 1 MiB (1048576 bytes) | none | no |
 | `AuthenticationRequest`, `AuthenticationGSSContinue` | 8008 bytes | none | no |
 
 Each fixed limit is orders of magnitude above what PostgreSQL sends. A `RowDescription` for a result of 1664 columns, the most PostgreSQL returns, is about 133 KiB.
