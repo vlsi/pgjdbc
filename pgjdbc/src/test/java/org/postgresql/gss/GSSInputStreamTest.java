@@ -28,18 +28,26 @@ import java.util.Locale;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 /**
- * The packet length check on the encrypted transport, which only runs once GSS encryption is on.
- * The context is a stub whose unwrap returns its input, so the length handling is exercised
- * without a Kerberos realm.
+ * A GSS packet is refused unless its declared length is between 1 and {@link #MAX_PAYLOAD_SIZE}
+ * bytes, and the refusal runs the protocol violation callback before the {@link IOException} is
+ * thrown.
+ *
+ * <p>The driver installs {@link GSSInputStream} only on a GSS-encrypted connection. The
+ * {@link GSSContext} here is a stub whose unwrap returns the bytes it is given, so the length
+ * handling is exercised without a Kerberos realm.</p>
  */
 @Isolated("Uses Locale.setDefault")
 class GSSInputStreamTest {
 
-  /** PQ_GSS_MAX_PACKET_SIZE less the length word. */
+  /**
+   * Largest declared packet length, in bytes, that {@link GSSInputStream} accepts. PostgreSQL's
+   * PQ_GSS_MAX_PACKET_SIZE counts the four-byte length word, so the payload maximum is four bytes
+   * smaller.
+   */
   private static final int MAX_PAYLOAD_SIZE = 16 * 1024 - 4;
 
-  // The assertions match on message text, which GT.tr translates once these strings are
-  // localized.
+  // The assertions match on English message text. GT.tr returns the catalog entry for the default
+  // locale instead, once these messages have one.
   private static Locale defaultLocale;
 
   @BeforeAll
@@ -53,7 +61,9 @@ class GSSInputStreamTest {
     Locale.setDefault(defaultLocale);
   }
 
-  /** A context whose unwrap returns its input unchanged. */
+  /**
+   * Returns a {@link GSSContext} whose unwrap returns the range of bytes it is given.
+   */
   private static GSSContext echoContext() {
     InvocationHandler handler = new InvocationHandler() {
       @Override
@@ -71,6 +81,10 @@ class GSSInputStreamTest {
         new Class<?>[]{GSSContext.class}, handler);
   }
 
+  /**
+   * Returns a packet whose four-byte header declares {@code declaredLength}, followed by
+   * {@code payloadBytes} bytes of payload. The two can differ.
+   */
   private static byte[] frame(int declaredLength, int payloadBytes) {
     ByteArrayOutputStream out = new ByteArrayOutputStream();
     out.write(declaredLength >>> 24);
@@ -115,7 +129,7 @@ class GSSInputStreamTest {
     assertTrue(violated.get());
   }
 
-  /** A packet at the payload maximum is sent in full and must not be refused. */
+  /** The frame carries its whole payload, so the read reaches the unwrap and returns bytes. */
   @Test
   void acceptsAPacketAtThePayloadMaximum() throws IOException {
     AtomicBoolean violated = new AtomicBoolean();

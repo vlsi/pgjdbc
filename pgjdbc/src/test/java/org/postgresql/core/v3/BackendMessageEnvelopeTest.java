@@ -44,14 +44,17 @@ import java.util.Locale;
 import java.util.Properties;
 
 /**
- * Drives the readers in {@link QueryExecutorImpl} from a canned reply, so the counts they take
- * off the wire can be given values a server would never send.
+ * A backend message is read to exactly its declared length, and a count inside it that the
+ * length cannot hold is refused.
+ *
+ * <p>Each test drives the readers in {@link QueryExecutorImpl} from a canned reply, so a count
+ * can be given a value a server would never send.</p>
  */
 @Isolated("Uses Locale.setDefault")
 class BackendMessageEnvelopeTest {
 
-  // The assertions match on message text, which GT.tr translates once these strings are
-  // localized.
+  // The assertions match the English message text, which GT.tr replaces with the default
+  // locale's translation where the catalog carries one.
   private static Locale defaultLocale;
 
   @BeforeAll
@@ -65,6 +68,13 @@ class BackendMessageEnvelopeTest {
     Locale.setDefault(defaultLocale);
   }
 
+  /**
+   * Builds the bytes of a scripted backend reply.
+   *
+   * <p>A well-formed message is a type byte, a four-byte length that counts itself, and the
+   * body. {@link #messageOfDeclaredLength(char, int, byte[])} writes a length the caller
+   * chooses instead.</p>
+   */
   private static class Script {
     private final ByteArrayOutputStream out;
 
@@ -87,7 +97,10 @@ class BackendMessageEnvelopeTest {
       return this;
     }
 
-    /** A message whose declared length is not the length of what follows it. */
+    /**
+     * Appends a message whose length prefix carries {@code declaredLength} rather than the
+     * length of {@code body}.
+     */
     Script messageOfDeclaredLength(char type, int declaredLength, byte[] body) {
       out.write(type);
       out.write(declaredLength >>> 24);
@@ -98,6 +111,10 @@ class BackendMessageEnvelopeTest {
       return this;
     }
 
+    /**
+     * Appends the reply the {@link QueryExecutorImpl} constructor consumes, ending at a
+     * ReadyForQuery.
+     */
     Script startup() {
       message('S', bytes(cstring("server_version"), cstring("17.0")));
       message('K', bytes(int4(1), int4(2)));
@@ -131,6 +148,7 @@ class BackendMessageEnvelopeTest {
     return new byte[]{(byte) (value >>> 8), (byte) value};
   }
 
+  /** Returns the UTF-8 bytes of {@code value} followed by the terminating zero byte. */
   private static byte[] cstring(String value) {
     byte[] encoded = value.getBytes(StandardCharsets.UTF_8);
     byte[] result = new byte[encoded.length + 1];
@@ -152,6 +170,7 @@ class BackendMessageEnvelopeTest {
     return new QueryExecutorImpl(streamOf(script), 0, new Properties());
   }
 
+  /** Keeps the last warning the query reported. Rows and command status are discarded. */
   private static class CollectingHandler extends ResultHandlerBase {
     private @Nullable SQLWarning warning;
 
@@ -171,8 +190,8 @@ class BackendMessageEnvelopeTest {
   }
 
   /**
-   * Runs one simple query against the scripted reply and returns whatever error came out of it,
-   * or null if the reply was accepted.
+   * Runs one simple query against the scripted reply and returns the error it produced, or null
+   * if the reply was accepted.
    */
   private static @Nullable SQLException runQuery(Script script) throws IOException {
     try {
@@ -204,7 +223,7 @@ class BackendMessageEnvelopeTest {
     assertNull(runQuery(script));
   }
 
-  /** One byte short of what a single field description needs. */
+  /** The message carries one byte less than a single field description needs. */
   @Test
   void rejectsARowDescriptionTooShortForItsFieldCount() throws Exception {
     byte[] shortField = new byte[fieldDescription().length - 1];
@@ -219,8 +238,7 @@ class BackendMessageEnvelopeTest {
   }
 
   /**
-   * A tiny message claiming many fields would read its field descriptions out of the
-   * messages that follow it.
+   * The count is checked against the declared length before the field array is allocated.
    */
   @Test
   void rejectsARowDescriptionClaimingFieldsItCannotHold() throws Exception {
@@ -234,7 +252,8 @@ class BackendMessageEnvelopeTest {
   }
 
   /**
-   * Runs one describe-only parameterized query, the request a ParameterDescription answers.
+   * Runs one describe-only parameterized query and returns the error it produced, or null if the
+   * reply was accepted. The reply to such a request carries a ParameterDescription.
    */
   private static @Nullable SQLException describeQuery(Script script) throws IOException {
     try {
@@ -262,7 +281,7 @@ class BackendMessageEnvelopeTest {
     assertNull(describeQuery(script));
   }
 
-  /** One type OID more than the length can hold. */
+  /** The count claims one type OID more than the declared length can hold. */
   @Test
   void rejectsAParameterDescriptionWhoseCountDoesNotFillIt() throws Exception {
     Script script = new Script().startup()
@@ -288,7 +307,7 @@ class BackendMessageEnvelopeTest {
     assertEquals(1, ((CopyOut) op).getFieldCount());
   }
 
-  /** One field format too few for the declared length. */
+  /** The field count is one format short of filling the declared length. */
   @Test
   void rejectsACopyOutResponseWhoseFieldCountDoesNotFillIt() throws Exception {
     Script script = new Script().startup()
@@ -302,8 +321,8 @@ class BackendMessageEnvelopeTest {
   }
 
   /**
-   * ParameterStatus is two C strings, so a reader that stops before the declared end is only
-   * caught by comparing the position at the next message.
+   * ParameterStatus is two C strings, so a reader that stops before the declared end is caught
+   * only by the position check in {@link PGStream#receiveMessageType()}.
    */
   @Test
   void rejectsAParameterStatusThatDoesNotFillItsMessage() throws Exception {
@@ -333,8 +352,9 @@ class BackendMessageEnvelopeTest {
   }
 
   /**
-   * Error fields for a message one byte longer than the buffer maximum. The query field comes
-   * last, so it is the field that is truncated.
+   * Returns the fields of an ErrorResponse whose message is one byte longer than
+   * {@link PGStream#MAX_BUFFERED_MESSAGE_LENGTH}. The query field comes last, so the truncation
+   * cuts it.
    */
   private static byte[] oversizedErrorFields() {
     byte[] head = bytes(cstring("SERROR"), cstring("C42601"), cstring("Mboom"), new byte[]{'q'});
@@ -384,8 +404,8 @@ class BackendMessageEnvelopeTest {
   }
 
   /**
-   * A NoticeResponse whose body is truncated in the middle of a multibyte UTF-8 character. The
-   * tolerant decoding must deliver the notice rather than fail the read.
+   * The truncation point falls inside a multibyte UTF-8 character, and the tolerant decoding
+   * must still deliver the notice rather than fail the read.
    */
   @Test
   void truncatesANoticeResponseThroughAMultibyteCharacter() throws Exception {
@@ -393,7 +413,7 @@ class BackendMessageEnvelopeTest {
     byte[] body = new byte[buffered + 8];
     body[0] = 'M';
     Arrays.fill(body, 1, buffered - 1, (byte) 'x');
-    // Two byte U+00E9 split by the truncation, lead byte inside and trail byte outside.
+    // U+00E9 takes two bytes, and the truncation keeps the lead byte and drops the trail byte.
     body[buffered - 1] = (byte) 0xC3;
     body[buffered] = (byte) 0xA9;
     Arrays.fill(body, buffered + 1, body.length - 1, (byte) 'x');
@@ -411,7 +431,10 @@ class BackendMessageEnvelopeTest {
     assertTrue(message.startsWith("xxx"), message);
   }
 
-  /** A DataRow past maxResultBuffer reports the limit and drops the connection. */
+  /**
+   * The row is never read, so the stream is left off a message boundary. The limit is reported
+   * and the connection dropped.
+   */
   @Test
   void dropsTheConnectionPastMaxResultBuffer() throws Exception {
     byte[] column = new byte[200];

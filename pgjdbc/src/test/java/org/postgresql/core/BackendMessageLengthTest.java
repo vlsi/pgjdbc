@@ -25,8 +25,13 @@ import java.sql.SQLException;
 import java.util.Locale;
 
 /**
- * Boundary tests for the message length check and for the column lengths inside a DataRow, driven
- * from a byte array rather than a server.
+ * A backend message is read only within the bounds of its declared length. The message length is
+ * checked against the range its message type allows, and each DataRow column length against the
+ * bytes the message leaves. A reader that stops short of the declared end, or runs past it, is
+ * refused at the next message type.
+ *
+ * <p>The cases sit on both sides of each boundary, and the bytes come from a canned socket holding
+ * a fixed sequence rather than from a server.</p>
  */
 @Isolated("Uses Locale.setDefault")
 class BackendMessageLengthTest {
@@ -61,6 +66,11 @@ class BackendMessageLengthTest {
     return out.toByteArray();
   }
 
+  /**
+   * The limit under test is {@link PGStream#MAX_SMALL_MESSAGE_LENGTH}, so
+   * {@link PGStream#MAX_MESSAGE_LENGTH}, the largest length any message may declare, belongs
+   * among the refused values.
+   */
   @Test
   void rejectsLengthsOutsideTheRange() throws IOException {
     int max = PGStream.MAX_SMALL_MESSAGE_LENGTH;
@@ -119,6 +129,7 @@ class BackendMessageLengthTest {
     assertArrayEquals(new byte[0], tuple.get(2));
   }
 
+  /** Only -1 means a null column, so a length of -2 is refused. */
   @Test
   void rejectsAColumnLengthBelowNull() throws IOException {
     byte[] message = new byte[]{0, 0, 0, 10, 0, 1, (byte) 0xFF, (byte) 0xFF, (byte) 0xFF, (byte) 0xFE};
@@ -132,19 +143,21 @@ class BackendMessageLengthTest {
     byte[] message = new byte[]{0, 0, 0, 10, 0, 1, 0, 16, 0, 0};
     PGStream stream = streamOf(message);
     IOException e = assertThrows(IOException.class, () -> stream.receiveTupleV3());
-    // It must be the length check, because reading on would hit the end of the stream anyway.
+    // The assertion pins the refusal to the column length check rather than to end of stream.
     assertTrue(e.getMessage().contains("does not fit"), e.getMessage());
   }
 
   @Test
   void rejectsADataRowWhoseColumnsUnderrunItsEnvelope() throws IOException {
-    // 4 length + 2 count + 4 column length leaves 11 of column data. The column accounts for 7.
+    // Of the declared 21 bytes, 4 length + 2 count + 4 column length leave 11 for column data.
+    // The one column declares 7, so 4 stay unread.
     byte[] message = new byte[]{0, 0, 0, 21, 0, 1, 0, 0, 0, 7, 'a', 'b', 'c', 'd', 'e', 'f', 'g'};
     PGStream stream = streamOf(message);
     IOException e = assertThrows(IOException.class, () -> stream.receiveTupleV3());
     assertTrue(e.getMessage().contains("unread"), e.getMessage());
   }
 
+  /** The declared length leaves three bytes for column data, and the one column declares three. */
   @Test
   void acceptsADataRowThatConsumesItsEnvelopeExactly() throws IOException, SQLException {
     byte[] message = new byte[]{0, 0, 0, 13, 0, 1, 0, 0, 0, 3, 'a', 'b', 'c'};
@@ -157,7 +170,7 @@ class BackendMessageLengthTest {
 
   @Test
   void rejectsADataRowTooShortForItsColumnCount() throws IOException {
-    // 100 columns in a message that cannot hold their lengths.
+    // The message declares 100 columns, and its 10 bytes cannot hold their lengths.
     byte[] message = new byte[]{0, 0, 0, 10, 0, 100, 0, 0, 0, 0};
     PGStream stream = streamOf(message);
     IOException e = assertThrows(IOException.class, () -> stream.receiveTupleV3());
@@ -172,7 +185,7 @@ class BackendMessageLengthTest {
         () -> stream.receiveMessageLength("ErrorResponse", 5, PGStream.MAX_SMALL_MESSAGE_LENGTH));
 
     assertTrue(stream.isBroken(), "the refusal must mark the stream broken");
-    // A pool that tests connections on borrow checks this.
+    // PgConnection.isClosed() reports the broken stream, so a pool does not reuse the connection.
     assertTrue(stream.isClosed(), "a broken stream must report itself closed");
   }
 
@@ -189,7 +202,8 @@ class BackendMessageLengthTest {
   /** A read after a refusal reports the refusal, not whatever fails next. */
   @Test
   void refusesToReadPastABrokenStream() throws IOException {
-    // A refused length, then a message type that would otherwise be readable.
+    // The declared length 3 is below the 5 byte minimum, and the 'Z' after it is a message type
+    // the driver reads.
     PGStream stream = streamOf(new byte[]{0, 0, 0, 3, 'Z'});
 
     assertThrows(IOException.class,
@@ -211,7 +225,7 @@ class BackendMessageLengthTest {
 
   @Test
   void rejectsAMessageWhoseReaderStoppedShort() throws IOException {
-    // A ten byte message, of which the reader consumes two, then the next message type.
+    // The declared 10 bytes leave 6 body bytes. The reader consumes 2 of them, and 'Z' follows.
     byte[] message = new byte[]{0, 0, 0, 10, 1, 2, 3, 4, 5, 6, 'Z'};
     PGStream stream = streamOf(message);
 
@@ -223,6 +237,7 @@ class BackendMessageLengthTest {
     assertTrue(stream.isBroken());
   }
 
+  /** The declared length leaves six body bytes and the reader skips six. */
   @Test
   void acceptsAMessageConsumedExactly() throws IOException {
     byte[] message = new byte[]{0, 0, 0, 10, 1, 2, 3, 4, 5, 6, 'Z'};
@@ -234,7 +249,10 @@ class BackendMessageLengthTest {
     assertEquals('Z', stream.receiveMessageType());
   }
 
-  /** Reading past the end of a message is as wrong as stopping short of it. */
+  /**
+   * The declared length leaves two body bytes and the reader skips four, so it ends two
+   * bytes past the end of the message.
+   */
   @Test
   void rejectsAMessageWhoseReaderRanPast() throws IOException {
     byte[] message = new byte[]{0, 0, 0, 6, 1, 2, 3, 4, 'Z'};
@@ -254,7 +272,8 @@ class BackendMessageLengthTest {
 
   @Test
   void rejectsAStringThatRunsPastItsMessage() throws IOException {
-    // A nine byte message holding five bytes with no terminator among them.
+    // The declared 9 bytes leave 5 body bytes with no terminator among them. The terminator is
+    // the next byte, one past the end of the message.
     byte[] message = new byte[]{0, 0, 0, 9, 'a', 'b', 'c', 'd', 'e', 0};
     PGStream stream = streamOf(message);
 
@@ -279,7 +298,8 @@ class BackendMessageLengthTest {
   @Test
   void capsThePreAuthenticationMessageBelowTheBufferedOne() {
     assertTrue(PGStream.MAX_PRE_AUTH_MESSAGE_LENGTH < PGStream.MAX_BUFFERED_MESSAGE_LENGTH);
-    // libpq's limit is on the declared length, which counts itself.
+    // libpq bounds the declared length, which counts its own 4 bytes, so the driver uses the
+    // same 30000.
     assertEquals(30000, PGStream.MAX_PRE_AUTH_MESSAGE_LENGTH);
   }
 }

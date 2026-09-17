@@ -18,11 +18,20 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.util.concurrent.TimeUnit;
 
+/**
+ * The read buffer grows to hold the bytes a read requests, refuses to grow past
+ * {@link VisibleBufferedInputStream#MAX_BUFFER_SIZE}, and returns to its initial size once it is
+ * drained.
+ *
+ * <p>Growth and compaction keep the bytes already buffered. The stub streams never reach end of
+ * stream, so a read or a scan that did not stop on its own would run until the {@link Timeout}
+ * fires.</p>
+ */
 class VisibleBufferedInputStreamTest {
 
   private static final int INITIAL_SIZE = 8192;
 
-  /** One byte per read. */
+  /** Returns one byte per read, whatever length is requested. */
   private static class Trickle extends InputStream {
     @Override
     public int read() {
@@ -36,7 +45,10 @@ class VisibleBufferedInputStreamTest {
     }
   }
 
-  /** Endless non-zero bytes, in bulk so a scan to the maximum is quick. */
+  /**
+   * Fills every read with non-zero bytes, so a scan for a terminator reaches the maximum in few
+   * reads.
+   */
   private static class Unterminated extends InputStream {
     @Override
     public int read() {
@@ -52,6 +64,10 @@ class VisibleBufferedInputStreamTest {
     }
   }
 
+  /**
+   * Fills every read. The byte at stream position {@code p} is {@code p % 251}, so a test can
+   * check the stream position a buffered byte came from.
+   */
   private static class Bulk extends InputStream {
     private long pos;
 
@@ -78,7 +94,8 @@ class VisibleBufferedInputStreamTest {
 
     assertTrue(in.ensureBytes(wanted));
 
-    // One allocation for the request plus slack. Doubling per read would reach 128k.
+    // One allocation, sized to the request plus MINIMUM_READ. Doubling took three allocations to
+    // fit the same request.
     assertEquals(wanted + 1024, in.getBuffer().length);
   }
 
@@ -95,6 +112,11 @@ class VisibleBufferedInputStreamTest {
     assertEquals(INITIAL_SIZE, in.getBuffer().length, "nothing should have been allocated");
   }
 
+  /**
+   * An int4 length field carries at most {@link Integer#MAX_VALUE}, and the driver accepts a
+   * message of at most {@link PGStream#MAX_MESSAGE_LENGTH}. Both are above
+   * {@link VisibleBufferedInputStream#MAX_BUFFER_SIZE}, so the buffer is left at its initial size.
+   */
   @Test
   void refusesTheLargestDeclarableLengths() {
     VisibleBufferedInputStream in = new VisibleBufferedInputStream(new Bulk(), INITIAL_SIZE);
@@ -115,7 +137,10 @@ class VisibleBufferedInputStreamTest {
     assertEquals(INITIAL_SIZE * 2, in.getBuffer().length);
   }
 
-  /** A buffer grown for one message returns to its initial size the moment it is fully drained. */
+  /**
+   * Reading after the shrink returns the byte at stream position {@code buffered}, so the new
+   * buffer resumes where the skip left off.
+   */
   @Test
   void shrinksBackAsSoonAsAnOutsizedReadIsDrained() throws IOException {
     VisibleBufferedInputStream in = new VisibleBufferedInputStream(new Bulk(), INITIAL_SIZE);
@@ -124,7 +149,7 @@ class VisibleBufferedInputStreamTest {
     int buffered = in.available();
     in.skip(buffered);
 
-    // Shrunk by the skip, before any further read.
+    // skip shrinks the buffer itself, without waiting for a further read.
     assertEquals(INITIAL_SIZE, in.getBuffer().length);
     assertEquals(buffered % 251, in.read());
   }
@@ -136,13 +161,16 @@ class VisibleBufferedInputStreamTest {
     byte[] before = in.getBuffer();
     in.skip(INITIAL_SIZE - 100);
 
-    // 100 unread + 1000 wanted + 1024 slack fits in 8192.
+    // 100 unread + 900 more wanted + MINIMUM_READ (1024) fits in 8192.
     assertTrue(in.ensureBytes(1000));
 
     assertSame(before, in.getBuffer(), "should have compacted rather than allocated");
   }
 
-  /** Compacting to leave less than MINIMUM_READ free would mean a socket read of a few bytes. */
+  /**
+   * Compacting to leave less than {@code MINIMUM_READ} free would repeat on the next call, with a
+   * socket read of a few bytes in between.
+   */
   @Test
   void growsWhenCompactionWouldLeaveNoRoomToRead() throws IOException {
     VisibleBufferedInputStream in = new VisibleBufferedInputStream(new Bulk(), INITIAL_SIZE);
@@ -150,12 +178,16 @@ class VisibleBufferedInputStreamTest {
     byte[] before = in.getBuffer();
     in.skip(INITIAL_SIZE - 100);
 
-    // 100 unread + 7500 wanted fits in 8192, but leaves under MINIMUM_READ spare.
+    // 100 unread + 7400 more wanted fits in 8192, but leaves under MINIMUM_READ spare.
     assertTrue(in.ensureBytes(7500));
 
     assertNotSame(before, in.getBuffer(), "should have grown rather than compacted");
   }
 
+  /**
+   * The skip before the growth leaves the unread bytes at a non-zero index, so the growth has to
+   * copy from the read position rather than from the start of the buffer.
+   */
   @Test
   @Timeout(value = 30, unit = TimeUnit.SECONDS)
   void keepsTheDataAcrossGrowth() throws IOException {
@@ -172,9 +204,10 @@ class VisibleBufferedInputStreamTest {
   }
 
   /**
-   * The same string one byte per read, where a scan that restarts after every refill is quadratic
-   * and the timeout is the only way to detect it. In bulk there are too few refills for the
-   * difference to matter.
+   * Scans the same unterminated string as {@link #anUnterminatedStringStopsAtTheMaximum()}, from a
+   * stream that delivers one byte per read. At that rate a scan that restarted after every refill
+   * would take quadratic time, and nothing but the timeout would report it; the bulk stream
+   * refills too few times for the difference to show.
    */
   @Test
   @Timeout(value = 30, unit = TimeUnit.SECONDS)
@@ -185,7 +218,6 @@ class VisibleBufferedInputStreamTest {
     assertTrue(in.getBuffer().length <= VisibleBufferedInputStream.MAX_BUFFER_SIZE);
   }
 
-  /** An unterminated C string scans to the buffer maximum, then stops. */
   @Test
   @Timeout(value = 30, unit = TimeUnit.SECONDS)
   void anUnterminatedStringStopsAtTheMaximum() {

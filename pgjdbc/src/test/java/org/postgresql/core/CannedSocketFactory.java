@@ -15,11 +15,14 @@ import java.net.Socket;
 import javax.net.SocketFactory;
 
 /**
- * Creates sockets that read a canned byte script and collect everything written to them. The
- * driver writes its request and then reads the reply, so a script is enough to drive a reader
- * without a server.
+ * Creates sockets that read a canned byte script and record everything written to them.
+ *
+ * <p>The script is prepared before the test runs and does not depend on what the driver writes, so
+ * a test can drive a reader with no server behind the socket. A read past the end of the script
+ * reports end of stream rather than blocking.</p>
  */
 public class CannedSocketFactory extends SocketFactory {
+  /** Bytes each socket this factory creates replays as its input, from the beginning. */
   private final byte[] script;
   private CannedSocket socket;
 
@@ -28,7 +31,10 @@ public class CannedSocketFactory extends SocketFactory {
     this.socket = new CannedSocket(script);
   }
 
-  /** Everything the driver has written so far. */
+  /**
+   * Bytes the driver has written to the socket created most recently. {@link #createSocket()}
+   * replaces that socket and drops what was written to the one before it.
+   */
   public byte[] getWritten() {
     return socket.written.toByteArray();
   }
@@ -59,6 +65,13 @@ public class CannedSocketFactory extends SocketFactory {
     return createSocket();
   }
 
+  /**
+   * Socket that reads the script and records what is written to it, with no operating-system
+   * socket behind it.
+   *
+   * <p>It reports itself connected, so the driver connects nothing and resolves no address. A
+   * socket option is recorded or ignored rather than applied.</p>
+   */
   private static class CannedSocket extends Socket {
     private final InputStream in;
     private final ByteArrayOutputStream written = new ByteArrayOutputStream();
@@ -104,9 +117,13 @@ public class CannedSocketFactory extends SocketFactory {
 
     @Override
     public void setSoLinger(boolean on, int linger) {
-      // Socket.setSoLinger would create a real descriptor to set the option on.
+      // Socket.setSoLinger creates a real descriptor to set the option on.
     }
 
+    /**
+     * Leaves the socket reported open, so {@link Socket#isClosed()} returns {@code false} even
+     * after the driver has closed the stream.
+     */
     @Override
     public void close() {
     }
