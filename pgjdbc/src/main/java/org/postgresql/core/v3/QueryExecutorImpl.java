@@ -1069,8 +1069,8 @@ public class QueryExecutorImpl extends QueryExecutorBase {
           // -1 means SQL NULL and carries no bytes. Any other length fills the message exactly.
           int expectedLen = valueLen == -1 ? 8 : 8 + valueLen;
           if (valueLen < -1 || msgLen != expectedLen) {
-            throw pgStream.protocolViolation(GT.tr("Function call result of {0} bytes does not"
-                + " fill a message of {1} bytes.", String.valueOf(valueLen),
+            throw pgStream.protocolViolation(GT.tr("FunctionCallResponse of {1} bytes does not hold"
+                + " a result value of {0} bytes.", String.valueOf(valueLen),
                 String.valueOf(msgLen)));
           }
 
@@ -1175,7 +1175,7 @@ public class QueryExecutorImpl extends QueryExecutorBase {
       // The field formats run to the end of the message, so the length fixes the count exactly.
       if (len != 7 + 2 * numFields) {
         throw pgStream.protocolViolation(GT.tr(
-            "Copy response of {0} bytes does not hold exactly {1} field formats.",
+            "CopyResponse of {0} bytes does not hold exactly {1} field formats.",
             String.valueOf(len), String.valueOf(numFields)));
       }
       int[] fieldFormats = new int[numFields];

@@ -836,7 +836,7 @@ public class ConnectionFactoryImpl extends ConnectionFactory {
             if (numOptionsNotRecognized < 0 || numOptionsNotRecognized > negotiateLen - 12) {
               pgStream.setBroken();
               throw new PSQLException(GT.tr(
-                  "Backend reported {0} unrecognized options in a message of {1} bytes.",
+                  "Backend reported {0} unrecognized options in a NegotiateProtocolVersion of {1} bytes.",
                   String.valueOf(numOptionsNotRecognized), String.valueOf(negotiateLen)),
                   PSQLState.PROTOCOL_VIOLATION);
             }
@@ -844,7 +844,7 @@ public class ConnectionFactoryImpl extends ConnectionFactory {
             if (numOptionsNotRecognized == 0 && negotiateLen != 12) {
               pgStream.setBroken();
               throw new PSQLException(GT.tr(
-                  "Backend sent a {0} byte NegotiateProtocolVersion with no unrecognized options.",
+                  "Backend sent a NegotiateProtocolVersion of {0} bytes with no unrecognized options, expected 12 bytes.",
                   String.valueOf(negotiateLen)), PSQLState.PROTOCOL_VIOLATION);
             }
             if (numOptionsNotRecognized > 0) {

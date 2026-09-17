@@ -148,7 +148,7 @@ public class GSSInputStream extends InputStream {
     // A length of at most MAX_PAYLOAD_SIZE always fits the encrypted array.
     if (encryptedLength < 1 || encryptedLength > MAX_PAYLOAD_SIZE) {
       onProtocolViolation.run();
-      throw new IOException(GT.tr("Backend declared a GSS packet of {0} bytes, the maximum is {1}.",
+      throw new IOException(GT.tr("Backend declared a GSS packet of {0} bytes, expected 1 to {1} bytes.",
           String.valueOf(encryptedLength), String.valueOf(MAX_PAYLOAD_SIZE)));
     }
     return 1;

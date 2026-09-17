@@ -196,7 +196,7 @@ class GssAction implements PrivilegedAction<@Nullable Exception>, Callable<@Null
 
     pgStream.setBroken();
     return new PSQLException(GT.tr(
-        "GSS authentication did not complete within {0} round trips.",
+        "The GSS authentication handshake did not complete within {0} round trips.",
         PGStream.MAX_AUTH_ROUND_TRIPS), PSQLState.PROTOCOL_VIOLATION);
   }
 

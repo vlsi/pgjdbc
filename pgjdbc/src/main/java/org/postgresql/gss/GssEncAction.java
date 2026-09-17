@@ -178,7 +178,7 @@ public class GssEncAction implements PrivilegedAction<@Nullable Exception>, Call
       int len = pgStream.receiveInteger4();
       if (len < 0 || len > MAX_HANDSHAKE_TOKEN_SIZE) {
         throw pgStream.protocolViolation(GT.tr(
-            "Backend declared a GSS token of {0} bytes, the maximum is {1}.",
+            "Backend declared a GSS token of {0} bytes, expected 0 to {1} bytes.",
             String.valueOf(len), String.valueOf(MAX_HANDSHAKE_TOKEN_SIZE)));
       }
       inToken = pgStream.receive(len);
@@ -186,7 +186,7 @@ public class GssEncAction implements PrivilegedAction<@Nullable Exception>, Call
 
     pgStream.setBroken();
     return new PSQLException(GT.tr(
-        "GSS encryption handshake did not complete within {0} round trips.",
+        "The GSS encryption handshake did not complete within {0} round trips.",
         PGStream.MAX_AUTH_ROUND_TRIPS), PSQLState.PROTOCOL_VIOLATION);
   }
 

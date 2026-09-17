@@ -287,7 +287,7 @@ public class VisibleBufferedInputStream extends InputStream {
     if (required > MAX_BUFFER_SIZE) {
       onProtocolViolation.run();
       throw new IOException(GT.tr(
-          "Backend asked for {0} bytes of buffer, the maximum is {1} bytes.",
+          "Buffering {0} bytes from the backend exceeds the limit of {1} bytes.",
           String.valueOf(required), String.valueOf(MAX_BUFFER_SIZE)));
     }
     // Compacting is enough only where it leaves MINIMUM_READ of room beyond required. Otherwise
@@ -520,7 +520,7 @@ public class VisibleBufferedInputStream extends InputStream {
         }
         if (scanned >= maxLength) {
           onProtocolViolation.run();
-          throw new IOException(GT.tr("No string terminator within {0} bytes.",
+          throw new IOException(GT.tr("The string has no terminator within {0} bytes.",
               String.valueOf(maxLength)));
         }
       }

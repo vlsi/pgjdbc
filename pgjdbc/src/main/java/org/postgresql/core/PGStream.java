@@ -628,7 +628,7 @@ public class PGStream implements Closeable, Flushable {
   public int receiveMessageType() throws IOException {
     if (broken) {
       // Nothing after a refusal can be read. Report that rather than whatever fails next.
-      throw new IOException(GT.tr("The connection was dropped after a protocol violation."));
+      throw new IOException(GT.tr("The driver closed the connection after a protocol violation."));
     }
     long end = messageEnd;
     if (end >= 0) {
@@ -636,8 +636,8 @@ public class PGStream implements Closeable, Flushable {
       long position = pgInput.getPosition();
       if (position != end) {
         throw protocolViolation(GT.tr(
-            "The previous backend message declared its end at byte {0} of the stream, but its"
-                + " reader stopped at byte {1}.", String.valueOf(end), String.valueOf(position)));
+            "The previous backend message declared its end at byte {0} of the stream, but the"
+                + " driver stopped at byte {1}.", String.valueOf(end), String.valueOf(position)));
       }
     }
     return receiveChar();
@@ -762,7 +762,7 @@ public class PGStream implements Closeable, Flushable {
     }
     long remaining = messageEnd - pgInput.getPosition();
     if (remaining <= 0) {
-      throw protocolViolation(GT.tr("String starts at or past the end of its message."));
+      throw protocolViolation(GT.tr("The string starts at or past the end of its message."));
     }
     return pgInput.scanCStringLength((int) Math.min(remaining, Integer.MAX_VALUE));
   }
@@ -804,7 +804,7 @@ public class PGStream implements Closeable, Flushable {
         // -1 is the protocol's SQL NULL marker; no other negative length is valid.
         if (size < 0 || size > remaining) {
           throw protocolViolation(GT.tr("DataRow column of {0} bytes does not fit in the {1} bytes"
-              + " left of the message.", String.valueOf(size), String.valueOf(remaining)));
+              + " left in the message.", String.valueOf(size), String.valueOf(remaining)));
         }
         remaining -= size;
         try {
