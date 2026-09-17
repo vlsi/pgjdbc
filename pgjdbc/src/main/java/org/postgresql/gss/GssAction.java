@@ -134,19 +134,21 @@ class GssAction implements PrivilegedAction<@Nullable Exception>, Callable<@Null
   }
 
   /**
-   * Exchanges tokens with the backend until the context is established. Separate from
-   * {@link #run()} so a test can drive the loop without a Kerberos realm.
+   * Exchanges tokens with the backend until the context is established.
+   *
+   * <p>The exchange runs for at most {@link PGStream#MAX_AUTH_ROUND_TRIPS} rounds. Running out of
+   * rounds, or any message type other than ErrorResponse and AuthenticationGSSContinue, marks the
+   * stream broken so the connection is not reused.</p>
    *
    * @param secContext the context to establish
    * @return null once established, or the exception to report
    * @throws GSSException if the context rejects a token
-   * @throws IOException on an I/O error
+   * @throws IOException on an I/O error, or if the backend violates the protocol
    */
   @Nullable Exception negotiate(GSSContext secContext) throws GSSException, IOException {
     byte[] inToken = new byte[0];
 
-    // A zero length token is a valid continuation, so without the limit the loop runs for as
-    // long as the server answers every token with another.
+    // A zero length token is a valid continuation, so the server can keep sending tokens.
     for (int round = 0; round < PGStream.MAX_AUTH_ROUND_TRIPS; round++) {
       byte[] outToken = secContext.initSecContext(inToken, 0, inToken.length);
 
@@ -164,11 +166,8 @@ class GssAction implements PrivilegedAction<@Nullable Exception>, Callable<@Null
       }
 
       int response = pgStream.receiveMessageType();
-      // Error
       switch (response) {
         case PgMessageType.ERROR_RESPONSE:
-          // Read before authentication, so this limit is what bounds a hostile server's
-          // allocation.
           int elen = pgStream.receiveMessageLength("ErrorResponse", 5,
               PGStream.MAX_PRE_AUTH_MESSAGE_LENGTH);
           ServerErrorMessage errorMsg
@@ -179,8 +178,8 @@ class GssAction implements PrivilegedAction<@Nullable Exception>, Callable<@Null
           return new PSQLException(errorMsg, logServerErrorDetail);
         case PgMessageType.AUTHENTICATION_RESPONSE:
           LOGGER.log(Level.FINEST, " <=BE AuthenticationGSSContinue");
-          // The server's token is an AP-REP, not the client's PAC bearing ticket. libpq limits
-          // this message to 2000.
+          // The server sends an AP-REP here, not the client's ticket with its PAC, so this
+          // message stays small.
           int len = pgStream.receiveMessageLength("AuthenticationGSSContinue", 8,
               PGStream.MAX_SMALL_MESSAGE_LENGTH);
           @SuppressWarnings("unused")
@@ -189,7 +188,6 @@ class GssAction implements PrivilegedAction<@Nullable Exception>, Callable<@Null
           inToken = pgStream.receive(len - 8);
           break;
         default:
-          // Unknown/unexpected message type.
           pgStream.setBroken();
           return new PSQLException(GT.tr("Protocol error.  Session setup failed."),
               PSQLState.CONNECTION_UNABLE_TO_CONNECT);

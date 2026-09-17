@@ -39,31 +39,40 @@ import java.sql.SQLException;
 import javax.net.SocketFactory;
 
 /**
- * Wrapper around the raw connection to the server that implements some basic primitives
- * (reading/writing formatted data, doing string encoding, etc).
+ * Reads and writes the frontend/backend protocol over the socket to the server: integers,
+ * strings in the connection encoding, and the length-prefixed messages built from them.
+ *
+ * <p>A declared length or count the driver refuses breaks the stream and drops the socket, so
+ * nothing is read from a connection that is out of step with the protocol. {@link #isBroken()}
+ * reports that state.</p>
  *
  * <p>In general, instances of PGStream are not threadsafe; the caller must ensure that only one thread
  * at a time is accessing a particular PGStream instance.</p>
  */
 public class PGStream implements Closeable, Flushable {
   /**
-   * Largest message the driver accepts. {@code 0x3FFFFFFF} is the backend's
-   * {@code MaxAllocSize}, the most it can allocate for an outgoing message.
+   * Largest length, in bytes, that any backend message may declare: just under 1 GiB
+   * ({@value #MAX_MESSAGE_LENGTH} bytes). The value is the backend's {@code MaxAllocSize}, the
+   * most it can allocate for an outgoing message.
    */
   public static final int MAX_MESSAGE_LENGTH = 0x3FFFFFFF;
 
   /**
-   * Limit for messages that never carry bulk data: CommandComplete, AuthenticationRequest,
-   * AuthenticationGSSContinue, BackendKeyData, NegotiateProtocolVersion and CopyDone. The value
-   * is the backend's {@code MAX_STARTUP_PACKET_LENGTH}, reused for a short control message.
-   * libpq allows 2000 for {@code 'R'} and {@code 'v'} during setup and 30000 for any other
-   * message outside {@code VALID_LONG_MESSAGE_TYPE}.
+   * Largest length, in bytes, that a short control message may declare. Six messages are read
+   * under this limit: CommandComplete, AuthenticationRequest, AuthenticationGSSContinue,
+   * BackendKeyData, NegotiateProtocolVersion and CopyDone.
+   *
+   * <p>The value is the backend's {@code MAX_STARTUP_PACKET_LENGTH}
+   * ({@value #MAX_SMALL_MESSAGE_LENGTH} bytes), reused here. libpq allows
+   * 2000 for {@code 'R'} and {@code 'v'} during setup and 30000 for any other message outside
+   * {@code VALID_LONG_MESSAGE_TYPE}.</p>
    */
   public static final int MAX_SMALL_MESSAGE_LENGTH = 10000;
 
   /**
    * Largest message buffered whole by {@link #receiveString(int)} or
-   * {@link #receiveErrorString(int)}. DataRow and CopyData read straight into their destination.
+   * {@link #receiveErrorString(int)}: 32 MiB (33554432 bytes). DataRow and CopyData read straight
+   * into their destination.
    *
    * <p>ErrorResponse and NoticeResponse buffer this much and drain the rest, so a long one is
    * truncated rather than refused. ParameterStatus and NotificationResponse are refused above
@@ -77,17 +86,19 @@ public class PGStream implements Closeable, Flushable {
       Math.min(MAX_MESSAGE_LENGTH, VisibleBufferedInputStream.MAX_BUFFER_SIZE);
 
   /**
-   * Limit for an ErrorResponse before authentication, where a five byte header from an
-   * unauthenticated peer sets the allocation size. libpq refuses a message outside
-   * {@code VALID_LONG_MESSAGE_TYPE} whose declared length exceeds 30000, so this is the same
-   * limit.
+   * Largest length, in bytes, that an ErrorResponse read before authentication may declare:
+   * {@value #MAX_PRE_AUTH_MESSAGE_LENGTH} bytes. The allocation size comes from a five byte
+   * header sent by a peer the driver has not yet authenticated.
+   *
+   * <p>libpq refuses a message outside {@code VALID_LONG_MESSAGE_TYPE} whose declared length
+   * exceeds 30000, so this is the same limit.</p>
    */
   public static final int MAX_PRE_AUTH_MESSAGE_LENGTH = 30000;
 
   /**
-   * Limit on the round trips in the authentication loop and the two GSS handshakes. Without it
-   * the loop runs for as long as the server answers every token with another. Sixty four is an
-   * order of magnitude above any real handshake. The longest is SASL at four.
+   * Largest number of round trips the authentication loop and the two GSS handshakes take before
+   * the driver refuses the connection: {@value #MAX_AUTH_ROUND_TRIPS}. The longest real handshake
+   * is SASL at four.
    */
   public static final int MAX_AUTH_ROUND_TRIPS = 64;
 
@@ -101,15 +112,17 @@ public class PGStream implements Closeable, Flushable {
   private volatile boolean broken;
 
   /**
-   * Stream position at which the message being read ends, or -1 when no declared length is
-   * outstanding. Set by {@link #receiveMessageLength} and checked by {@link #receiveMessageType}.
+   * Position in the current {@code pgInput} at which the message being read ends, or {@code -1}
+   * when no declared length is outstanding. Set by {@link #receiveMessageLength} and checked by
+   * {@link #receiveMessageType}.
    */
   private long messageEnd = -1;
 
   /**
-   * Callback for the buffered and GSS streams, so their refusals mark this stream broken. A
-   * method rather than a field, because the Checker Framework rejects an anonymous class in a
-   * field initializer calling setBroken on the not yet initialized instance.
+   * Returns a callback that marks this stream broken, for the buffered and GSS input streams to
+   * run when they refuse a read. A method rather than a field, because the Checker Framework
+   * rejects an anonymous class in a field initializer calling {@link #setBroken()} on the not
+   * yet initialized instance.
    */
   private Runnable markBroken() {
     return new Runnable() {
@@ -136,6 +149,12 @@ public class PGStream implements Closeable, Flushable {
 
   boolean gssEncrypted;
 
+  /**
+   * Wraps the stream in GSS encryption for the rest of the session.
+   *
+   * @param secContext the established GSS context
+   * @throws GSSException if the context cannot report its wrap size limit
+   */
   public void setSecContext(GSSContext secContext) throws GSSException {
     MessageProp messageProp =  new MessageProp(0, true);
     // The new stream starts its own byte count, and the handshake is not message framed.
@@ -352,8 +371,9 @@ public class PGStream implements Closeable, Flushable {
   }
 
   /**
-   * Switch this stream to using a new socket. Any existing socket is <em>not</em> closed; it's
-   * assumed that we are changing to a new socket that delegates to the original socket (e.g. SSL).
+   * Switches this stream to a new socket. The existing socket is <em>not</em> closed; the new
+   * socket is assumed to delegate to it, as an SSL socket does. Byte positions restart, so an
+   * outstanding message end from the old socket is discarded.
    *
    * @param socket the new socket to change to
    * @throws IOException if something goes wrong
@@ -364,7 +384,6 @@ public class PGStream implements Closeable, Flushable {
         + " excessive changeSocket calls";
 
     this.connection = socket;
-    // The new stream starts its own byte count.
     messageEnd = -1;
 
     // Submitted by Jason Venner <jason@idiom.com>. Disable Nagle
@@ -566,8 +585,12 @@ public class PGStream implements Closeable, Flushable {
   }
 
   /**
-   * Receives a message length and checks it. Everything the driver reads or allocates for the
-   * message is sized from this field. The length includes the four bytes of the field itself.
+   * Receives the length field of a backend message and refuses a length outside the given range.
+   * Everything the driver reads or allocates for the message is sized from this field. The length
+   * includes the four bytes of the field itself.
+   *
+   * <p>The length also fixes where the message ends: {@link #receiveMessageType()} checks that the
+   * reader stopped exactly there, and {@link #receiveString()} scans no further.</p>
    *
    * @param packetName wire-protocol name of the message, used in the error
    * @param minLength smallest length the message layout permits, at least 4
@@ -591,8 +614,8 @@ public class PGStream implements Closeable, Flushable {
 
   /**
    * Receives the type byte of the next message, after checking that the previous one was
-   * consumed exactly. A reader that stops short of its declared length fails here rather than
-   * by misreading what follows.
+   * consumed exactly. A reader that stopped short of its declared length, or ran past it, fails
+   * here rather than by misreading what follows.
    *
    * <p>Only messages whose length came through {@link #receiveMessageLength} are checked. The
    * single byte SSL and GSS encryption replies and the raw GSS token exchange are not message
@@ -678,11 +701,11 @@ public class PGStream implements Closeable, Flushable {
   }
 
   /**
-   * Receives a null-terminated string from the backend. If we don't see a null, then we assume
-   * something has gone wrong.
+   * Receives a null-terminated string from the backend. A string that is not terminated before
+   * its message ends is refused as a protocol violation.
    *
    * @return string from back end
-   * @throws IOException if an I/O error occurs, or end of file
+   * @throws IOException if the terminator is missing, if an I/O error occurs, or end of stream
    */
   public String receiveString() throws IOException {
     int len = scanCStringLength();
@@ -693,11 +716,11 @@ public class PGStream implements Closeable, Flushable {
 
   /**
    * Receives a null-terminated string from the backend and attempts to decode to a
-   * {@link Encoding#decodeCanonicalized(byte[], int, int) canonical} {@code String}.
-   * If we don't see a null, then we assume something has gone wrong.
+   * {@link Encoding#decodeCanonicalized(byte[], int, int) canonical} {@code String}. A string
+   * that is not terminated before its message ends is refused as a protocol violation.
    *
    * @return string from back end
-   * @throws IOException if an I/O error occurs, or end of file
+   * @throws IOException if the terminator is missing, if an I/O error occurs, or end of stream
    * @see Encoding#decodeCanonicalized(byte[], int, int)
    */
   public String receiveCanonicalString() throws IOException {
@@ -709,11 +732,11 @@ public class PGStream implements Closeable, Flushable {
 
   /**
    * Receives a null-terminated string from the backend and attempts to decode to a
-   * {@link Encoding#decodeCanonicalizedIfPresent(byte[], int, int) canonical} {@code String}.
-   * If we don't see a null, then we assume something has gone wrong.
+   * {@link Encoding#decodeCanonicalizedIfPresent(byte[], int, int) canonical} {@code String}. A
+   * string that is not terminated before its message ends is refused as a protocol violation.
    *
    * @return string from back end
-   * @throws IOException if an I/O error occurs, or end of file
+   * @throws IOException if the terminator is missing, if an I/O error occurs, or end of stream
    * @see Encoding#decodeCanonicalizedIfPresent(byte[], int, int)
    */
   public String receiveCanonicalStringIfPresent() throws IOException {
@@ -729,11 +752,12 @@ public class PGStream implements Closeable, Flushable {
    * cause by sending only a header.
    *
    * @return the length of the string including its terminator
-   * @throws IOException if the message holds no terminator, or on an I/O error
+   * @throws IOException if the string starts at or past the end of its message, if the message
+   *         holds no terminator, or on an I/O error
    */
   private int scanCStringLength() throws IOException {
     if (messageEnd < 0) {
-      // The startup exchange and the GSS handshake run outside any declared message.
+      // No declared length is outstanding, so nothing bounds this scan.
       return pgInput.scanCStringLength();
     }
     long remaining = messageEnd - pgInput.getPosition();
@@ -744,18 +768,23 @@ public class PGStream implements Closeable, Flushable {
   }
 
   /**
-   * Read a tuple from the back end. A tuple is a two dimensional array of bytes. This variant reads
-   * the V3 protocol's tuple representation.
+   * Receives a DataRow message as a tuple, a two dimensional array of bytes. A column that is
+   * SQL NULL comes back as a null element.
+   *
+   * <p>A DataRow whose column lengths do not add up to its declared message length is refused as
+   * a protocol violation.</p>
    *
    * @return tuple from the back end
-   * @throws IOException if a data I/O error occurs
-   * @throws SQLException if read more bytes than set maxResultBuffer
+   * @throws IOException if a data I/O error occurs, or the DataRow does not match its declared
+   *         length
+   * @throws SQLException if the row takes the byte count past {@code maxResultBuffer}, which also
+   *         breaks the stream
    */
   public Tuple receiveTupleV3() throws IOException, OutOfMemoryError, SQLException {
     // 4 (length) + 2 (field count)
     int messageSize = receiveMessageLength("DataRow", 6, MAX_MESSAGE_LENGTH);
     int nf = receiveInteger2();
-    //size = messageSize - 4 bytes of message size - 2 bytes of field count - 4 bytes for each column length
+    // Subtracts the length prefix, the field count, and the four length bytes of each column.
     // Cannot overflow, nf is an unsigned int2.
     int dataToReadSize = messageSize - 4 - 2 - 4 * nf;
     if (dataToReadSize < 0) {
@@ -772,7 +801,7 @@ public class PGStream implements Closeable, Flushable {
     for (int i = 0; i < nf; i++) {
       int size = receiveInteger4();
       if (size != -1) {
-        // -1 is null. Nothing else negative is valid, and no column exceeds what is left.
+        // -1 is the protocol's SQL NULL marker; no other negative length is valid.
         if (size < 0 || size > remaining) {
           throw protocolViolation(GT.tr("DataRow column of {0} bytes does not fit in the {1} bytes"
               + " left of the message.", String.valueOf(size), String.valueOf(remaining)));
@@ -909,15 +938,15 @@ public class PGStream implements Closeable, Flushable {
   }
 
   /**
-   * Closes the connection.
+   * Closes the connection. Buffered output is flushed first, and on a broken stream it is
+   * dropped with the socket instead.
    *
    * @throws IOException if an I/O Error occurs
    */
   @Override
   public void close() throws IOException {
     if (!broken) {
-      // Flushing would send the rest of a half written request to a peer that is already
-      // discarding it.
+      // On a broken stream setBroken has already closed the socket that pgOutput writes to.
       pgOutput.close();
     }
     pgInput.close();
@@ -1000,19 +1029,17 @@ public class PGStream implements Closeable, Flushable {
   }
 
   /**
-   * Increase actual count of buffer. If buffer count is bigger than max result buffer limit, then
-   * gonna return an exception.
+   * Adds to the result bytes counted against the {@code maxResultBuffer} limit, and marks the
+   * stream broken when the count passes it.
    *
-   * @param value size of bytes to add to byte buffer.
-   * @throws SQLException exception returned when result buffer count is bigger than max result
-   *                      buffer.
+   * @param value bytes to add to the count
+   * @throws SQLException if the count passes the {@code maxResultBuffer} limit
    */
   private void increaseByteCounter(long value) throws SQLException {
     if (maxResultBuffer != -1) {
       resultBufferByteCount += value;
       if (resultBufferByteCount > maxResultBuffer) {
-        // The row is not read, so the stream is off its message boundary. Drop the connection
-        // here rather than refuse it at the next message.
+        // The DataRow body is still unread, so the stream is off its message boundary.
         setBroken();
         throw new PSQLException(GT.tr(
           "Result set exceeded maxResultBuffer limit. Received:  {0}; Current limit: {1}",
@@ -1022,22 +1049,21 @@ public class PGStream implements Closeable, Flushable {
   }
 
   /**
-   * Whether a length or a count off the wire has been refused on this stream.
+   * Whether the stream is out of step with the protocol. The driver must not read from a broken
+   * stream or write to one.
    *
-   * @return true once the stream is known to be out of step with the protocol
+   * @return true once {@link #setBroken()} has run
    */
   public boolean isBroken() {
     return broken;
   }
 
   /**
-   * Marks the stream out of sync with the protocol and drops the socket. Nothing after a
-   * refused length can be read, so {@link #isClosed()} reports the stream closed from here on
-   * and a pool that tests on borrow discards it.
+   * Marks the stream out of sync with the protocol and drops the socket, so
+   * {@link #isClosed()} reports the stream closed from here on.
    *
-   * <p>The socket is closed here rather than through {@link #close()}, which would flush
-   * {@code pgOutput} to a peer that is already discarding it. {@code SO_LINGER 0} makes the close
-   * a reset. If it fails, the regular close path releases the descriptor.</p>
+   * <p>The socket is closed with {@code SO_LINGER 0}, which makes the close a reset rather than an
+   * orderly shutdown. A failure to close is ignored, and a later call does nothing.</p>
    */
   public void setBroken() {
     if (broken) {
@@ -1047,18 +1073,18 @@ public class PGStream implements Closeable, Flushable {
     try {
       connection.setSoLinger(true, 0);
     } catch (Exception e) {
-      // Without it the close is graceful rather than a reset, which is fine.
+      // Without SO_LINGER 0 the close is an orderly shutdown rather than a reset, which is fine.
     }
     try {
       connection.close();
     } catch (IOException e) {
-      // QueryExecutorCloseAction closes the socket again on the regular close path.
+      // QueryExecutorCloseAction closes the socket again on a broken stream.
     }
   }
 
   /**
-   * Marks the stream broken and builds the exception for a refused length or count, so no
-   * refusal leaves a connection that looks reusable.
+   * Marks the stream broken and builds the exception for a backend message the driver cannot
+   * follow, so no refusal leaves a connection that looks reusable.
    *
    * @param message the already translated message
    * @return the exception to throw
@@ -1068,6 +1094,11 @@ public class PGStream implements Closeable, Flushable {
     return new IOException(message);
   }
 
+  /**
+   * Whether the stream is broken or its socket is closed.
+   *
+   * @return true if {@link #setBroken()} has run or the socket was closed on this side
+   */
   public boolean isClosed() {
     return broken || connection.isClosed();
   }

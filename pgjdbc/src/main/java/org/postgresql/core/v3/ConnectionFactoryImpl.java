@@ -310,9 +310,9 @@ public class ConnectionFactoryImpl extends ConnectionFactory {
 
       return newStream;
     } catch (IOException e) {
-      // A refused length is a protocol violation, not a transport failure. Reporting it as one
-      // excludes it from the sslMode=allow/prefer retry below, which is for a peer that dropped
-      // the connection.
+      // A broken stream means a protocol check refused what the backend sent. Reporting that as
+      // PROTOCOL_VIOLATION keeps it out of the sslMode=allow retry in openConnectionImpl, which
+      // is for a peer that dropped the connection.
       boolean broken = newStream.isBroken();
       closeStream(newStream, e);
       if (broken) {
@@ -595,7 +595,7 @@ public class ConnectionFactoryImpl extends ConnectionFactory {
     pgStream.sendInteger2(1234);
     pgStream.sendInteger2(5680);
     pgStream.flush();
-    // Now get the response from the backend, one of N, E, S. A bare byte, not a message.
+    // The backend responds to the request with a single byte, G, N, or E, not a framed message.
     int beresp = pgStream.receiveChar();
     pgStream.setNetworkTimeout(currentTimeout);
     switch (beresp) {
@@ -689,7 +689,7 @@ public class ConnectionFactoryImpl extends ConnectionFactory {
     pgStream.sendInteger2(5679);
     pgStream.flush();
 
-    // Now get the response from the backend, one of N, E, S. A bare byte, not a message.
+    // The backend responds to the request with a single byte, S, N, or E, not a framed message.
     int beresp = pgStream.receiveChar();
     pgStream.setNetworkTimeout(currentTimeout);
 
@@ -813,8 +813,8 @@ public class ConnectionFactoryImpl extends ConnectionFactory {
     try {
       int messages = 0;
       authloop: while (true) {
-        // Nothing else bounds this loop. Without it a server could send
-        // AuthenticationCleartextPassword any number of times and get a password each time.
+        // Nothing else bounds this loop: the driver responds with a password to every
+        // AuthenticationCleartextPassword the server sends.
         if (++messages > PGStream.MAX_AUTH_ROUND_TRIPS) {
           pgStream.setBroken();
           throw new PSQLException(GT.tr(
@@ -825,13 +825,14 @@ public class ConnectionFactoryImpl extends ConnectionFactory {
 
         switch (beresp) {
           case PgMessageType.NEGOTIATE_PROTOCOL_RESPONSE:  // Negotiate Protocol Version
-            // 4 (length) + 4 (protocol version) + 4 (option count), then a terminator each.
+            // 4 (length) + 4 (protocol version) + 4 (option count), then one NUL-terminated
+            // name for each unrecognized option.
             int negotiateLen = pgStream.receiveMessageLength("NegotiateProtocolVersion", 12,
                 PGStream.MAX_SMALL_MESSAGE_LENGTH);
             protocol = pgStream.receiveInteger4();
             int numOptionsNotRecognized = pgStream.receiveInteger4();
-            // The count is the number of unrecognized protocol options whose NUL-terminated
-            // names follow. It cannot be negative or exceed the remaining message bytes.
+            // Each name takes at least its terminator, so numOptionsNotRecognized cannot
+            // exceed the bytes left after the fixed part.
             if (numOptionsNotRecognized < 0 || numOptionsNotRecognized > negotiateLen - 12) {
               pgStream.setBroken();
               throw new PSQLException(GT.tr(
@@ -860,14 +861,8 @@ public class ConnectionFactoryImpl extends ConnectionFactory {
             pgStream.setProtocolVersion( ProtocolVersion.fromMajorMinor(major, minor));
             break;
           case PgMessageType.ERROR_RESPONSE:
-            // An error occurred, so pass the error message to the
-            // user.
-            //
-            // The most common one to be thrown here is:
-            // "User authentication failed"
-            //
-            // Read before authentication, so this limit is what bounds a hostile server's
-            // allocation.
+            // receiveErrorString buffers the whole body, so MAX_PRE_AUTH_MESSAGE_LENGTH bounds
+            // what an unauthenticated peer can make the driver allocate.
             int elen = pgStream.receiveMessageLength("ErrorResponse", 5,
                 PGStream.MAX_PRE_AUTH_MESSAGE_LENGTH);
 
@@ -877,9 +872,8 @@ public class ConnectionFactoryImpl extends ConnectionFactory {
             throw new PSQLException(errorMsg, PGProperty.LOG_SERVER_ERROR_DETAIL.getBoolean(info));
 
           case PgMessageType.AUTHENTICATION_RESPONSE:
-            // Authentication request.
-            // Get the message length. Read before authentication, so this small limit is what
-            // bounds a hostile server's allocation.
+            // The declared length sizes the SSPI and SASL reads, so MAX_SMALL_MESSAGE_LENGTH
+            // bounds what an unauthenticated peer can make the driver allocate.
             int msgLen = pgStream.receiveMessageLength("AuthenticationRequest", 8,
                 PGStream.MAX_SMALL_MESSAGE_LENGTH);
 

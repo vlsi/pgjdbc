@@ -169,8 +169,9 @@ public abstract class QueryExecutorBase implements QueryExecutor {
 
   @Override
   public void close() {
-    // No isClosed() guard. isClosed is true on a broken stream but only the close action
-    // releases its descriptor, and the action is idempotent anyway.
+    // A guard on isClosed() would skip this close, because isClosed() is true once the stream
+    // is broken. The close action still closes the socket, in case the close in setBroken
+    // failed, and running it twice does nothing.
     try {
       getCloseAction().close();
     } catch (IOException ioe) {

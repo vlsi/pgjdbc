@@ -18,6 +18,14 @@ import org.ietf.jgss.MessageProp;
 import java.io.IOException;
 import java.io.InputStream;
 
+/**
+ * Decrypts the packets of a GSS-encrypted connection.
+ *
+ * <p>Each packet is a four-byte big-endian length followed by that many encrypted bytes, and is
+ * unwrapped whole, so a read returns bytes only once a complete packet has arrived. A read stops
+ * once {@code available()} on the wrapped stream reports nothing more, and returns the bytes it
+ * has copied so far, or {@code 0} when it has copied none.</p>
+ */
 public class GSSInputStream extends InputStream {
   private final GSSContext gssContext;
   private final MessageProp messageProp;
@@ -44,13 +52,16 @@ public class GSSInputStream extends InputStream {
 
   private final byte[] int1Buf = new byte[1];
 
-  /** Run when a packet length is refused, so the owner can mark itself broken. */
   private final Runnable onProtocolViolation;
 
   public GSSInputStream(InputStream wrapped, GSSContext gssContext, MessageProp messageProp) {
     this(wrapped, gssContext, messageProp, NO_OP);
   }
 
+  /**
+   * @param onProtocolViolation run when a declared packet length is refused, before the
+   *     {@link IOException} is thrown
+   */
   public GSSInputStream(InputStream wrapped, GSSContext gssContext, MessageProp messageProp,
       Runnable onProtocolViolation) {
     this.wrapped = wrapped;
@@ -111,11 +122,12 @@ public class GSSInputStream extends InputStream {
   }
 
   /**
-   * Reads the length of the wrapper message.
+   * Reads the four-byte length of the next packet.
    *
-   * @return -1 of end of stream reached, 0 if length is not fully read yet, and 1 if length is
-   *     fully read
-   * @throws IOException if read fails
+   * @return -1 if end of stream is reached, 0 if the length is not fully read and the wrapped
+   *     stream has no more bytes available, and 1 if the length is fully read
+   * @throws IOException if the read fails, or if the declared length is not between 1 and
+   *     {@link #MAX_PAYLOAD_SIZE}, in which case {@link #onProtocolViolation} runs first
    */
   private int readLength() throws IOException {
     while (true) {
@@ -133,7 +145,7 @@ public class GSSInputStream extends InputStream {
       }
     }
     encryptedLength = ByteConverter.int4(int4Buf, 0);
-    // Within the payload maximum the length always fits the buffer.
+    // A length of at most MAX_PAYLOAD_SIZE always fits the encrypted array.
     if (encryptedLength < 1 || encryptedLength > MAX_PAYLOAD_SIZE) {
       onProtocolViolation.run();
       throw new IOException(GT.tr("Backend declared a GSS packet of {0} bytes, the maximum is {1}.",

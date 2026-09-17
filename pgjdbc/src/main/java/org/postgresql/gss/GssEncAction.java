@@ -31,8 +31,12 @@ import javax.security.auth.Subject;
 
 public class GssEncAction implements PrivilegedAction<@Nullable Exception>, Callable<@Nullable Exception> {
   private static final Logger LOGGER = Logger.getLogger(GssAction.class.getName());
-  // PQ_GSS_AUTH_BUFFER_SIZE, 64 kB including the length word. PQ_GSS_MAX_PACKET_SIZE only
-  // governs encrypted packets.
+  /**
+   * Largest GSS handshake token, in bytes, that this driver accepts from the backend.
+   *
+   * <p>It mirrors {@code PQ_GSS_AUTH_BUFFER_SIZE}, 64 kB including the length word. The backend's
+   * {@code PQ_GSS_MAX_PACKET_SIZE} bounds encrypted packets instead, after the handshake.</p>
+   */
   private static final int MAX_HANDSHAKE_TOKEN_SIZE = 64 * 1024 - 4;
   private final PGStream pgStream;
   private final String host;
@@ -137,20 +141,23 @@ public class GssEncAction implements PrivilegedAction<@Nullable Exception>, Call
   }
 
   /**
-   * Exchanges tokens with the backend until the context is established, then switches the
-   * stream to it. Separate from {@link #run()} so a test can drive the loop without a Kerberos
-   * realm.
+   * Exchanges tokens with the backend until the context is established, then installs it on the
+   * stream so the rest of the connection is GSS encrypted.
+   *
+   * <p>The exchange runs for at most {@link PGStream#MAX_AUTH_ROUND_TRIPS} rounds. Running out of
+   * rounds, or a declared token longer than {@link #MAX_HANDSHAKE_TOKEN_SIZE} bytes, marks the
+   * stream broken so the connection is not reused.</p>
    *
    * @param secContext the context to establish
    * @return null once established, or the exception to report
    * @throws GSSException if the context rejects a token
-   * @throws IOException on an I/O error
+   * @throws IOException on an I/O error, or if the backend violates the protocol
    */
   @Nullable Exception negotiate(GSSContext secContext) throws GSSException, IOException {
     byte[] inToken = new byte[0];
 
-    // A zero length token is a valid continuation, so without the limit the loop runs for as
-    // long as the server answers every token with another.
+    // A zero length token is a valid continuation, so a backend that responds to every token with one
+    // never ends the exchange; the round limit stops it.
     for (int round = 0; round < PGStream.MAX_AUTH_ROUND_TRIPS; round++) {
       byte[] outToken = secContext.initSecContext(inToken, 0, inToken.length);
 
