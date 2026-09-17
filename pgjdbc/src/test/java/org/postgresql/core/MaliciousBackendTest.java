@@ -146,7 +146,7 @@ class MaliciousBackendTest {
         for (int i = 0; i < body.length; i++) {
           int b = in.read();
           if (b < 0) {
-            throw new IOException("end of stream in startup packet");
+            throw new IOException("end of stream in the startup packet");
           }
           body[i] = (byte) b;
         }
@@ -220,7 +220,7 @@ class MaliciousBackendTest {
       SQLException e = assertThrows(SQLException.class,
           () -> DriverManager.getConnection(backend.getUrl()).close());
       long elapsedMs = (System.nanoTime() - start) / 1000000;
-      assertTrue(elapsedMs < 5000, "took " + elapsedMs + "ms, so it waited for the body");
+      assertTrue(elapsedMs < 5000, "took " + elapsedMs + "ms, so the driver waited for the body");
       PSQLException violation = null;
       for (Throwable c = e; c != null && c != c.getCause(); c = c.getCause()) {
         if (c instanceof PSQLException
@@ -229,7 +229,7 @@ class MaliciousBackendTest {
           break;
         }
       }
-      assertNotNull(violation, "expected a PROTOCOL_VIOLATION in the chain, got: " + e);
+      assertNotNull(violation, "expected a PROTOCOL_VIOLATION in the cause chain, got: " + e);
       assertTrue(violation.getMessage().contains(expectedMessage),
           "unexpected failure: " + violation);
     }
@@ -251,7 +251,7 @@ class MaliciousBackendTest {
 
       // A failure well inside the 10 second socket timeout means the driver refused the length
       // instead of waiting for the body.
-      assertTrue(elapsedMs < 5000, "took " + elapsedMs + "ms, so it waited for the body");
+      assertTrue(elapsedMs < 5000, "took " + elapsedMs + "ms, so the driver waited for the body");
       // A quick failure of any other kind passes the timing check too, so check the cause.
       Throwable cause = rootCause(e);
       assertTrue(cause instanceof IOException, "expected an IOException, got: " + cause);
@@ -406,9 +406,9 @@ class MaliciousBackendTest {
 
     assertEquals(PSQLState.PROTOCOL_VIOLATION.getState(), e.getSQLState(), e.toString());
     assertTrue(e.getMessage().contains("messages"), e.getMessage());
-    assertTrue(stream.isBroken(), "the stream must not look reusable");
+    assertTrue(stream.isBroken(), "the stream must be marked broken");
     assertEquals(PGStream.MAX_AUTH_ROUND_TRIPS, countPasswordMessages(factory.getWritten()),
-        "the driver must answer exactly the capped number of requests");
+        "the driver must send exactly as many password messages as the limit allows");
   }
 
   /** Builds {@code count} AuthenticationCleartextPassword messages. */

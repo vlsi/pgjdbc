@@ -109,7 +109,7 @@ class VisibleBufferedInputStreamTest {
 
     assertTrue(e.getMessage().contains(String.valueOf(VisibleBufferedInputStream.MAX_BUFFER_SIZE)),
         e.getMessage());
-    assertEquals(INITIAL_SIZE, in.getBuffer().length, "nothing should have been allocated");
+    assertEquals(INITIAL_SIZE, in.getBuffer().length, "the buffer should stay at its initial size");
   }
 
   /**
@@ -164,7 +164,7 @@ class VisibleBufferedInputStreamTest {
     // 100 unread + 900 more wanted + MINIMUM_READ (1024) fits in 8192.
     assertTrue(in.ensureBytes(1000));
 
-    assertSame(before, in.getBuffer(), "should have compacted rather than allocated");
+    assertSame(before, in.getBuffer(), "should have compacted the buffer rather than grown it");
   }
 
   /**
@@ -181,7 +181,7 @@ class VisibleBufferedInputStreamTest {
     // 100 unread + 7400 more wanted fits in 8192, but leaves under MINIMUM_READ spare.
     assertTrue(in.ensureBytes(7500));
 
-    assertNotSame(before, in.getBuffer(), "should have grown rather than compacted");
+    assertNotSame(before, in.getBuffer(), "should have grown the buffer rather than compacted it");
   }
 
   /**

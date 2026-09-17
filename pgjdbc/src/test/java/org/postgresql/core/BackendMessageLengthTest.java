@@ -80,7 +80,7 @@ class BackendMessageLengthTest {
     for (int length : rejected) {
       PGStream stream = streamOf(int4(length));
       IOException e = assertThrows(IOException.class,
-          () -> stream.receiveMessageLength("ErrorResponse", 5, max), "length " + length + " should be rejected");
+          () -> stream.receiveMessageLength("ErrorResponse", 5, max), "length " + length + " must be refused");
       assertTrue(e.getMessage().contains(String.valueOf(length)), e.getMessage());
     }
   }

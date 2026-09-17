@@ -116,7 +116,7 @@ class GSSInputStreamTest {
     IOException e = assertThrows(IOException.class, () -> in.read(new byte[16], 0, 16));
 
     assertTrue(e.getMessage().contains("GSS packet"), e.getMessage());
-    assertTrue(violated.get(), "the refusal must run the protocol violation callback");
+    assertTrue(violated.get(), "the protocol violation callback must run when a packet is refused");
   }
 
   @Test
