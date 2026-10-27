@@ -230,6 +230,13 @@ jobs:
         psql -c "ALTER SYSTEM SET log_directory = 'log'"
         psql -c "ALTER SYSTEM SET log_connections = 'on'"
         psql -c "ALTER SYSTEM SET log_disconnections = 'on'"
+        # A backend that gets no startup packet exits without a log line: with exit code 0 when the
+        # client closes the socket, and with exit code 1 when authentication_timeout expires.
+        # At debug2 the postmaster logs when it forked each backend and the exit code, so a login
+        # timeout in the tests shows whether the backend started late or the client sent nothing.
+        # Authenticated sessions go back to warning, so the queries of the tests do not flood the log.
+        psql -c "ALTER SYSTEM SET log_min_messages = 'debug2'"
+        psql -c "ALTER ROLE ALL SET log_min_messages = 'warning'"
         pg_ctl restart -D "$PGDATA" -w
 
         # Create test user and databases
