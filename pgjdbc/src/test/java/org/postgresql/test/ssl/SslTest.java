@@ -38,6 +38,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
 import java.util.Properties;
+import java.util.concurrent.Semaphore;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 
@@ -50,6 +51,17 @@ import javax.net.ssl.SSLHandshakeException;
 @MethodSource("dataSubset")
 @Execution(ExecutionMode.CONCURRENT)
 public class SslTest {
+  /**
+   * Limits how many cases connect at once, 2 unless {@code -Dpgjdbc.test.ssl.concurrentConnections}
+   * sets another number. The server starts a process for every connection, which is slow on
+   * Windows, and a burst of them is a suspected cause of connection attempts that exceeded
+   * {@code loginTimeout} there. Windows CI runners have 4 CPUs, so JUnit already runs at most 4
+   * cases at once, and a limit of 4 would change nothing. A case waits for a permit before
+   * {@code loginTimeout} starts.
+   */
+  private static final Semaphore CONCURRENT_CONNECTIONS =
+      new Semaphore(Math.max(1, Integer.getInteger("pgjdbc.test.ssl.concurrentConnections", 2)));
+
   enum Hostname {
     GOOD("localhost"),
     BAD("127.0.0.1"),
@@ -735,6 +747,7 @@ public class SslTest {
       // We expect "Server name validation failed" warnings, so we disable the logger in tests
       hostnameVerifierLogger.setLevel(Level.OFF);
     }
+    CONCURRENT_CONNECTIONS.acquireUninterruptibly();
     try (Connection conn = TestUtil.openDB(props)) {
       boolean sslUsed = TestUtil.queryForBoolean(conn, "SELECT ssl_is_used()");
       // Verify the successful connection (it might be the connection was supposed to fail)
@@ -758,6 +771,7 @@ public class SslTest {
         throw ae;
       }
     } finally {
+      CONCURRENT_CONNECTIONS.release();
       hostnameVerifierLogger.setLevel(previousLevel);
     }
   }
