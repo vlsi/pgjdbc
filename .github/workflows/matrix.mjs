@@ -111,7 +111,7 @@ matrix.addAxis({
   name: 'os',
   title: x => (x.value || x).replace('-latest', ''),
   values: [
-    {value: 'ubuntu-latest', weight: 4},
+    // DEBUG login timeouts: Windows only
     {value: 'windows-latest', weight: 1},
     // TODO: uncomment once the test failures are fixed
     // {value: 'macos-latest', weight: 1},
@@ -180,8 +180,8 @@ matrix.addAxis({
   name: 'ssl',
   title: x => (x.value === 'yes' ? '' : 'no_') + 'ssl',
   values: [
+    // DEBUG login timeouts: SSL only
     {value: 'yes', weight: 10},
-    {value: 'no', weight: 10},
   ]
 });
 
@@ -265,7 +265,7 @@ matrix.addAxis({
   name: 'login_timeout',
   title: x => x == '' ? '' : 'loginTimeout ' + x,
   values: [
-    '',
+    // DEBUG login timeouts: always use loginTimeout
     '13'
   ]
 });
@@ -368,61 +368,17 @@ const LATEST_JAVA = matrix.axisByName.java_version.values.filter(v => v !== eaJa
 // exactly MATRIX_JOBS and the result no longer depends on the order of the list, so the
 // rarest-first ordering the imperative version relied on is gone. Requirements already met by
 // another row (e.g. the coverage job pins scram=yes and the latest Java) cost no extra job.
-const include = matrix.generateRows(Number(process.env.MATRIX_JOBS || 6), {
-  require: [
-    // Collect coverage on one pinned job. It is the most specific requirement, so the batch
-    // packer anchors a row on it; tag() flags that row without a second pass over the result.
-    {
-      filter: {
-        os: {value: 'ubuntu-latest'},        // coverage needs the Docker PostgreSQL (Linux only)
-        pg_version: MAX_PG,
-        java_version: LATEST_JAVA, java_distribution: {value: 'temurin'},
-        query_mode: {value: 'extended'},
-        ssl: {value: 'yes'}, scram: {value: 'yes'},
-        xa: {value: 'yes'}, replication: {value: 'yes'},
-        // slow tests add ~0 coverage but cost runtime; GSS exercises the driver's encryption
-        // paths and the krb5 setup runs anyway on this Linux job, so keep it on.
-        slow_tests: {value: 'no'}, gss: {value: 'yes'},
-      },
-      tag: row => { row.collectCoverage = true; },
-    },
-    // Ensure at least one job with "same" hashcode exists
-    {hash: {value: 'same'}},
-    {scram: {value: 'yes'}},
-    // Ensure there's a row for Java EA
-    {java_version: eaJava},
-    // Ensure we have a job with the minimal and maximal PostgreSQL versions
-    {pg_version: matrix.axisByName.pg_version.values[0]},
-    // Ensure we test with latest released PG
-    {pg_version: MAX_PG},
-    ...(runPgHeadTests ? [{pg_version: 'HEAD'}] : []),
-    // Ensure at least one job with "simple" query_mode exists
-    {query_mode: {value: 'simple'}},
-    // Ensure there will be at least one job with minimal supported Java
-    {java_version: matrix.axisByName.java_version.values[0]},
-    // Ensure there will be at least one job with Java 17
-    {java_version: "17"},
-    // Ensure there will be at least one job with the latest Java (excluding EA)
-    {java_version: LATEST_JAVA},
-    // Ensure at least one job with autosave=always
-    {autosave: {value: 'always'}},
-    // Ensure we test all values of the axes below
-    ...matrix.allAxisValues('query_mode'),
-    ...matrix.allAxisValues('gss'),
-    ...matrix.allAxisValues('xa'),
-    ...matrix.allAxisValues('ssl'),
-    ...matrix.allAxisValues('replication'),
-    ...matrix.allAxisValues('os'),
-    ...matrix.allAxisValues('cpu_count'),
-    ...matrix.allAxisValues('assertions'),
-  ],
-});
+// DEBUG login timeouts: no required rows, every job is Windows with SSL
+const include = matrix.generateRows(Number(process.env.MATRIX_JOBS || 6), {require: []});
 if (include.length === 0) {
   throw new Error('Matrix list is empty');
 }
-if (!include.some(v => v.collectCoverage)) {
-  throw new Error('Could not generate the coverage job; check that the pinned axes are satisfiable');
-}
+// DEBUG login timeouts: every other job runs SslTest without the concurrency limit
+include.forEach((v, i) => {
+  if (i % 2 === 1) {
+    v.unlimitedSsl = true;
+  }
+});
 include.sort((a, b) => a.name.localeCompare(b.name, undefined, {numeric: true}));
 include.forEach(v => {
     let gradleArgs = [];
@@ -435,6 +391,10 @@ include.forEach(v => {
         `-Duser.country=${v.locale.country}`,
         `-Duser.language=${v.locale.language}`,
     );
+    if (v.unlimitedSsl) {
+        gradleArgs.push('-Dpgjdbc.test.ssl.concurrentConnections=1000');
+        v.name += ', unlimited SslTest';
+    }
     v.extraGradleArgs = gradleArgs.join(' ');
     if (v.collectCoverage) {
         // Pin a fixed value so the coverage corpus is stable.
