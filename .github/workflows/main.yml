@@ -387,7 +387,8 @@ jobs:
       run: |
         docker compose -f docker/postgres-server/docker-compose.yml logs --no-color > "$RUNNER_TEMP/pg-server-logs.txt" 2>&1 || true
     - name: Collect PostgreSQL server logs (Windows)
-      if: ${{ failure() && runner.os != 'Linux' }}
+      # DEBUG login timeouts: collect the log of every Windows job
+      if: ${{ always() && runner.os != 'Linux' }}
       shell: bash
       # language=bash
       run: |
@@ -410,7 +411,7 @@ jobs:
           ls -la "$PG_DATADIR/" >> "$LOG_FILE" 2>/dev/null || true
         fi
     - name: Sanitize artifact name
-      if: ${{ failure() }}
+      if: ${{ always() }}
       id: artifact_name
       shell: bash
       # language=bash
@@ -418,7 +419,8 @@ jobs:
         MATRIX_NAME: ${{ matrix.name }}
         RUN_ID: ${{ github.run_id }}
       run: |
-        name="pg-server-logs-${MATRIX_NAME}"
+        # DEBUG login timeouts: the job index keeps names unique after truncation
+        name="pg-server-logs-${{ strategy.job-index }}-${MATRIX_NAME}"
         # Remove characters illegal in GitHub artifact names: " : < > | * ? \r \n \ /
         name="${name//[\":<>|*?\\\/]/}"
         # Shorten to 50 characters and add run id for uniqueness
@@ -428,7 +430,7 @@ jobs:
         fi
         echo "name=$name" >> "$GITHUB_OUTPUT"
     - name: Upload PostgreSQL server logs
-      if: ${{ failure() }}
+      if: ${{ always() }}
       uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
       with:
         name: ${{ steps.artifact_name.outputs.name }}
