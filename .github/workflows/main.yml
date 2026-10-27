@@ -123,7 +123,8 @@ jobs:
     outputs:
       matrix: ${{ steps.set-matrix.outputs.matrix }}
     env:
-      MATRIX_JOBS: 6
+      # DEBUG login timeouts: more Windows jobs per run
+      MATRIX_JOBS: 12
       GITHUB_PR_NUMBER: ${{ github.event.number }}
       RNG_SEED: ${{ github.event.inputs.matrix_rng_seed }}
       # Set the repository variable to false to skip PostgreSQL HEAD tests on pull requests.
