@@ -276,7 +276,7 @@ matrix.addAxis({
   name: 'connect_timeout',
   title: x => x == '' ? '' : 'connectTimeout ' + x,
   values: [
-    '',
+    // DEBUG login timeouts: always use connectTimeout 7, as in the failed run
     '7'
   ]
 });
@@ -368,16 +368,16 @@ const LATEST_JAVA = matrix.axisByName.java_version.values.filter(v => v !== eaJa
 // exactly MATRIX_JOBS and the result no longer depends on the order of the list, so the
 // rarest-first ordering the imperative version relied on is gone. Requirements already met by
 // another row (e.g. the coverage job pins scram=yes and the latest Java) cost no extra job.
+// DEBUG login timeouts: PG 18 only, as in the failed run
+matrix.exclude({pg_version: lessThan('18')});
 // DEBUG login timeouts: no required rows, every job is Windows with SSL
 const include = matrix.generateRows(Number(process.env.MATRIX_JOBS || 6), {require: []});
 if (include.length === 0) {
   throw new Error('Matrix list is empty');
 }
-// DEBUG login timeouts: every other job runs SslTest without the concurrency limit
-include.forEach((v, i) => {
-  if (i % 2 === 1) {
-    v.unlimitedSsl = true;
-  }
+// DEBUG login timeouts: every job runs SslTest without the concurrency limit
+include.forEach(v => {
+  v.unlimitedSsl = true;
 });
 include.sort((a, b) => a.name.localeCompare(b.name, undefined, {numeric: true}));
 include.forEach(v => {
